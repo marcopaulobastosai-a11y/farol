@@ -12,6 +12,10 @@
 <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
+<div class="envbar" id="envbar" hidden>
+  <b id="envbarTitle"></b>
+  <span id="envbarNote"></span>
+</div>
 <div class="app">
   <aside class="rail">
     <div class="brand">
@@ -21,6 +25,8 @@
         <small id="brandSub">A carregar…</small>
       </div>
     </div>
+
+    <div class="env-chip" id="envChip" hidden></div>
 
     <nav class="nav" id="nav">
       <div class="nav-label mono">Painel</div>
@@ -75,17 +81,12 @@
         <div class="sub" id="pageSub">A carregar…</div>
       </div>
       <div class="right">
-        <span class="pill warn" id="envPill" hidden></span>
         <button class="btn" id="btnReload">Actualizar</button>
       </div>
     </div>
 
     <!-- HOJE -->
     <section class="view is-active" id="view-hoje">
-      <div class="demo" id="demoBanner" hidden>
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></svg>
-        <span id="demoText"></span>
-      </div>
       <div class="grid split">
         <div class="stack">
           <div>
