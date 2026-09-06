@@ -3,7 +3,8 @@
 Painel de gestão pessoal e familiar: Hoje, Agenda, Família, Casa, Projetos, Finanças, Saúde e Documentos.
 
 Este repositório é o **ambiente de qualidade**: os dados são fictícios e servem para testar o
-comportamento da aplicação. O ambiente de produção, com dados reais, será separado.
+comportamento da aplicação. Nada aqui é real. O ambiente com dados reais será outro, à parte —
+outro projeto, outra base de dados, outro endereço.
 
 ## Como está feito
 
@@ -28,7 +29,7 @@ DATABASE_URL=postgres://... npm run seed    # repõe os dados (apaga o que lá e
 | Variável | Para que serve |
 | --- | --- |
 | `DATABASE_URL` | ligação ao PostgreSQL (no Railway: `${{Postgres.DATABASE_URL}}`) |
-| `APP_ENV` | etiqueta mostrada no cabeçalho — `qualidade` ou `produção` |
+| `APP_ENV` | nome do ambiente, mostrado na barra do topo e no menu (aqui: `qualidade`) |
 | `PORT` | porta HTTP (o Railway define-a automaticamente) |
 
 ## API
@@ -51,3 +52,10 @@ src/db.js          ligação e arranque da base de dados
 src/seed.js        `npm run seed`
 public/            index.html, app.js, styles.css
 ```
+
+## Barra de ambiente
+
+Enquanto `APP_ENV` estiver definido, a app mostra uma barra fixa no topo com o nome do ambiente e
+o aviso de que os dados não são reais, mais uma etiqueta no menu lateral. O texto do aviso está na
+tabela `settings` (`env_nota`). Num ambiente com dados reais, basta `APP_ENV=real` para a barra
+desaparecer.
