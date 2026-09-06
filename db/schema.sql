@@ -173,3 +173,8 @@ CREATE TABLE IF NOT EXISTS archive_sources (
 CREATE TABLE IF NOT EXISTS notes (
   id SERIAL PRIMARY KEY, slug TEXT UNIQUE NOT NULL, body TEXT NOT NULL
 );
+
+-- Texto da barra de ambiente: garantido em cada arranque, sem apagar nada.
+INSERT INTO settings (key, value) VALUES
+  ('env_nota','Os dados não são reais — nenhum cliente, valor ou compromisso aqui existe.')
+ON CONFLICT (key) DO NOTHING;

@@ -14,6 +14,7 @@ INSERT INTO settings (key, value) VALUES
   ('month','2026-08'),
   ('week_label','24 – 30 ago'),
   ('household','Casa Bastos'),
+  ('env_nota','Os dados não são reais — nenhum cliente, valor ou compromisso aqui existe.'),
   ('owner','Marco');
 
 INSERT INTO people (code, name, role, initials, color, note, sort) VALUES
