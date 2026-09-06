@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Farol Pessoal</title>
+<meta name="description" content="Painel de gestão pessoal e familiar — família, casa, projetos, finanças, saúde e documentos.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>%F0%9F%95%AF%EF%B8%8F</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&display=swap">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<div class="app">
+  <aside class="rail">
+    <div class="brand">
+      <div class="beacon" aria-hidden="true"></div>
+      <div>
+        <b>Farol</b>
+        <small id="brandSub">A carregar…</small>
+      </div>
+    </div>
+
+    <nav class="nav" id="nav">
+      <div class="nav-label mono">Painel</div>
+      <button data-view="hoje" class="is-active">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+        Hoje <span class="badge alert" id="badgeHoje"></span>
+      </button>
+      <button data-view="agenda">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/><path d="M7.5 14h3"/></svg>
+        Agenda <span class="badge" id="badgeAgenda"></span>
+      </button>
+      <div class="nav-label mono" style="padding-top:10px">Áreas</div>
+      <button data-view="familia">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="9" cy="8" r="3"/><path d="M3 20c0-3.3 2.7-5 6-5s6 1.7 6 5"/><circle cx="17.5" cy="9.5" r="2.2"/><path d="M16 15c3 0 5 1.6 5 4.5"/></svg>
+        Família <span class="badge" id="badgeFamilia"></span>
+      </button>
+      <button data-view="casa">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 11l8-6 8 6"/><path d="M6 10v9h12v-9"/><path d="M10 19v-5h4v5"/></svg>
+        Casa <span class="badge alert" id="badgeCasa"></span>
+      </button>
+      <button data-view="projetos">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 6h16M4 12h10M4 18h6"/><circle cx="18.5" cy="17.5" r="2.5"/></svg>
+        Projetos <span class="badge" id="badgeProjetos"></span>
+      </button>
+      <button data-view="financas">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="6" width="18" height="13" rx="2.5"/><path d="M3 10h18"/><path d="M7 15h4"/></svg>
+        Finanças
+      </button>
+      <button data-view="saude">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 12h4l2-4 3 8 2.5-5 1.5 3h5"/></svg>
+        Saúde &amp; rotinas
+      </button>
+      <button data-view="documentos">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/><path d="M9 12h6M9 16h4"/></svg>
+        Documentos <span class="badge alert" id="badgeDocs"></span>
+      </button>
+    </nav>
+
+    <div class="rail-foot">
+      <div class="avatar" id="ownerInitials">—</div>
+      <div style="min-width:0">
+        <b style="font-size:.8125rem;display:block" id="ownerName">—</b>
+        <span class="mono" style="font-size:.5625rem" id="ownerMeta"></span>
+      </div>
+    </div>
+  </aside>
+
+  <main>
+    <div class="topbar">
+      <div>
+        <h1 id="pageTitle">Hoje</h1>
+        <div class="sub" id="pageSub">A carregar…</div>
+      </div>
+      <div class="right">
+        <span class="pill warn" id="envPill" hidden></span>
+        <button class="btn" id="btnReload">Actualizar</button>
+      </div>
+    </div>
+
+    <!-- HOJE -->
+    <section class="view is-active" id="view-hoje">
+      <div class="demo" id="demoBanner" hidden>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></svg>
+        <span id="demoText"></span>
+      </div>
+      <div class="grid split">
+        <div class="stack">
+          <div>
+            <div class="mono" style="margin-bottom:8px" id="attnLabel">Precisa de ti</div>
+            <div class="attn" id="attnList"></div>
+          </div>
+          <div class="card">
+            <header><h3>Estado das áreas</h3><span class="mono" id="tilesStamp"></span></header>
+            <div class="tiles" id="tiles"></div>
+          </div>
+        </div>
+        <div class="stack">
+          <div class="card">
+            <header><h3>Agenda</h3><span class="mono" id="agendaDayLabel"></span></header>
+            <ul class="agenda" id="agendaHoje"></ul>
+          </div>
+          <div class="card">
+            <header><h3>Para fechar hoje</h3><span class="mono" id="todoCount"></span></header>
+            <ul class="check" id="todayList"></ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- AGENDA -->
+    <section class="view" id="view-agenda">
+      <div class="cal-top">
+        <div class="tabs" data-tabs="cal">
+          <button class="is-active" data-tab="mes">Mês</button>
+          <button data-tab="lista">Próximos dias</button>
+        </div>
+        <div class="who-filter" id="whoFilter"></div>
+      </div>
+      <div data-pane="mes">
+        <div class="grid split">
+          <div class="card">
+            <header><h3 id="calMonth">—</h3><span class="mono" id="calCount"></span></header>
+            <div class="cal cal-head" id="calHead"></div>
+            <div class="cal" id="calGrid"></div>
+            <p class="cal-note" id="calNote"></p>
+          </div>
+          <div class="stack">
+            <div class="card">
+              <header><h3 id="dayTitle">—</h3><span class="mono" id="dayCount"></span></header>
+              <ul class="agenda" id="dayList"></ul>
+            </div>
+            <div class="card">
+              <header><h3>De onde vêm os eventos</h3></header>
+              <div id="eventSources"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div data-pane="lista" hidden>
+        <div class="grid split">
+          <div class="card">
+            <header><h3>Próximos 21 dias</h3><span class="mono" id="upCount"></span></header>
+            <ul id="upcoming" class="upcoming"></ul>
+          </div>
+          <div class="stack">
+            <div class="card">
+              <header><h3>A precisar de decisão</h3></header>
+              <div id="decisions"></div>
+            </div>
+            <div class="card">
+              <header><h3>Carga da semana</h3><span class="mono" id="loadLabel"></span></header>
+              <ul class="budget" id="load"></ul>
+              <p style="margin-top:10px;font-size:.8125rem;color:var(--muted)" id="loadNote"></p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- FAMÍLIA -->
+    <section class="view" id="view-familia">
+      <div class="grid split">
+        <div class="stack">
+          <div class="card">
+            <header><h3>Agregado</h3><span class="mono" id="peopleCount"></span></header>
+            <div class="people" id="people"></div>
+          </div>
+          <div class="card">
+            <header><h3>Semana</h3><span class="mono" id="weekLabel"></span></header>
+            <div class="week" id="weekGrid"></div>
+            <div style="display:flex;gap:14px;margin-top:12px;flex-wrap:wrap" id="weekLegend"></div>
+          </div>
+        </div>
+        <div class="stack">
+          <div class="card">
+            <header><h3>Tarefas partilhadas</h3><span class="mono" id="famTaskCount"></span></header>
+            <ul class="check" id="familyTasks"></ul>
+          </div>
+          <div class="card">
+            <header><h3>Apoio aos pais</h3><span class="mono">Rotina</span></header>
+            <div id="support"></div>
+          </div>
+          <div class="card">
+            <header><h3>Datas a não falhar</h3></header>
+            <div id="famDates"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- CASA -->
+    <section class="view" id="view-casa">
+      <div class="grid split">
+        <div class="stack">
+          <div class="card">
+            <header><h3>Manutenção</h3><span class="mono">Recorrente</span></header>
+            <div class="scroll">
+              <table>
+                <thead><tr><th>Item</th><th>Periodicidade</th><th>Última</th><th>Próxima</th><th>Estado</th></tr></thead>
+                <tbody id="maintenance"></tbody>
+              </table>
+            </div>
+          </div>
+          <div class="card">
+            <header><h3>Consumos</h3><span class="mono">Últimos 6 meses</span></header>
+            <div class="grid g3" id="consumption"></div>
+          </div>
+        </div>
+        <div class="stack">
+          <div class="card">
+            <header><h3>Avarias abertas</h3><span class="mono" id="issuesCount"></span></header>
+            <div id="issues"></div>
+          </div>
+          <div class="card">
+            <header><h3>Equipamentos e garantias</h3></header>
+            <div class="scroll">
+              <table>
+                <thead><tr><th>Equipamento</th><th>Compra</th><th>Garantia</th></tr></thead>
+                <tbody id="assets"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- PROJETOS -->
+    <section class="view" id="view-projetos">
+      <div class="grid g2" style="margin-bottom:14px" id="projects"></div>
+      <div class="grid split">
+        <div class="card">
+          <header><h3>Próximas ações</h3><span class="mono">Todas as frentes</span></header>
+          <ul class="check" id="projectActions"></ul>
+        </div>
+        <div class="card">
+          <header><h3>Onde foi o tempo</h3><span class="mono">Últimas 4 semanas</span></header>
+          <ul class="budget" id="timeSpent"></ul>
+          <p style="margin-top:12px;font-size:.8125rem;color:var(--muted)" id="timeNote"></p>
+        </div>
+      </div>
+    </section>
+
+    <!-- FINANÇAS -->
+    <section class="view" id="view-financas">
+      <div class="tabs" data-tabs="fin">
+        <button class="is-active" data-tab="orcamento">Orçamento</button>
+        <button data-tab="subs">Subscrições</button>
+        <button data-tab="patrimonio">Património &amp; créditos</button>
+      </div>
+      <div data-pane="orcamento">
+        <div class="grid split">
+          <div class="card">
+            <header><h3 id="budgetMonth">—</h3><span class="mono" id="budgetDay"></span></header>
+            <ul class="budget" id="budget"></ul>
+          </div>
+          <div class="stack">
+            <div class="card">
+              <header><h3>Resumo do mês</h3></header>
+              <div class="tiles" id="finSummary"></div>
+            </div>
+            <div class="card">
+              <header><h3>Alertas</h3></header>
+              <div id="finAlerts"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div data-pane="subs" hidden>
+        <div class="card">
+          <header><h3>Subscrições e contas fixas</h3><span class="mono" id="subsTotal"></span></header>
+          <div class="scroll">
+            <table>
+              <thead><tr><th>Serviço</th><th>Valor</th><th>Ciclo</th><th>Próxima cobrança</th><th></th></tr></thead>
+              <tbody id="subs"></tbody>
+            </table>
+          </div>
+          <p style="margin-top:12px;font-size:.8125rem;color:var(--muted)" id="subsNote"></p>
+        </div>
+      </div>
+      <div data-pane="patrimonio" hidden>
+        <div class="grid split">
+          <div class="card">
+            <header><h3>Créditos</h3><span class="mono" id="creditTotal"></span></header>
+            <div id="credits"></div>
+            <div style="margin-top:14px">
+              <div class="mono" style="margin-bottom:6px">Peso no rendimento líquido</div>
+              <div class="bar warn"><span style="width:31%"></span></div>
+              <div style="display:flex;justify-content:space-between;margin-top:4px"><span class="mono">31%</span><span class="mono">limite pessoal 35%</span></div>
+            </div>
+          </div>
+          <div class="stack">
+            <div class="card">
+              <header><h3>Reservas</h3></header>
+              <div id="reserves"></div>
+            </div>
+            <div class="card">
+              <header><h3>Entradas dos negócios</h3><span class="mono">Só leitura</span></header>
+              <div id="business"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SAÚDE -->
+    <section class="view" id="view-saude">
+      <div class="grid split">
+        <div class="card">
+          <header><h3>Rotinas da semana</h3><span class="mono" id="habitsWeek"></span></header>
+          <table class="habits">
+            <thead><tr><th></th><th class="mono">S</th><th class="mono">T</th><th class="mono">Q</th><th class="mono">Q</th><th class="mono">S</th><th class="mono">S</th><th class="mono">D</th></tr></thead>
+            <tbody id="habits"></tbody>
+          </table>
+          <div style="margin-top:14px;display:flex;gap:16px;flex-wrap:wrap" id="habitStats"></div>
+        </div>
+        <div class="stack">
+          <div class="card">
+            <header><h3>Marcações e rotinas anuais</h3></header>
+            <div id="appointments"></div>
+          </div>
+          <div class="card">
+            <header><h3>Atividade</h3><span class="mono" id="activityLabel"></span></header>
+            <div id="activity"></div>
+            <p style="font-size:.8125rem;color:var(--muted)" id="activityNote"></p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- DOCUMENTOS -->
+    <section class="view" id="view-documentos">
+      <div class="grid split">
+        <div class="card">
+          <header><h3>Prazos e renovações</h3><span class="mono">Ordenado por urgência</span></header>
+          <div class="scroll">
+            <table>
+              <thead><tr><th>Documento</th><th>Entidade</th><th>Validade</th><th>Estado</th></tr></thead>
+              <tbody id="documents"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="stack">
+          <div class="card">
+            <header><h3>Arquivo</h3><span class="mono">Ligado ao Drive</span></header>
+            <div id="archive"></div>
+          </div>
+          <div class="card">
+            <header><h3>Como funcionam os avisos</h3></header>
+            <p style="font-size:.8125rem;color:var(--muted)" id="docsNote"></p>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<script src="/app.js"></script>
+</body>
+</html>
