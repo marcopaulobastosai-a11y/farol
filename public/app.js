@@ -540,7 +540,8 @@ function renderProjetos(){
 }
 
 /* ---------------- FINANÇAS ---------------- */
-function eur(n){ return n.toLocaleString('pt-PT', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) + ' €'; }
+function num(n){ return n.toLocaleString('pt-PT', { minimumFractionDigits: 0, maximumFractionDigits: 0 }); }
+function eur(n){ return num(n) + ' €'; }
 function renderFinancas(){
   var ul = $('budget');
   clear(ul);
@@ -548,7 +549,7 @@ function renderFinancas(){
     var pctv = c.budget ? c.spent / c.budget : 0;
     var li = el('li');
     li.appendChild(el('span', null, c.name));
-    li.appendChild(el('span', 'amt', eur(c.spent) + ' / ' + eur(c.budget)));
+    li.appendChild(el('span', 'amt', num(c.spent) + ' / ' + eur(c.budget)));
     var level = pctv > 1 ? 'bad' : (pctv >= 1 ? '' : 'good');
     var bar = el('div', 'bar' + (level ? ' ' + level : ''));
     var fill = el('span');

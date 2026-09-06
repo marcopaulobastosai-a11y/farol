@@ -246,6 +246,7 @@ main{min-width:0;padding:0 clamp(16px,3vw,34px) 60px;}
 }
 .tile:hover{border-color:var(--accent);transform:translateY(-1px);}
 .tile .k{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:.8125rem;}
+.tile .v,.tile .n{display:block;}
 .tile .v{font-family:var(--serif);font-size:1.55rem;line-height:1.15;margin:6px 0 2px;}
 .tile .n{font-size:.75rem;color:var(--faint);}
 
