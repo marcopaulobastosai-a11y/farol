@@ -241,3 +241,156 @@ CREATE INDEX IF NOT EXISTS people_origin_idx ON people (origin);
 
 -- As linhas antigas usavam só o booleano done; alinhar o status com ele.
 UPDATE tasks SET status = 'concluida' WHERE done AND status = 'aberta';
+
+
+-- Farol — Inbox (caixa de entrada) e destinos da triagem
+-- Para acrescentar ao fim de db/schema.sql.
+-- Só estrutura: nenhum dado pessoal, pode ir para o repositório público.
+
+
+-- ---------------------------------------------------------------------------
+-- 1. INBOX
+-- ---------------------------------------------------------------------------
+-- Captura sem decidir. Um item entra por triar e fica assim até alguém dizer
+-- o que é. O ficheiro vive no volume do Railway; aqui guarda-se só o caminho.
+--
+-- origin = 'real' por omissão: a Inbox nunca é alimentada pelo seed.
+
+CREATE TABLE IF NOT EXISTS inbox_items (
+  id           SERIAL PRIMARY KEY,
+  kind         TEXT NOT NULL DEFAULT 'ficheiro',
+  title        TEXT,
+  note         TEXT,
+
+  -- ficheiro no volume
+  file_path    TEXT,
+  file_name    TEXT,
+  mime_type    TEXT,
+  byte_size    BIGINT,
+  checksum     TEXT,
+
+  captured_by  INTEGER REFERENCES people(id) ON DELETE SET NULL,
+  captured_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+  status       TEXT NOT NULL DEFAULT 'por_triar',
+  resolved_at  TIMESTAMPTZ,
+
+  store        TEXT NOT NULL DEFAULT 'inbox',
+  origin       TEXT NOT NULL DEFAULT 'real'
+);
+
+ALTER TABLE inbox_items ADD COLUMN IF NOT EXISTS store TEXT NOT NULL DEFAULT 'inbox';
+
+-- store: 'inbox' (bucket temporário, por triar) | 'arquivo' (já catalogado)
+--   Depois da triagem o objecto muda de bucket e esta coluna acompanha.
+--   Se a mudança falhar, o item fica catalogado com store='inbox' — visível,
+--   e recuperável, em vez de silenciosamente perdido.
+
+-- kind:   'ficheiro' | 'nota'   (uma nota rápida sem anexo também é captura)
+-- status: 'por_triar' | 'catalogado' | 'descartado'
+--
+-- file_path: caminho relativo dentro do volume, no formato AAAA/MM/uuid.ext
+--   O nome original fica em file_name. Nunca usar o nome original no disco:
+--   evita colisões e nomes com dados pessoais no caminho.
+-- checksum: sha256 do ficheiro, para apanhar a mesma foto enviada duas vezes.
+
+CREATE INDEX IF NOT EXISTS inbox_por_triar_idx
+  ON inbox_items (captured_at DESC) WHERE status = 'por_triar';
+
+CREATE INDEX IF NOT EXISTS inbox_checksum_idx ON inbox_items (checksum);
+
+
+-- ---------------------------------------------------------------------------
+-- 2. LIGAÇÕES DA TRIAGEM
+-- ---------------------------------------------------------------------------
+-- Um item pode dar origem a mais do que uma coisa. O talão da máquina de lavar
+-- é despesa, é garantia e é documento — os três ao mesmo tempo. Por isso uma
+-- tabela de ligação em vez de um par resolved_as/resolved_id no item.
+
+CREATE TABLE IF NOT EXISTS inbox_links (
+  inbox_id    INTEGER NOT NULL REFERENCES inbox_items(id) ON DELETE CASCADE,
+  target_type TEXT NOT NULL,
+  target_id   INTEGER NOT NULL,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (inbox_id, target_type, target_id)
+);
+
+-- target_type: 'tarefa' | 'evento' | 'documento' | 'despesa'
+--
+-- Sem chave estrangeira, porque aponta para quatro tabelas diferentes.
+-- A aplicação é responsável por manter isto coerente; em troca, ver o
+-- ficheiro de uma tarefa é uma consulta directa:
+--
+--   SELECT i.* FROM inbox_items i
+--     JOIN inbox_links l ON l.inbox_id = i.id
+--    WHERE l.target_type = 'tarefa' AND l.target_id = $1;
+
+CREATE INDEX IF NOT EXISTS inbox_links_target_idx
+  ON inbox_links (target_type, target_id);
+
+
+-- ---------------------------------------------------------------------------
+-- 3. DESPESAS (tabela nova)
+-- ---------------------------------------------------------------------------
+-- As tabelas de Finanças que existem são agregados de demonstração
+-- (budget_categories, finance_summary). Falta o movimento individual.
+
+CREATE TABLE IF NOT EXISTS expenses (
+  id          SERIAL PRIMARY KEY,
+  description TEXT NOT NULL,
+  amount      NUMERIC(10,2) NOT NULL,
+  spent_on    DATE NOT NULL,
+  merchant    TEXT,
+  category    TEXT,
+  person_id   INTEGER REFERENCES people(id)   ON DELETE SET NULL,
+  project_id  INTEGER REFERENCES projects(id) ON DELETE SET NULL,
+  note        TEXT,
+  origin      TEXT NOT NULL DEFAULT 'qualidade',
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS expenses_spent_idx  ON expenses (spent_on DESC);
+CREATE INDEX IF NOT EXISTS expenses_origin_idx ON expenses (origin);
+
+
+-- ---------------------------------------------------------------------------
+-- 4. PROTEGER OS OUTROS DESTINOS DO SEED
+-- ---------------------------------------------------------------------------
+-- events e documents ainda não distinguem dados reais dos fictícios.
+-- Sem isto, um `npm run seed` apaga o que a triagem produziu.
+
+ALTER TABLE events    ADD COLUMN IF NOT EXISTS origin TEXT NOT NULL DEFAULT 'qualidade';
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS origin TEXT NOT NULL DEFAULT 'qualidade';
+
+CREATE INDEX IF NOT EXISTS events_origin_idx    ON events (origin);
+CREATE INDEX IF NOT EXISTS documents_origin_idx ON documents (origin);
+
+
+-- ---------------------------------------------------------------------------
+-- 5. VALIDADE A SÉRIO NOS DOCUMENTOS
+-- ---------------------------------------------------------------------------
+-- documents.valid_until é TEXT: serve para escrever «até 2027» num cartão,
+-- não para calcular que o passaporte caduca daqui a três semanas.
+
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS valid_on  DATE;
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS person_id INTEGER REFERENCES people(id) ON DELETE SET NULL;
+
+CREATE INDEX IF NOT EXISTS documents_valid_idx ON documents (valid_on);
+
+-- ATENÇÃO — isto repete o problema que já existe em tasks (done + status):
+-- ficam duas colunas a dizer a mesma coisa e o frontend continua a ler a
+-- antiga. É aceitável como passo intermédio, mas a dívida fica registada:
+-- quando o ecrã de Documentos for refeito, passa a ler valid_on e
+-- valid_until desaparece. O mesmo vale para tasks.done.
+
+
+-- ---------------------------------------------------------------------------
+-- 6. NOTA PARA O db/seed.sql
+-- ---------------------------------------------------------------------------
+-- Acrescentar às linhas de limpeza já existentes:
+--
+--   DELETE FROM events    WHERE origin = 'qualidade';
+--   DELETE FROM documents WHERE origin = 'qualidade';
+--   DELETE FROM expenses  WHERE origin = 'qualidade';
+--
+-- inbox_items e inbox_links NÃO entram no seed: não há inbox de demonstração.
