@@ -2,11 +2,11 @@
 BEGIN;
 
 -- Tabelas que só existem para a demonstração: podem ser esvaziadas à vontade.
-TRUNCATE settings, calendars, events, event_sources, attention, tiles,
+TRUNCATE settings, event_sources, attention, tiles,
   family_dates, support_routines, maintenance, consumption, issues, assets,
   budget_categories, finance_summary, finance_alerts, subscriptions,
   credits, reserves, business_income, habit_log, habits, appointments, activity,
-  documents, archive_sources, notes RESTART IDENTITY CASCADE;
+  archive_sources, notes RESTART IDENTITY CASCADE;
 
 -- Pessoas, projetos e tarefas são partilhados com os dados reais.
 -- Aqui só se apaga o que é de qualidade; o que o Marco escreveu fica intacto.
@@ -15,6 +15,17 @@ DELETE FROM tasks           WHERE origin = 'qualidade';
 DELETE FROM project_members WHERE project_id IN (SELECT id FROM projects WHERE origin = 'qualidade');
 DELETE FROM projects        WHERE origin = 'qualidade';
 DELETE FROM people          WHERE origin = 'qualidade';
+
+-- events, documents e expenses tambem passaram a guardar dados reais, por isso
+-- sairam do TRUNCATE acima. Aqui apaga-se so o que e de qualidade.
+DELETE FROM events    WHERE origin = 'qualidade';
+DELETE FROM documents WHERE origin = 'qualidade';
+DELETE FROM expenses  WHERE origin = 'qualidade';
+
+-- Os calendarios nao tem coluna origin, mas o seed sabe quais criou: apaga
+-- esses cinco pelo codigo e deixa o 'farol', que e onde vivem os eventos reais.
+-- Tem de vir depois dos events, senao o CASCADE levava-os a frente.
+DELETE FROM calendars WHERE code IN ('marco','ana','todos','pais','tomas');
 
 INSERT INTO settings (key, value) VALUES
   ('today','2026-08-28'),
