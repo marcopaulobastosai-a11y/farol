@@ -12,11 +12,27 @@
 <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
+<div class="login" id="loginScreen" hidden>
+  <div class="login-card">
+    <div class="login-brand">
+      <div class="beacon" aria-hidden="true"></div>
+      <div>
+        <b>Farol</b>
+        <small>Painel de casa</small>
+      </div>
+    </div>
+    <h2>Entra com a tua conta Google</h2>
+    <p id="loginNota">Só as contas autorizadas conseguem abrir o painel.</p>
+    <div id="gbtn"></div>
+    <p class="login-erro" id="loginErro" hidden></p>
+  </div>
+</div>
+
 <div class="envbar" id="envbar" hidden>
   <b id="envbarTitle"></b>
   <span id="envbarNote"></span>
 </div>
-<div class="app">
+<div class="app" id="app" hidden>
   <aside class="rail">
     <div class="brand">
       <div class="beacon" aria-hidden="true"></div>
@@ -75,6 +91,7 @@
         <b style="font-size:.8125rem;display:block" id="ownerName">—</b>
         <span class="mono" style="font-size:.5625rem" id="ownerMeta"></span>
       </div>
+      <button class="btn small" id="btnSair" hidden title="Terminar sessão">Sair</button>
     </div>
   </aside>
 
@@ -501,6 +518,7 @@
 </div>
 
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="/app.js"></script>
 </body>
 </html>

@@ -490,6 +490,27 @@ td.n{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:.75rem;
 .empty{color:var(--muted);font-size:.8125rem;padding:6px 0;}
 .plist .row:first-of-type{border-top:none;}
 
+.app[hidden]{display:none;}
+
+/* ---------- ecrã de entrada ---------- */
+.login{
+  position:fixed;inset:0;z-index:40;display:grid;place-items:center;
+  background:var(--ground);padding:24px;
+}
+.login[hidden]{display:none;}
+.login-card{
+  background:var(--surface);border:1px solid var(--line);border-radius:14px;
+  box-shadow:var(--shadow);padding:30px 32px;max-width:380px;width:100%;
+  display:flex;flex-direction:column;gap:12px;align-items:flex-start;
+}
+.login-brand{display:flex;align-items:center;gap:10px;margin-bottom:6px;}
+.login-brand b{font-family:var(--serif);font-size:1.3rem;font-weight:600;letter-spacing:-.02em;}
+.login-brand small{display:block;font-size:.625rem;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);margin-top:-2px;}
+.login-card h2{font-size:1.1rem;}
+.login-card p{font-size:.8125rem;color:var(--muted);}
+.login-erro{color:var(--bad) !important;}
+#gbtn{margin-top:6px;min-height:44px;}
+
 .view{display:none;}
 .view.is-active{display:block;animation:fade .22s ease;}
 @keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}

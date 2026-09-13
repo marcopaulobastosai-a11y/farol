@@ -822,20 +822,24 @@ function renderAll(){
 
 function load(notify){
   fetch('/api/bootstrap')
-    .then(function(r){ if (!r.ok) throw new Error('api'); return r.json(); })
+    .then(function(r){
+      if (r.status === 401) { mostrarLogin('A sessão terminou. Entra outra vez.'); throw new Error('401'); }
+      if (!r.ok) throw new Error('api');
+      return r.json();
+    })
     .then(function(data){
       D = data;
       renderAll();
       if (notify) toast('Dados relidos da base de dados.');
     })
-    .catch(function(){
+    .catch(function(err){
+      if (err && err.message === '401') return;
       $('pageSub').textContent = 'Não foi possível ler a base de dados.';
       toast('Sem ligação à base de dados.');
     });
 }
 
 wire();
-load(false);
 
 /* =========================================================================
  * TAREFAS — pessoas, projetos e tarefas reais (origin='real')
@@ -1270,4 +1274,90 @@ function ligarGestao(){
 }
 
 ligarGestao();
-loadGestao();
+
+/* =========================================================================
+ * ENTRADA — o painel só abre depois do login (quando há login configurado)
+ * ========================================================================= */
+
+var CFG = { authEnabled: false };
+
+function iniciarApp(sessao){
+  $('loginScreen').hidden = true;
+  $('app').hidden = false;
+  if (sessao && sessao.email){
+    var b = $('btnSair');
+    b.hidden = false;
+    b.title = 'Terminar sessão de ' + sessao.email;
+  }
+  load(false);
+  loadGestao();
+}
+
+function mostrarLogin(erro){
+  $('app').hidden = true;
+  var ecra = $('loginScreen');
+  ecra.hidden = false;
+  if (erro){
+    var e = $('loginErro');
+    e.textContent = erro;
+    e.hidden = false;
+  }
+  desenharBotaoGoogle();
+}
+
+function desenharBotaoGoogle(){
+  if (!CFG.googleClientId) {
+    $('loginNota').textContent = 'Falta configurar o GOOGLE_CLIENT_ID no servidor.';
+    return;
+  }
+  if (!(window.google && google.accounts && google.accounts.id)){
+    return setTimeout(desenharBotaoGoogle, 300);
+  }
+  if (desenharBotaoGoogle.feito) return;
+  desenharBotaoGoogle.feito = true;
+  google.accounts.id.initialize({
+    client_id: CFG.googleClientId,
+    callback: function(resposta){
+      fetch('/auth/google', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ credential: resposta.credential })
+      }).then(function(r){
+        return r.json().then(function(d){
+          if (!r.ok) throw new Error(d.error || 'Não foi possível entrar.');
+          return d;
+        });
+      }).then(function(sessao){
+        $('loginErro').hidden = true;
+        iniciarApp(sessao);
+      }).catch(function(err){
+        var e = $('loginErro');
+        e.textContent = err.message;
+        e.hidden = false;
+      });
+    }
+  });
+  google.accounts.id.renderButton($('gbtn'), {
+    theme: 'outline', size: 'large', text: 'signin_with', shape: 'pill', locale: 'pt-PT'
+  });
+}
+
+function arrancar(){
+  fetch('/api/config')
+    .then(function(r){ return r.json(); })
+    .then(function(cfg){
+      CFG = cfg;
+      if (!cfg.authEnabled) return iniciarApp(null);
+      if (cfg.sessao && cfg.sessao.email) return iniciarApp(cfg.sessao);
+      mostrarLogin(null);
+    })
+    .catch(function(){ iniciarApp(null); });
+}
+
+var sair = $('btnSair');
+if (sair){
+  sair.addEventListener('click', function(){
+    fetch('/auth/logout', { method: 'POST' }).then(function(){ location.reload(); });
+  });
+}
+
+arrancar();
