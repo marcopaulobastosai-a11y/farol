@@ -34,7 +34,7 @@ async function ensureSchema() {
 }
 
 async function isEmpty() {
-  const { rows } = await pool.query('SELECT count(*)::int AS n FROM people');
+  const { rows } = await pool.query("SELECT count(*)::int AS n FROM people WHERE origin = 'qualidade'");
   return rows[0].n === 0;
 }
 
