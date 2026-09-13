@@ -354,7 +354,9 @@ function ibNomeBonito(it) {
   if (it.note) return it.note;
   var s = String(it.file_name || '').replace(/\.[^.]+$/, '');
   s = s.replace(/[_-]+/g, ' ');
-  s = s.replace(/\s*\d{1,2}\s\d{1,2}\s\d{2,4}(\s*\d{1,2}h\d{1,2}(m\d{1,2})?)?\s*$/i, '');
+  // Corta a cauda: numeros soltos ou horas do tipo 21h24m10s, que e o que
+  // scanners e camaras colam ao nome do ficheiro.
+  s = s.replace(/(\s+(\d{1,2}h\d{1,2}(m\d{1,2})?s?|\d{1,8}))+\s*$/i, '');
   s = s.replace(/\s{2,}/g, ' ').trim();
   return s ? s.charAt(0).toUpperCase() + s.slice(1) : '';
 }
