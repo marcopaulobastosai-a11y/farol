@@ -2,12 +2,14 @@
 const path = require('path');
 const express = require('express');
 const { query, ensureSchema, isEmpty, seed } = require('./db');
+const auth = require('./auth');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const APP_ENV = process.env.APP_ENV || 'qualidade';
 
 app.use(express.json());
+auth.instalar(app);
 app.use(express.static(path.join(__dirname, '..', 'public'), { maxAge: '1h' }));
 
 const all = async (sql, params) => (await query(sql, params)).rows;
@@ -355,5 +357,9 @@ app.get('*', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'i
   } catch (err) {
     console.error('[farol] arranque sem base de dados:', err.message);
   }
-  app.listen(PORT, () => console.log(`[farol] ambiente ${APP_ENV} a servir na porta ${PORT}`));
+  app.listen(PORT, () => console.log(
+    `[farol] ambiente ${APP_ENV} a servir na porta ${PORT}` +
+    (auth.ativa()
+      ? ` · login Google activo (${auth.permitidos.length} conta(s) autorizada(s))`
+      : ' · SEM autenticação — falta GOOGLE_CLIENT_ID ou SESSION_SECRET')));
 })();
