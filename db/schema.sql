@@ -178,3 +178,66 @@ CREATE TABLE IF NOT EXISTS notes (
 INSERT INTO settings (key, value) VALUES
   ('env_nota','Os dados não são reais — nenhum cliente, valor ou compromisso aqui existe.')
 ON CONFLICT (key) DO NOTHING;
+
+
+-- ===========================================================================
+-- GESTÃO DE TAREFAS — pessoas, projetos e tarefas reais
+-- ===========================================================================
+-- origin separa os dois mundos: 'qualidade' (dados fictícios do seed, que
+-- alimentam os ecrãs de demonstração) e 'real' (o que o Marco escreve na app).
+-- O seed só apaga o que é seu; os dados reais nunca passam pelo repositório.
+
+ALTER TABLE people ADD COLUMN IF NOT EXISTS full_name     TEXT;
+ALTER TABLE people ADD COLUMN IF NOT EXISTS kind          TEXT NOT NULL DEFAULT 'adulto';
+ALTER TABLE people ADD COLUMN IF NOT EXISTS can_own_tasks BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE people ADD COLUMN IF NOT EXISTS active        BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE people ADD COLUMN IF NOT EXISTS origin        TEXT NOT NULL DEFAULT 'qualidade';
+-- kind: 'adulto' | 'crianca' | 'familiar' | 'animal'
+
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS area       TEXT;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS status     TEXT NOT NULL DEFAULT 'ativo';
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS started_on DATE;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS target_on  DATE;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS closed_on  DATE;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS origin     TEXT NOT NULL DEFAULT 'qualidade';
+-- status: 'ativo' | 'pausado' | 'concluido' | 'arquivado'
+
+CREATE TABLE IF NOT EXISTS project_members (
+  project_id  INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  person_id   INTEGER NOT NULL REFERENCES people(id)   ON DELETE CASCADE,
+  member_role TEXT NOT NULL DEFAULT 'participante',
+  PRIMARY KEY (project_id, person_id)
+);
+-- member_role: 'responsavel' | 'participante' | 'informado'
+
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS notes        TEXT;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS area         TEXT;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS project_id   INTEGER REFERENCES projects(id) ON DELETE SET NULL;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS owner_id     INTEGER REFERENCES people(id)   ON DELETE SET NULL;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS status       TEXT NOT NULL DEFAULT 'aberta';
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS priority     TEXT NOT NULL DEFAULT 'normal';
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS due_on       DATE;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS due_time     TIME;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS repeat_every TEXT;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS repeat_count INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS created_at   TIMESTAMPTZ NOT NULL DEFAULT now();
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS origin       TEXT NOT NULL DEFAULT 'qualidade';
+ALTER TABLE tasks ALTER COLUMN scope DROP NOT NULL;
+-- status:   'aberta' | 'em_curso' | 'concluida' | 'cancelada'
+-- priority: 'baixa' | 'normal' | 'alta'
+
+CREATE TABLE IF NOT EXISTS task_subjects (
+  task_id   INTEGER NOT NULL REFERENCES tasks(id)  ON DELETE CASCADE,
+  person_id INTEGER NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+  PRIMARY KEY (task_id, person_id)
+);
+
+CREATE INDEX IF NOT EXISTS tasks_due_idx     ON tasks (due_on) WHERE status IN ('aberta','em_curso');
+CREATE INDEX IF NOT EXISTS tasks_owner_idx   ON tasks (owner_id);
+CREATE INDEX IF NOT EXISTS tasks_project_idx ON tasks (project_id);
+CREATE INDEX IF NOT EXISTS tasks_origin_idx  ON tasks (origin);
+CREATE INDEX IF NOT EXISTS people_origin_idx ON people (origin);
+
+-- As linhas antigas usavam só o booleano done; alinhar o status com ele.
+UPDATE tasks SET status = 'concluida' WHERE done AND status = 'aberta';

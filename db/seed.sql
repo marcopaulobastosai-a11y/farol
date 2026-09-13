@@ -1,11 +1,20 @@
 -- Farol — dados do ambiente de QUALIDADE. Tudo fictício.
 BEGIN;
 
-TRUNCATE settings, calendars, events, event_sources, attention, tasks, tiles,
+-- Tabelas que só existem para a demonstração: podem ser esvaziadas à vontade.
+TRUNCATE settings, calendars, events, event_sources, attention, tiles,
   family_dates, support_routines, maintenance, consumption, issues, assets,
-  projects, budget_categories, finance_summary, finance_alerts, subscriptions,
+  budget_categories, finance_summary, finance_alerts, subscriptions,
   credits, reserves, business_income, habit_log, habits, appointments, activity,
-  documents, archive_sources, notes, people RESTART IDENTITY CASCADE;
+  documents, archive_sources, notes RESTART IDENTITY CASCADE;
+
+-- Pessoas, projetos e tarefas são partilhados com os dados reais.
+-- Aqui só se apaga o que é de qualidade; o que o Marco escreveu fica intacto.
+DELETE FROM task_subjects   WHERE task_id    IN (SELECT id FROM tasks    WHERE origin = 'qualidade');
+DELETE FROM tasks           WHERE origin = 'qualidade';
+DELETE FROM project_members WHERE project_id IN (SELECT id FROM projects WHERE origin = 'qualidade');
+DELETE FROM projects        WHERE origin = 'qualidade';
+DELETE FROM people          WHERE origin = 'qualidade';
 
 INSERT INTO settings (key, value) VALUES
   ('today','2026-08-28'),
