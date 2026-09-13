@@ -3,6 +3,7 @@ const path = require('path');
 const express = require('express');
 const { query, ensureSchema, isEmpty, seed } = require('./db');
 const auth = require('./auth');
+const inbox = require('./inbox');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -344,6 +345,8 @@ app.delete('/api/gestao/tarefas/:id', async (req, res) => {
   }
 });
 
+inbox.instalar(app);
+
 app.get('*', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'index.html')));
 
 (async () => {
@@ -361,5 +364,6 @@ app.get('*', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'i
     `[farol] ambiente ${APP_ENV} a servir na porta ${PORT}` +
     (auth.ativa()
       ? ` · login Google activo (${auth.permitidos.length} conta(s) autorizada(s))`
-      : ' · SEM autenticação — falta GOOGLE_CLIENT_ID ou SESSION_SECRET')));
+      : ' · SEM autenticação — falta GOOGLE_CLIENT_ID ou SESSION_SECRET') +
+  (inbox.bucketPronto() ? ' \u00b7 inbox com bucket' : ' \u00b7 inbox SEM bucket')));
 })();
