@@ -1,35 +1,39 @@
 'use strict';
-/* Farol — ecrã da Caixa de entrada.
+/* Farol - ecra da Caixa de entrada.
  *
- * Escrito para não tocar no app.js: cria o botão do menu e a secção sozinho,
- * reaproveita os globais que já lá estão ($, el, clear, pill, row, toast,
- * parseDay, MESES, apiGestao, G, gState, loadGestao) e carrega os dados só
- * quando alguém abre o ecrã pela primeira vez.
+ * Nao toca no app.js: cria o botao do menu, a seccao e o seu proprio estilo,
+ * e reaproveita os globais que ja la estao ($, el, clear, pill, row, toast,
+ * parseDay, MESES, apiGestao, G, gState, loadGestao).
+ *
+ * O estilo usa so os tokens da aplicacao (--accent, --line, --muted, ...),
+ * para a Caixa de entrada nao parecer colada de outro sitio.
  */
 
 var IB = { itens: [], porTriar: 0, estado: 'por_triar', triando: null, montado: false, carregado: false };
 
+var IB_CSS = "#view-inbox .ib-drop{display:flex;align-items:center;gap:.75rem;padding:1.25rem;border:1px dashed var(--line);border-radius:var(--radius);background:var(--surface-2);cursor:pointer;transition:border-color .15s,background .15s}\n#view-inbox .ib-drop:hover,#view-inbox .ib-drop.is-over{border-color:var(--accent);background:var(--accent-soft)}\n#view-inbox .ib-drop input[type=file]{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}\n#view-inbox .ib-dropi{flex:0 0 auto;width:34px;height:34px;border-radius:8px;background:var(--surface);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;color:var(--accent);font-family:var(--mono);font-size:1rem}\n#view-inbox .ib-dropt{font-weight:500;color:var(--ink-2)}\n#view-inbox .ib-drops{font-size:.8125rem;color:var(--muted);margin-top:.125rem}\n#view-inbox .ib-item{display:flex;gap:.875rem;padding:.9rem 0;border-top:1px solid var(--line-soft);align-items:flex-start}\n#view-inbox .ib-item:first-child{border-top:0;padding-top:.25rem}\n#view-inbox .ib-thumb{flex:0 0 52px;width:52px;height:52px;border-radius:8px;border:1px solid var(--line);background:var(--surface-2);display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:var(--fs-mono);color:var(--faint);text-transform:uppercase;overflow:hidden}\n#view-inbox .ib-thumb img{width:100%;height:100%;object-fit:cover;display:block}\n#view-inbox .ib-body{flex:1 1 auto;min-width:0}\n#view-inbox .ib-title{font-weight:500;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\n#view-inbox .ib-meta{font-size:.8125rem;color:var(--muted);margin-top:.15rem}\n#view-inbox .ib-note{font-size:.875rem;color:var(--ink-2);margin:.4rem 0 0}\n#view-inbox .ib-acts{display:flex;gap:.375rem;flex-wrap:wrap;margin-top:.55rem}\n#view-inbox .ib-dest{border:1px solid var(--line);border-radius:var(--radius);padding:.8rem .9rem;margin-bottom:.5rem;background:var(--surface)}\n#view-inbox .ib-dest.is-on{border-color:var(--accent);background:var(--accent-soft)}\n#view-inbox .ib-desth{display:flex;align-items:center;gap:.5rem;font-weight:500;cursor:pointer;color:var(--ink)}\n#view-inbox .ib-destc{margin-top:.75rem}\n#view-inbox .ib-empty{padding:2.25rem 1rem;text-align:center;color:var(--muted);font-size:.9375rem}";
+
 var IB_DESTINOS = [
   { tipo: 'tarefa', nome: 'Tarefa', campos: [
-    { k: 'title', l: 'Título', tipo: 'text' },
+    { k: 'title', l: 'O que e preciso fazer', tipo: 'text' },
     { k: 'due_on', l: 'Prazo', tipo: 'date' },
     { k: 'owner_id', l: 'Quem faz', tipo: 'pessoa' },
     { k: 'project_id', l: 'Projeto', tipo: 'projeto' }
   ] },
   { tipo: 'evento', nome: 'Evento na Agenda', campos: [
-    { k: 'title', l: 'Título', tipo: 'text' },
+    { k: 'title', l: 'Titulo', tipo: 'text' },
     { k: 'day', l: 'Dia', tipo: 'date' },
     { k: 'at', l: 'Hora', tipo: 'time' }
   ] },
   { tipo: 'documento', nome: 'Documento', campos: [
     { k: 'name', l: 'Nome', tipo: 'text' },
     { k: 'entity', l: 'Entidade', tipo: 'text' },
-    { k: 'valid_on', l: 'Válido até', tipo: 'date' },
+    { k: 'valid_on', l: 'Valido ate', tipo: 'date' },
     { k: 'person_id', l: 'De quem', tipo: 'pessoa' }
   ] },
   { tipo: 'despesa', nome: 'Despesa', campos: [
-    { k: 'description', l: 'Descrição', tipo: 'text' },
-    { k: 'amount', l: 'Valor (€)', tipo: 'number' },
+    { k: 'description', l: 'Descricao', tipo: 'text' },
+    { k: 'amount', l: 'Valor (EUR)', tipo: 'number' },
     { k: 'spent_on', l: 'Data', tipo: 'date' },
     { k: 'merchant', l: 'Onde', tipo: 'text' }
   ] }
@@ -37,32 +41,54 @@ var IB_DESTINOS = [
 
 var IB_TABS = [['por_triar', 'Por triar'], ['catalogado', 'Catalogados'], ['descartado', 'Descartados']];
 
-/* ---------------- utilitários ---------------- */
+/* ---------------- utilitarios ---------------- */
 function ibTamanho(n) {
   if (!n) return '';
   if (n < 1024 * 1024) return Math.round(n / 1024) + ' KB';
   return (n / 1024 / 1024).toFixed(1).replace('.', ',') + ' MB';
 }
 function ibImagem(mime) { return /^image\//.test(mime || ''); }
+function ibExt(nome) {
+  var p = String(nome || '').split('.');
+  return p.length > 1 ? p.pop().slice(0, 4) : 'txt';
+}
 function ibQuando(s) {
   if (!s) return '';
   var d = parseDay(s.slice(0, 10));
-  return d.getDate() + ' ' + MESES[d.getMonth()].slice(0, 3) + ' · ' + s.slice(11);
+  return d.getDate() + ' ' + MESES[d.getMonth()].slice(0, 3) + ', ' + s.slice(11);
 }
 
 /* ---------------- montagem ---------------- */
+function ibEstilo() {
+  if (document.getElementById('ibCss')) return;
+  var s = document.createElement('style');
+  s.id = 'ibCss';
+  s.textContent = IB_CSS;
+  document.head.appendChild(s);
+}
+
+function ibCabecalho(pai, titulo, direita) {
+  var h = document.createElement('header');
+  h.appendChild(el('h3', null, titulo));
+  if (direita !== null) {
+    var m = el('span', 'mono', direita);
+    m.id = 'ibCount';
+    h.appendChild(m);
+  }
+  pai.appendChild(h);
+}
+
 function ibMontar() {
   if (IB.montado) return;
+  ibEstilo();
 
-  if (window.TITLES) {
-    TITLES.inbox = ['Caixa de entrada', 'Guardar agora, decidir depois'];
-  }
+  if (window.TITLES) TITLES.inbox = ['Caixa de entrada', 'Guardar agora, decidir depois'];
 
   var nav = $('nav');
   if (nav && !nav.querySelector('[data-view="inbox"]')) {
     var b = el('button', null, 'Caixa de entrada');
     b.dataset.view = 'inbox';
-    var badge = el('span', 'badge');
+    var badge = el('span', 'n');
     badge.id = 'badgeInbox';
     b.appendChild(badge);
     var alvo = nav.querySelector('[data-view="tarefas"]');
@@ -73,20 +99,41 @@ function ibMontar() {
   var sec = el('section', 'view');
   sec.id = 'view-inbox';
 
-  /* captura */
+  /* --- captura --- */
   var cap = el('div', 'card');
-  cap.appendChild(el('h3', null, 'Guardar qualquer coisa'));
+  ibCabecalho(cap, 'Guardar qualquer coisa', null);
+
+  var drop = el('label', 'ib-drop');
+  drop.id = 'ibDrop';
+  drop.appendChild(el('span', 'ib-dropi', '+'));
+  var dtxt = el('div', 'grow');
+  var dt1 = el('div', 'ib-dropt', 'Escolher ficheiro ou arrastar para aqui');
+  dt1.id = 'ibDropT';
+  dtxt.appendChild(dt1);
+  dtxt.appendChild(el('div', 'ib-drops', 'Fotografias, PDF, documentos - ate 25 MB'));
+  drop.appendChild(dtxt);
   var fich = el('input');
   fich.type = 'file'; fich.id = 'ibFicheiro';
   fich.accept = 'image/*,application/pdf,.doc,.docx,.xls,.xlsx,.txt';
+  drop.appendChild(fich);
+  cap.appendChild(drop);
+
+  var lbl = el('label', 'field');
+  lbl.appendChild(el('span', null, 'Nota (opcional)'));
   var nota = el('input');
-  nota.type = 'text'; nota.id = 'ibNota'; nota.placeholder = 'Ou escreve uma nota…';
+  nota.type = 'text'; nota.id = 'ibNota';
+  nota.placeholder = 'Ex.: talao da maquina de lavar, garantia 2 anos';
+  lbl.appendChild(nota);
+  cap.appendChild(lbl);
+
+  var acts = el('div', 'form-actions');
   var guardar = el('button', 'btn primary', 'Guardar na caixa');
-  guardar.id = 'ibGuardar';
-  cap.appendChild(fich); cap.appendChild(nota); cap.appendChild(guardar);
+  guardar.type = 'button'; guardar.id = 'ibGuardar';
+  acts.appendChild(guardar);
+  cap.appendChild(acts);
   sec.appendChild(cap);
 
-  /* separadores */
+  /* --- separadores --- */
   var tabs = el('div', 'tabs');
   tabs.dataset.tabs = 'ib';
   IB_TABS.forEach(function (t) {
@@ -96,17 +143,21 @@ function ibMontar() {
   });
   sec.appendChild(tabs);
 
+  /* --- lista --- */
+  var caixa = el('div', 'card');
+  ibCabecalho(caixa, 'Por triar', '');
   var lista = el('div');
   lista.id = 'ibLista';
-  sec.appendChild(lista);
+  caixa.appendChild(lista);
+  sec.appendChild(caixa);
 
   var painel = el('div', 'card');
   painel.id = 'ibTriagem';
-  painel.style.display = 'none';
+  painel.hidden = true;
   sec.appendChild(painel);
 
-  var main = document.querySelector('.view') ? document.querySelector('.view').parentNode : document.body;
-  main.appendChild(sec);
+  var irmao = document.querySelector('.view');
+  (irmao ? irmao.parentNode : document.body).appendChild(sec);
 
   ibLigar();
   IB.montado = true;
@@ -119,58 +170,65 @@ function ibCarregar() {
     IB.porTriar = d.porTriar || 0;
     IB.carregado = true;
     ibRender();
-  }).catch(function () { toast('Não foi possível ler a caixa de entrada.'); });
+  }).catch(function () { toast('Nao foi possivel ler a caixa de entrada.'); });
 }
 
 function ibRender() {
   var badge = $('badgeInbox');
   if (badge) badge.textContent = IB.porTriar || '';
 
+  var titulo = (IB_TABS.filter(function (t) { return t[0] === IB.estado; })[0] || ['', ''])[1];
+  var cab = $('ibCount');
+  if (cab) {
+    cab.textContent = IB.itens.length ? IB.itens.length + (IB.itens.length === 1 ? ' item' : ' itens') : '';
+    var h3 = cab.parentNode.querySelector('h3');
+    if (h3) h3.textContent = titulo;
+  }
+
   var lista = $('ibLista');
   if (!lista) return;
   clear(lista);
 
   if (!IB.itens.length) {
-    var vazio = el('div', 'card');
-    vazio.appendChild(el('p', 'muted', IB.estado === 'por_triar'
-      ? 'Nada por triar. A caixa está limpa.'
+    lista.appendChild(el('div', 'ib-empty', IB.estado === 'por_triar'
+      ? 'Nada por triar. A caixa esta limpa.'
       : 'Nada aqui.'));
-    lista.appendChild(vazio);
     return;
   }
-
-  IB.itens.forEach(function (item) { lista.appendChild(ibCartao(item)); });
+  IB.itens.forEach(function (item) { lista.appendChild(ibItem(item)); });
 }
 
-function ibCartao(item) {
-  var c = el('div', 'card');
+function ibItem(item) {
+  var w = el('div', 'ib-item');
 
+  var th = el('div', 'ib-thumb');
   if (item.file_name && ibImagem(item.mime_type)) {
     var img = el('img');
     img.src = '/api/inbox/' + item.id + '/ficheiro';
-    img.alt = item.file_name;
+    img.alt = '';
     img.loading = 'lazy';
-    img.style.maxWidth = '100%';
-    img.style.borderRadius = '8px';
-    c.appendChild(img);
+    th.appendChild(img);
+  } else {
+    th.textContent = item.file_name ? ibExt(item.file_name) : 'nota';
+  }
+  w.appendChild(th);
+
+  var body = el('div', 'ib-body');
+  var titulo = item.title || item.file_name || (item.note || '').slice(0, 70) || 'Sem nome';
+  body.appendChild(el('div', 'ib-title', titulo));
+  body.appendChild(el('div', 'ib-meta',
+    [ibQuando(item.captured_at), ibTamanho(item.byte_size)].filter(Boolean).join('  -  ')));
+
+  if (item.note && item.note !== titulo) body.appendChild(el('p', 'ib-note', item.note));
+
+  if ((item.links && item.links.length) || (item.status === 'catalogado' && item.store === 'inbox')) {
+    var chips = el('div', 'chips');
+    (item.links || []).forEach(function (l) { chips.appendChild(pill(l.tipo, 'good')); });
+    if (item.status === 'catalogado' && item.store === 'inbox') chips.appendChild(pill('por arquivar', 'warn'));
+    body.appendChild(chips);
   }
 
-  var titulo = item.title || item.file_name || (item.note || '').slice(0, 60) || 'Sem nome';
-  var sub = [ibQuando(item.captured_at), ibTamanho(item.byte_size)].filter(Boolean).join(' · ');
-  c.appendChild(row(titulo, sub));
-
-  if (item.note && item.note !== titulo) c.appendChild(el('p', 'muted', item.note));
-
-  if (item.links && item.links.length) {
-    var tags = el('div', 'chips');
-    item.links.forEach(function (l) { tags.appendChild(pill(l.tipo, 'ok')); });
-    c.appendChild(tags);
-  }
-  if (item.status === 'catalogado' && item.store === 'inbox') {
-    c.appendChild(pill('por arquivar', 'warn'));
-  }
-
-  var acoes = el('div', 'acoes');
+  var acoes = el('div', 'ib-acts');
   if (item.file_name) {
     var ver = el('a', 'btn', 'Abrir');
     ver.href = '/api/inbox/' + item.id + '/ficheiro';
@@ -181,7 +239,6 @@ function ibCartao(item) {
     var triar = el('button', 'btn primary', 'Catalogar');
     triar.onclick = function () { ibAbrirTriagem(item); };
     acoes.appendChild(triar);
-
     var desc = el('button', 'btn', 'Descartar');
     desc.onclick = function () { ibEstado(item.id, 'descartado'); };
     acoes.appendChild(desc);
@@ -192,67 +249,77 @@ function ibCartao(item) {
   }
   var apagar = el('button', 'btn danger', 'Apagar');
   apagar.onclick = function () {
-    if (window.confirm('Apagar de vez? O ficheiro também desaparece.')) ibApagar(item.id);
+    if (window.confirm('Apagar de vez? O ficheiro tambem desaparece.')) ibApagar(item.id);
   };
   acoes.appendChild(apagar);
-  c.appendChild(acoes);
-  return c;
+  body.appendChild(acoes);
+
+  w.appendChild(body);
+  return w;
 }
 
 /* ---------------- triagem ---------------- */
 function ibAbrirTriagem(item) {
   IB.triando = item;
-
-  // As pessoas e os projetos vêm do módulo de Tarefas; se ainda não foram
-  // lidos, lê-os agora para os selects não aparecerem vazios.
   if (typeof gState !== 'undefined' && !gState.loaded && typeof loadGestao === 'function') {
     loadGestao().then(function () { ibDesenharTriagem(); });
   }
   ibDesenharTriagem();
+  var p = $('ibTriagem');
+  if (p && p.scrollIntoView) p.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
 function ibDesenharTriagem() {
   var p = $('ibTriagem');
   if (!p || !IB.triando) return;
   clear(p);
-  p.style.display = '';
+  p.hidden = false;
 
-  p.appendChild(el('h3', null, 'No que é que isto se transforma?'));
-  p.appendChild(el('p', 'muted', 'Pode ser mais do que uma coisa. O talão da máquina é despesa e é garantia.'));
+  ibCabecalho(p, 'No que e que isto se transforma?', null);
+  p.appendChild(el('p', 'ib-note', 'Pode ser mais do que uma coisa. O talao da maquina e despesa e e garantia.'));
 
   IB_DESTINOS.forEach(function (d) {
-    var bloco = el('div', 'bloco');
-    var cab = el('label', 'destino');
+    var bloco = el('div', 'ib-dest');
+    var cab = el('label', 'ib-desth');
     var cx = el('input');
     cx.type = 'checkbox'; cx.id = 'ibUsar_' + d.tipo;
     cab.appendChild(cx);
-    cab.appendChild(el('span', null, ' ' + d.nome));
+    cab.appendChild(el('span', null, d.nome));
     bloco.appendChild(cab);
 
-    var campos = el('div', 'campos');
-    campos.style.display = 'none';
-    d.campos.forEach(function (c) { campos.appendChild(ibCampo(d.tipo, c)); });
-    cx.onchange = function () { campos.style.display = cx.checked ? '' : 'none'; };
+    var campos = el('div', 'ib-destc');
+    campos.hidden = true;
+    var par = null;
+    d.campos.forEach(function (c, i) {
+      if (i % 2 === 0) { par = el('div', 'field-row'); campos.appendChild(par); }
+      par.appendChild(ibCampo(d.tipo, c));
+    });
+    cx.onchange = function () {
+      campos.hidden = !cx.checked;
+      bloco.classList.toggle('is-on', cx.checked);
+    };
     bloco.appendChild(campos);
     p.appendChild(bloco);
   });
 
-  var acoes = el('div', 'acoes');
+  var acoes = el('div', 'form-actions');
   var ok = el('button', 'btn primary', 'Catalogar');
+  ok.type = 'button';
   ok.onclick = ibSubmeterTriagem;
   var cancelar = el('button', 'btn', 'Cancelar');
-  cancelar.onclick = function () { IB.triando = null; p.style.display = 'none'; clear(p); };
+  cancelar.type = 'button';
+  cancelar.onclick = function () { IB.triando = null; p.hidden = true; clear(p); };
   acoes.appendChild(ok); acoes.appendChild(cancelar);
   p.appendChild(acoes);
 }
 
 function ibCampo(tipo, c) {
-  var w = el('div', 'campo');
-  w.appendChild(el('label', null, c.l));
+  var w = el('label', 'field');
+  w.appendChild(el('span', null, c.l));
   var input;
   if (c.tipo === 'pessoa' || c.tipo === 'projeto') {
     input = el('select');
-    input.appendChild(el('option', null, '—'));
+    input.appendChild(el('option', null, '-'));
     var fonte = c.tipo === 'pessoa'
       ? (typeof G !== 'undefined' ? G.people : []).filter(function (x) {
         return c.k === 'owner_id' ? x.can_own_tasks : true;
@@ -269,7 +336,6 @@ function ibCampo(tipo, c) {
     if (c.tipo === 'number') input.step = '0.01';
   }
   input.id = 'ibC_' + tipo + '_' + c.k;
-  // Pré-preencher o título com o que já sabemos poupa metade das teclas.
   if (c.k === 'title' || c.k === 'name' || c.k === 'description') {
     var it = IB.triando;
     if (it) input.value = it.title || it.note || (it.file_name || '').replace(/\.[^.]+$/, '');
@@ -287,11 +353,10 @@ function ibSubmeterTriagem() {
     var dados = {};
     d.campos.forEach(function (c) {
       var v = ($('ibC_' + d.tipo + '_' + c.k) || {}).value;
-      if (v !== undefined && v !== '' && v !== '—') dados[c.k] = v;
+      if (v !== undefined && v !== '' && v !== '-') dados[c.k] = v;
     });
     destinos.push({ tipo: d.tipo, dados: dados });
   });
-
   if (!destinos.length) { toast('Escolhe pelo menos um destino.'); return; }
 
   apiGestao('/api/inbox/' + IB.triando.id + '/triagem?estado=' + IB.estado, {
@@ -300,15 +365,13 @@ function ibSubmeterTriagem() {
     body: JSON.stringify({ destinos: destinos })
   }).then(function (d) {
     IB.triando = null;
-    $('ibTriagem').style.display = 'none';
-    clear($('ibTriagem'));
+    var p = $('ibTriagem');
+    p.hidden = true; clear(p);
     IB.itens = d.itens || []; IB.porTriar = d.porTriar || 0;
     ibRender();
-    // O que foi criado vive nos ecrãs de Tarefas e Agenda; recarregar para
-    // não ficarem desactualizados por trás.
     if (typeof loadGestao === 'function') loadGestao();
     toast('Catalogado.');
-  }).catch(function (e) { toast(e.message || 'Não foi possível catalogar.'); });
+  }).catch(function (e) { toast(e.message || 'Nao foi possivel catalogar.'); });
 }
 
 /* ---------------- escrita ---------------- */
@@ -324,9 +387,9 @@ function ibGuardar() {
   if (texto) fd.append('note', texto);
 
   var btn = $('ibGuardar');
-  if (btn) { btn.disabled = true; btn.textContent = 'A guardar…'; }
+  if (btn) { btn.disabled = true; btn.textContent = 'A guardar...'; }
 
-  // Sem Content-Type à mão: o browser tem de escrever o boundary do multipart.
+  // Sem Content-Type a mao: o browser tem de escrever o boundary do multipart.
   fetch('/api/inbox', { method: 'POST', body: fd })
     .then(function (r) {
       return r.json().catch(function () { return {}; }).then(function (j) {
@@ -337,10 +400,11 @@ function ibGuardar() {
     .then(function () {
       if (fich) fich.value = '';
       if (nota) nota.value = '';
+      ibNomeEscolhido(null);
       toast('Guardado.');
       return ibCarregar();
     })
-    .catch(function (e) { toast(e.message || 'Não foi possível guardar.'); })
+    .catch(function (e) { toast(e.message || 'Nao foi possivel guardar.'); })
     .then(function () {
       if (btn) { btn.disabled = false; btn.textContent = 'Guardar na caixa'; }
     });
@@ -353,20 +417,45 @@ function ibEstado(id, status) {
     body: JSON.stringify({ status: status })
   }).then(function (d) {
     IB.itens = d.itens || []; IB.porTriar = d.porTriar || 0; ibRender();
-  }).catch(function (e) { toast(e.message || 'Não foi possível gravar.'); });
+  }).catch(function (e) { toast(e.message || 'Nao foi possivel gravar.'); });
 }
 
 function ibApagar(id) {
   apiGestao('/api/inbox/' + id + '?estado=' + IB.estado, { method: 'DELETE' })
     .then(function (d) {
       IB.itens = d.itens || []; IB.porTriar = d.porTriar || 0; ibRender();
-    }).catch(function (e) { toast(e.message || 'Não foi possível apagar.'); });
+    }).catch(function (e) { toast(e.message || 'Nao foi possivel apagar.'); });
 }
 
-/* ---------------- ligações ---------------- */
+/* ---------------- ligacoes ---------------- */
+function ibNomeEscolhido(nome) {
+  var t = $('ibDropT');
+  if (t) t.textContent = nome || 'Escolher ficheiro ou arrastar para aqui';
+}
+
 function ibLigar() {
   var g = $('ibGuardar');
   if (g) g.onclick = ibGuardar;
+
+  var fich = $('ibFicheiro');
+  if (fich) fich.onchange = function () {
+    ibNomeEscolhido(fich.files && fich.files[0] ? fich.files[0].name : null);
+  };
+
+  var drop = $('ibDrop');
+  if (drop) {
+    ['dragenter', 'dragover'].forEach(function (ev) {
+      drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.add('is-over'); });
+    });
+    ['dragleave', 'drop'].forEach(function (ev) {
+      drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.remove('is-over'); });
+    });
+    drop.addEventListener('drop', function (e) {
+      if (!e.dataTransfer || !e.dataTransfer.files.length) return;
+      fich.files = e.dataTransfer.files;
+      ibNomeEscolhido(e.dataTransfer.files[0].name);
+    });
+  }
 
   var tabs = document.querySelector('[data-tabs="ib"]');
   if (tabs) {
@@ -375,31 +464,29 @@ function ibLigar() {
       if (!b) return;
       IB.estado = b.dataset.tab;
       var todos = tabs.querySelectorAll('button');
-      for (var i = 0; i < todos.length; i++) {
-        todos[i].classList.toggle('is-active', todos[i] === b);
-      }
+      for (var i = 0; i < todos.length; i++) todos[i].classList.toggle('is-active', todos[i] === b);
+      var p = $('ibTriagem');
+      if (p) { p.hidden = true; clear(p); }
+      IB.triando = null;
       ibCarregar();
     });
   }
 }
 
-/* Arranque preguiçoso: só lê a caixa quando alguém a abre. */
+/* Arranque preguicoso: so le a caixa quando alguem a abre. */
 document.addEventListener('click', function (e) {
   var b = e.target.closest && e.target.closest('button[data-view="inbox"]');
   if (b && !IB.carregado) ibCarregar();
 });
 
 (function esperarApp() {
-  // O app.js desenha o menu depois do login. Esperamos por ele para
-  // pendurar o botão, em vez de assumir que já lá está.
   if ($('nav') && document.querySelector('.view')) {
     ibMontar();
-    // Contador no menu logo à partida, sem abrir o ecrã.
     apiGestao('/api/inbox?estado=por_triar').then(function (d) {
       IB.porTriar = d.porTriar || 0;
       var badge = $('badgeInbox');
       if (badge) badge.textContent = IB.porTriar || '';
-    }).catch(function () { /* sem sessão ainda; fica para quando abrir */ });
+    }).catch(function () { /* sem sessao ainda */ });
     return;
   }
   setTimeout(esperarApp, 400);
