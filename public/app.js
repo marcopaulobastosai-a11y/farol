@@ -8,6 +8,7 @@ var MESES = ['janeiro','fevereiro','março','abril','maio','junho','julho','agos
 var TITLES = {
   hoje: ['Hoje', null],
   agenda: ['Agenda', 'Calendário de toda a família'],
+  tarefas: ['Tarefas', 'Quem faz o quê, por causa de quem, até quando'],
   familia: ['Família', 'Agregado alargado · agenda, tarefas e apoio aos pais'],
   casa: ['Casa', 'Manutenção, consumos, avarias e garantias'],
   projetos: ['Projetos', 'Frentes activas · tempo e marcos'],
@@ -835,3 +836,438 @@ function load(notify){
 
 wire();
 load(false);
+
+/* =========================================================================
+ * TAREFAS — pessoas, projetos e tarefas reais (origin='real')
+ * ========================================================================= */
+
+var G = { people: [], projects: [], tasks: [] };
+var gState = { view: 'abertas', person: null, editing: null, loaded: false };
+
+function hoje0(){ var d = new Date(); return new Date(d.getFullYear(), d.getMonth(), d.getDate()); }
+function diaISO(dt){
+  return dt.getFullYear() + '-' + String(dt.getMonth()+1).padStart(2,'0') + '-' + String(dt.getDate()).padStart(2,'0');
+}
+function pessoa(id){ return G.people.filter(function(p){ return p.id === id; })[0] || null; }
+function projeto(id){ return G.projects.filter(function(p){ return p.id === id; })[0] || null; }
+
+function dataCurta(iso){
+  if (!iso) return '';
+  var d = parseDay(iso);
+  return d.getDate() + ' ' + MESES[d.getMonth()].slice(0,3);
+}
+
+function apiGestao(url, opts){
+  return fetch(url, opts).then(function(r){
+    if (!r.ok) return r.json().catch(function(){ return {}; }).then(function(e){ throw new Error(e.error || 'erro'); });
+    return r.json();
+  });
+}
+
+function loadGestao(){
+  return apiGestao('/api/gestao').then(function(d){
+    G = d; gState.loaded = true; renderGestao();
+  }).catch(function(){ toast('Não foi possível ler as tarefas.'); });
+}
+
+/* ---------- listagem ---------- */
+function balde(t){
+  if (!t.due_on) return 'semdata';
+  var hoje = hoje0(), d = parseDay(t.due_on);
+  if (d < hoje) return 'atrasadas';
+  if (d.getTime() === hoje.getTime()) return 'hoje';
+  if (d <= addDays(hoje, 7)) return 'semana';
+  return 'depois';
+}
+var BALDES = [
+  ['atrasadas','Atrasadas'], ['hoje','Hoje'], ['semana','Próximos 7 dias'],
+  ['depois','Mais tarde'], ['semdata','Sem prazo']
+];
+
+function tarefasVisiveis(){
+  return G.tasks.filter(function(t){
+    var feita = t.status === 'concluida' || t.status === 'cancelada';
+    if (gState.view === 'abertas' && feita) return false;
+    if (gState.view === 'concluidas' && !feita) return false;
+    if (gState.person){
+      var envolve = t.owner_id === gState.person || (t.subjects || []).indexOf(gState.person) >= 0;
+      if (!envolve) return false;
+    }
+    return true;
+  });
+}
+
+function renderLista(){
+  var box = $('tList');
+  clear(box);
+  var lista = tarefasVisiveis();
+  $('tCount').textContent = lista.length + (lista.length === 1 ? ' tarefa' : ' tarefas');
+
+  if (!G.people.length){
+    var vazio = el('p', 'empty', 'Ainda não há ninguém registado. Começa por adicionar as pessoas, aí em baixo — depois as tarefas passam a ter dono.');
+    box.appendChild(vazio);
+    return;
+  }
+  if (!lista.length){
+    box.appendChild(el('p', 'empty', gState.view === 'concluidas' ? 'Nada concluído ainda.' : 'Nada por fazer com estes filtros.'));
+    return;
+  }
+
+  BALDES.forEach(function(b){
+    var doBalde = lista.filter(function(t){ return balde(t) === b[0]; });
+    if (!doBalde.length) return;
+    var g = el('div', 'tgroup' + (b[0] === 'atrasadas' ? ' late' : ''));
+    var h = el('h4');
+    h.appendChild(document.createTextNode(b[1]));
+    h.appendChild(el('span', null, String(doBalde.length)));
+    g.appendChild(h);
+    doBalde.forEach(function(t){ g.appendChild(itemTarefa(t)); });
+    box.appendChild(g);
+  });
+}
+
+function itemTarefa(t){
+  var feita = t.status === 'concluida';
+  var li = el('div', 'titem' + (feita ? ' done' : ''));
+
+  var box = el('button', 'box');
+  box.type = 'button';
+  box.title = feita ? 'Reabrir' : 'Marcar como feita';
+  box.innerHTML = '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke-width="3.2" stroke-linecap="round"><path d="M5 13l4 4L19 7"/></svg>';
+  box.addEventListener('click', function(){
+    guardarTarefa(t.id, { status: feita ? 'aberta' : 'concluida' });
+  });
+  li.appendChild(box);
+
+  var main = el('button', 'tmain');
+  main.type = 'button';
+  main.appendChild(el('b', null, t.title));
+  var meta = el('div', 'tmeta');
+  var dono = pessoa(t.owner_id);
+  if (dono){
+    var m = el('span', 'mini');
+    var dot = el('i'); dot.style.background = dono.color || 'var(--c1)';
+    m.appendChild(dot); m.appendChild(document.createTextNode(dono.name));
+    meta.appendChild(m);
+  }
+  (t.subjects || []).forEach(function(pid){
+    var p = pessoa(pid);
+    if (!p) return;
+    meta.appendChild(el('span', 'sep', '·'));
+    meta.appendChild(el('span', null, 'por causa de ' + p.name));
+  });
+  var pr = projeto(t.project_id);
+  if (pr){
+    meta.appendChild(el('span', 'sep', '·'));
+    var pill = pill_(pr.name, 'accent');
+    meta.appendChild(pill);
+  }
+  if (t.notes){
+    meta.appendChild(el('span', 'sep', '·'));
+    meta.appendChild(el('span', null, t.notes));
+  }
+  main.appendChild(meta);
+  main.addEventListener('click', function(){ editarTarefa(t); });
+  li.appendChild(main);
+
+  var right = el('div', 'right');
+  if (t.due_on){
+    var b = balde(t);
+    var nivel = b === 'atrasadas' ? 'bad' : (b === 'hoje' ? 'warn' : '');
+    right.appendChild(pill_(b === 'hoje' ? 'hoje' : dataCurta(t.due_on), nivel));
+  }
+  if (t.priority !== 'normal'){
+    var p2 = el('span', 'prio ' + t.priority);
+    p2.title = t.priority === 'alta' ? 'Prioridade alta' : 'Prioridade baixa';
+    right.appendChild(p2);
+  }
+  li.appendChild(right);
+  return li;
+}
+function pill_(texto, nivel){ return pill(texto, nivel); }
+
+/* ---------- escrita ---------- */
+function guardarTarefa(id, dados){
+  apiGestao('/api/gestao/tarefas/' + id, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(dados)
+  }).then(function(d){ G = d; renderGestao(); })
+    .catch(function(){ toast('Não deu para gravar.'); });
+}
+
+function editarTarefa(t){
+  gState.editing = t.id;
+  var f = $('tForm');
+  f.title.value = t.title || '';
+  f.owner_id.value = t.owner_id || '';
+  f.due_on.value = t.due_on || '';
+  f.project_id.value = t.project_id || '';
+  f.area.value = t.area || '';
+  f.priority.value = t.priority || 'normal';
+  f.repeat_every.value = t.repeat_every || '';
+  f.notes.value = t.notes || '';
+  marcarChips('tSubjects', t.subjects || []);
+  $('tFormTitle').textContent = 'Editar tarefa';
+  $('tFormHint').textContent = t.status === 'concluida' ? 'concluída' : '';
+  $('tSubmit').textContent = 'Guardar';
+  $('tCancel').hidden = false;
+  $('tDelete').hidden = false;
+  f.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function limparForm(){
+  gState.editing = null;
+  var f = $('tForm');
+  f.reset();
+  marcarChips('tSubjects', []);
+  $('tFormTitle').textContent = 'Nova tarefa';
+  $('tFormHint').textContent = '';
+  $('tSubmit').textContent = 'Adicionar';
+  $('tCancel').hidden = true;
+  $('tDelete').hidden = true;
+}
+
+function chipsSelecionados(id){
+  var out = [];
+  $(id).querySelectorAll('.chip').forEach(function(c){
+    if (c.getAttribute('aria-pressed') === 'true') out.push(Number(c.dataset.id));
+  });
+  return out;
+}
+function marcarChips(id, ids){
+  $(id).querySelectorAll('.chip').forEach(function(c){
+    var on = ids.indexOf(Number(c.dataset.id)) >= 0;
+    c.setAttribute('aria-pressed', on ? 'true' : 'false');
+  });
+}
+function construirChips(id, pessoas){
+  var box = $(id);
+  clear(box);
+  pessoas.forEach(function(p){
+    var b = el('button', 'chip');
+    b.type = 'button';
+    b.dataset.id = p.id;
+    b.setAttribute('aria-pressed', 'false');
+    var i = el('i');
+    i.style.background = p.color || 'var(--c1)';
+    b.appendChild(i);
+    b.appendChild(document.createTextNode(p.name));
+    b.addEventListener('click', function(){
+      b.setAttribute('aria-pressed', b.getAttribute('aria-pressed') === 'true' ? 'false' : 'true');
+    });
+    box.appendChild(b);
+  });
+}
+
+/* ---------- painéis laterais ---------- */
+function renderPessoas(){
+  var box = $('tPeople');
+  clear(box);
+  box.className = 'plist';
+  if (!G.people.length){
+    box.appendChild(el('p', 'empty', 'Sem pessoas registadas.'));
+    return;
+  }
+  G.people.forEach(function(p){
+    var abertas = G.tasks.filter(function(t){
+      return t.status !== 'concluida' && t.status !== 'cancelada' &&
+             (t.owner_id === p.id || (t.subjects || []).indexOf(p.id) >= 0);
+    }).length;
+    var right = abertas ? pill(abertas + (abertas === 1 ? ' aberta' : ' abertas'), abertas ? '' : '') : pill('—');
+    var sub = (p.role || '') + (p.can_own_tasks ? '' : ' · só assunto');
+    var r = row(p.name, sub, right);
+    var dot = el('i', 'dot');
+    dot.style.background = p.color || 'var(--c1)';
+    dot.style.marginRight = '2px';
+    r.insertBefore(dot, r.firstChild);
+    box.appendChild(r);
+  });
+}
+
+function renderProjetos(){
+  var box = $('tProjects');
+  clear(box);
+  if (!G.projects.length){
+    box.appendChild(el('p', 'empty', 'Ainda sem projetos. A mudança de casa e a sociedade nova entram aqui.'));
+    return;
+  }
+  G.projects.forEach(function(pr){
+    var abertas = G.tasks.filter(function(t){
+      return t.project_id === pr.id && t.status !== 'concluida' && t.status !== 'cancelada';
+    }).length;
+    var nomes = (pr.members || []).map(function(m){
+      var p = pessoa(m.person_id);
+      return p ? (m.member_role === 'responsavel' ? p.name + ' (resp.)' : p.name) : null;
+    }).filter(Boolean).join(', ');
+    var detalhe = [pr.description, nomes].filter(Boolean).join(' · ');
+    var right = el('div');
+    right.style.textAlign = 'right';
+    right.appendChild(pill(abertas + (abertas === 1 ? ' tarefa' : ' tarefas'), abertas ? 'accent' : ''));
+    if (pr.target_on){
+      var d = el('div', 'mono num', dataCurta(pr.target_on));
+      d.style.marginTop = '3px';
+      right.appendChild(d);
+    }
+    box.appendChild(row(pr.name, detalhe, right));
+  });
+}
+
+function renderFiltros(){
+  var box = $('tFilter');
+  clear(box);
+  G.people.forEach(function(p){
+    var b = el('button', 'chip' + (gState.person && gState.person !== p.id ? ' off' : ''));
+    b.type = 'button';
+    var i = el('i');
+    i.style.background = p.color || 'var(--c1)';
+    b.appendChild(i);
+    b.appendChild(document.createTextNode(p.name));
+    b.addEventListener('click', function(){
+      gState.person = gState.person === p.id ? null : p.id;
+      renderGestao();
+    });
+    box.appendChild(b);
+  });
+  if (G.people.length){
+    var todos = el('button', 'chip' + (gState.person ? '' : ' off'));
+    todos.type = 'button';
+    todos.textContent = 'Todos';
+    todos.addEventListener('click', function(){ gState.person = null; renderGestao(); });
+    box.appendChild(todos);
+  }
+}
+
+function encherSelects(){
+  var owner = $('tOwner');
+  var atual = owner.value;
+  clear(owner);
+  owner.appendChild(new Option('—', ''));
+  G.people.filter(function(p){ return p.can_own_tasks; }).forEach(function(p){
+    owner.appendChild(new Option(p.name, p.id));
+  });
+  owner.value = atual;
+
+  var proj = $('tProject');
+  var atualP = proj.value;
+  clear(proj);
+  proj.appendChild(new Option('—', ''));
+  G.projects.forEach(function(p){ proj.appendChild(new Option(p.name, p.id)); });
+  proj.value = atualP;
+
+  construirChips('tSubjects', G.people);
+  construirChips('pMembers', G.people);
+}
+
+function renderGestao(){
+  renderFiltros();
+  encherSelects();
+  renderLista();
+  renderProjetos();
+  renderPessoas();
+  var abertas = G.tasks.filter(function(t){ return t.status !== 'concluida' && t.status !== 'cancelada'; }).length;
+  $('badgeTarefas').textContent = abertas || '';
+  var alvo = gState.person ? pessoa(gState.person) : null;
+  $('tListTitle').textContent = alvo ? ('Tarefas de ' + alvo.name) : 'Tarefas';
+}
+
+/* ---------- ligações ---------- */
+function ligarGestao(){
+  var tabs = document.querySelector('[data-tabs="tar"]');
+  if (tabs){
+    tabs.addEventListener('click', function(e){
+      var b = e.target.closest('button[data-tab]');
+      if (!b) return;
+      gState.view = b.dataset.tab;
+      renderLista();
+    });
+  }
+
+  $('tForm').addEventListener('submit', function(e){
+    e.preventDefault();
+    var f = e.target;
+    var dados = {
+      title: f.title.value.trim(),
+      owner_id: f.owner_id.value || null,
+      due_on: f.due_on.value || null,
+      project_id: f.project_id.value || null,
+      area: f.area.value || null,
+      priority: f.priority.value,
+      repeat_every: f.repeat_every.value || null,
+      notes: f.notes.value.trim() || null,
+      subjects: chipsSelecionados('tSubjects')
+    };
+    if (!dados.title) return;
+    var url = gState.editing ? '/api/gestao/tarefas/' + gState.editing : '/api/gestao/tarefas';
+    apiGestao(url, {
+      method: gState.editing ? 'PATCH' : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(dados)
+    }).then(function(d){
+      G = d;
+      limparForm();
+      renderGestao();
+      toast(gState.editing ? 'Tarefa gravada.' : 'Tarefa adicionada.');
+    }).catch(function(){ toast('Não deu para gravar a tarefa.'); });
+  });
+
+  $('tCancel').addEventListener('click', limparForm);
+  $('tDelete').addEventListener('click', function(){
+    if (!gState.editing) return;
+    var id = gState.editing;
+    apiGestao('/api/gestao/tarefas/' + id, { method: 'DELETE' }).then(function(d){
+      G = d; limparForm(); renderGestao(); toast('Tarefa apagada.');
+    }).catch(function(){ toast('Não deu para apagar.'); });
+  });
+
+  $('btnPessoa').addEventListener('click', function(){
+    var f = $('peForm');
+    f.hidden = !f.hidden;
+    if (!f.hidden) f.name.focus();
+  });
+  $('peCancel').addEventListener('click', function(){ $('peForm').hidden = true; });
+  $('peForm').addEventListener('submit', function(e){
+    e.preventDefault();
+    var f = e.target;
+    apiGestao('/api/gestao/pessoas', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: f.name.value.trim(),
+        full_name: f.full_name.value.trim() || null,
+        role: f.role.value.trim() || null,
+        kind: f.kind.value,
+        can_own_tasks: f.can_own_tasks.checked
+      })
+    }).then(function(){
+      f.reset(); f.hidden = true;
+      return loadGestao();
+    }).then(function(){ toast('Pessoa adicionada.'); })
+      .catch(function(){ toast('Não deu para gravar a pessoa.'); });
+  });
+
+  $('btnProjeto').addEventListener('click', function(){
+    var f = $('pForm');
+    f.hidden = !f.hidden;
+    if (!f.hidden) f.name.focus();
+  });
+  $('pCancel').addEventListener('click', function(){ $('pForm').hidden = true; });
+  $('pForm').addEventListener('submit', function(e){
+    e.preventDefault();
+    var f = e.target;
+    apiGestao('/api/gestao/projetos', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: f.name.value.trim(),
+        description: f.description.value.trim() || null,
+        area: f.area.value,
+        target_on: f.target_on.value || null,
+        members: chipsSelecionados('pMembers').map(function(id){ return { person_id: id, member_role: 'participante' }; })
+      })
+    }).then(function(){
+      f.reset(); f.hidden = true;
+      return loadGestao();
+    }).then(function(){ toast('Projeto criado.'); })
+      .catch(function(){ toast('Não deu para criar o projeto.'); });
+  });
+}
+
+ligarGestao();
+loadGestao();

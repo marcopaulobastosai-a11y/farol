@@ -38,6 +38,10 @@
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/><path d="M7.5 14h3"/></svg>
         Agenda <span class="badge" id="badgeAgenda"></span>
       </button>
+      <button data-view="tarefas">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M9 6h11M9 12h11M9 18h11"/><path d="M4 6l1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2"/></svg>
+        Tarefas <span class="badge" id="badgeTarefas"></span>
+      </button>
       <div class="nav-label mono" style="padding-top:10px">Áreas</div>
       <button data-view="familia">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="9" cy="8" r="3"/><path d="M3 20c0-3.3 2.7-5 6-5s6 1.7 6 5"/><circle cx="17.5" cy="9.5" r="2.2"/><path d="M16 15c3 0 5 1.6 5 4.5"/></svg>
@@ -156,6 +160,144 @@
               <ul class="budget" id="load"></ul>
               <p style="margin-top:10px;font-size:.8125rem;color:var(--muted)" id="loadNote"></p>
             </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+
+    <!-- TAREFAS -->
+    <section class="view" id="view-tarefas">
+      <div class="cal-top">
+        <div class="tabs" data-tabs="tar">
+          <button class="is-active" data-tab="abertas">Por fazer</button>
+          <button data-tab="todas">Todas</button>
+          <button data-tab="concluidas">Concluídas</button>
+        </div>
+        <div class="who-filter" id="tFilter"></div>
+      </div>
+
+      <div class="grid split">
+        <div class="stack">
+          <div class="card">
+            <header><h3 id="tListTitle">Tarefas</h3><span class="mono" id="tCount"></span></header>
+            <div id="tList"></div>
+          </div>
+        </div>
+
+        <div class="stack">
+          <div class="card">
+            <header><h3 id="tFormTitle">Nova tarefa</h3><span class="mono" id="tFormHint"></span></header>
+            <form id="tForm" class="form" autocomplete="off">
+              <label class="field"><span>O que é preciso fazer</span>
+                <input type="text" name="title" required placeholder="Ex.: pedir orçamentos de mudanças"></label>
+              <div class="field-row">
+                <label class="field"><span>Quem faz</span>
+                  <select name="owner_id" id="tOwner"></select></label>
+                <label class="field"><span>Prazo</span>
+                  <input type="date" name="due_on"></label>
+              </div>
+              <div class="field">
+                <span>Por causa de quem</span>
+                <div class="chips" id="tSubjects"></div>
+              </div>
+              <div class="field-row">
+                <label class="field"><span>Projeto</span>
+                  <select name="project_id" id="tProject"></select></label>
+                <label class="field"><span>Área</span>
+                  <select name="area" id="tArea">
+                    <option value="">—</option>
+                    <option value="familia">Família</option>
+                    <option value="casa">Casa</option>
+                    <option value="projetos">Projetos</option>
+                    <option value="financas">Finanças</option>
+                    <option value="saude">Saúde</option>
+                    <option value="documentos">Documentos</option>
+                  </select></label>
+              </div>
+              <div class="field-row">
+                <label class="field"><span>Prioridade</span>
+                  <select name="priority">
+                    <option value="normal">Normal</option>
+                    <option value="alta">Alta</option>
+                    <option value="baixa">Baixa</option>
+                  </select></label>
+                <label class="field"><span>Repete</span>
+                  <select name="repeat_every">
+                    <option value="">Não repete</option>
+                    <option value="semana">Todas as semanas</option>
+                    <option value="mes">Todos os meses</option>
+                    <option value="ano">Todos os anos</option>
+                  </select></label>
+              </div>
+              <label class="field"><span>Notas</span>
+                <textarea name="notes" rows="2" placeholder="Opcional"></textarea></label>
+              <div class="form-actions">
+                <button type="submit" class="btn primary" id="tSubmit">Adicionar</button>
+                <button type="button" class="btn" id="tCancel" hidden>Cancelar</button>
+                <button type="button" class="btn danger" id="tDelete" hidden>Apagar</button>
+              </div>
+            </form>
+          </div>
+
+          <div class="card">
+            <header><h3>Projetos</h3><button class="btn small" id="btnProjeto">+ Projeto</button></header>
+            <form id="pForm" class="form" hidden autocomplete="off">
+              <label class="field"><span>Nome</span>
+                <input type="text" name="name" required placeholder="Ex.: Mudança de casa"></label>
+              <label class="field"><span>Do que se trata</span>
+                <input type="text" name="description" placeholder="Uma linha chega"></label>
+              <div class="field-row">
+                <label class="field"><span>Área</span>
+                  <select name="area">
+                    <option value="casa">Casa</option>
+                    <option value="familia">Família</option>
+                    <option value="projetos">Projetos</option>
+                    <option value="financas">Finanças</option>
+                    <option value="saude">Saúde</option>
+                    <option value="documentos">Documentos</option>
+                  </select></label>
+                <label class="field"><span>Para quando</span>
+                  <input type="date" name="target_on"></label>
+              </div>
+              <div class="field"><span>Quem entra</span><div class="chips" id="pMembers"></div></div>
+              <div class="form-actions">
+                <button type="submit" class="btn primary">Criar projeto</button>
+                <button type="button" class="btn" id="pCancel">Cancelar</button>
+              </div>
+            </form>
+            <div id="tProjects"></div>
+          </div>
+
+          <div class="card">
+            <header><h3>Pessoas</h3><button class="btn small" id="btnPessoa">+ Pessoa</button></header>
+            <form id="peForm" class="form" hidden autocomplete="off">
+              <div class="field-row">
+                <label class="field"><span>Como lhe chamas</span>
+                  <input type="text" name="name" required placeholder="Ex.: Sofia"></label>
+                <label class="field"><span>Nome completo</span>
+                  <input type="text" name="full_name" placeholder="Opcional"></label>
+              </div>
+              <div class="field-row">
+                <label class="field"><span>Quem é</span>
+                  <input type="text" name="role" placeholder="Ex.: Filha"></label>
+                <label class="field"><span>Tipo</span>
+                  <select name="kind">
+                    <option value="adulto">Adulto</option>
+                    <option value="crianca">Criança</option>
+                    <option value="familiar">Familiar</option>
+                    <option value="animal">Animal</option>
+                  </select></label>
+              </div>
+              <label class="field checkbox">
+                <input type="checkbox" name="can_own_tasks" checked>
+                <span>Pode ter tarefas atribuídas</span></label>
+              <div class="form-actions">
+                <button type="submit" class="btn primary">Adicionar pessoa</button>
+                <button type="button" class="btn" id="peCancel">Cancelar</button>
+              </div>
+            </form>
+            <div id="tPeople"></div>
           </div>
         </div>
       </div>
