@@ -394,3 +394,26 @@ CREATE INDEX IF NOT EXISTS documents_valid_idx ON documents (valid_on);
 --   DELETE FROM expenses  WHERE origin = 'qualidade';
 --
 -- inbox_items e inbox_links NÃO entram no seed: não há inbox de demonstração.
+
+-- ---------------------------------------------------------------------------
+-- 7. SUGESTAO AUTOMATICA NA INBOX
+-- ---------------------------------------------------------------------------
+-- O modelo le o ficheiro e propoe o que ele e. A proposta fica guardada no
+-- item e so se torna real quando alguem carrega em Catalogar: nada entra nas
+-- tabelas de tarefas, eventos, documentos ou despesas sem confirmacao.
+
+ALTER TABLE inbox_items ADD COLUMN IF NOT EXISTS ai_status TEXT NOT NULL DEFAULT 'nenhum';
+ALTER TABLE inbox_items ADD COLUMN IF NOT EXISTS ai_json   JSONB;
+ALTER TABLE inbox_items ADD COLUMN IF NOT EXISTS ai_at     TIMESTAMPTZ;
+ALTER TABLE inbox_items ADD COLUMN IF NOT EXISTS ai_erro   TEXT;
+
+-- ai_status: 'nenhum'    - nao foi analisado (nota sem ficheiro, ou sem chave)
+--            'pendente'  - a analisar neste momento
+--            'feito'     - ha proposta em ai_json
+--            'falhou'    - tentou e correu mal; ai_erro diz porque
+--
+-- ai_json guarda a proposta tal como veio, incluindo a confianca por campo.
+-- Fica no item mesmo depois de catalogado: serve para perceber, mais tarde,
+-- se o modelo costuma acertar ou se ha campos que falha sempre.
+
+CREATE INDEX IF NOT EXISTS inbox_ai_idx ON inbox_items (ai_status) WHERE ai_status = 'pendente';
