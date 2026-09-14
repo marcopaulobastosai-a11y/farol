@@ -18,6 +18,7 @@ const crypto = require('crypto');
 const multer = require('multer');
 const { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } = require('@aws-sdk/client-s3');
 const { query } = require('./db');
+const ia = require('./ia');
 
 const all = async (sql, params) => (await query(sql, params)).rows;
 const limpar = (v) => (v === undefined || v === '' ? null : v);
@@ -175,7 +176,7 @@ const CRIAR = {
  * Leitura
  * ------------------------------------------------------------------ */
 const SELECT_ITEM = `
-  SELECT i.id, i.kind, i.title, i.note, i.file_name, i.mime_type, i.byte_size, i.store,
+  SELECT i.id, i.kind, i.title, i.note, i.file_name, i.mime_type, i.byte_size, i.store, i.ai_status, i.ai_json,
          i.captured_by, to_char(i.captured_at,'YYYY-MM-DD"T"HH24:MI') AS captured_at,
          i.status, to_char(i.resolved_at,'YYYY-MM-DD"T"HH24:MI') AS resolved_at
     FROM inbox_items i`;
@@ -232,11 +233,15 @@ function instalar(app) {
       }
       const rows = await all(
         `INSERT INTO inbox_items (kind, title, note, file_path, file_name, mime_type,
-                                  byte_size, checksum, captured_by, store)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'inbox') RETURNING id`,
+                                  byte_size, checksum, captured_by, store, ai_status)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'inbox',$10) RETURNING id`,
         [f ? 'ficheiro' : 'nota', limpar(b.title), limpar(b.note), chave,
          f ? f.originalname : null, f ? f.mimetype : null, f ? f.size : null,
-         checksum, limpar(b.captured_by)]);
+         checksum, limpar(b.captured_by), (f && ia.ativa()) ? 'pendente' : 'nenhum']);
+      // A analise corre a seguir a resposta, nao antes: quem envia uma foto
+      // nao deve esperar pelo modelo. O ecra mostra 'a analisar' e actualiza.
+      if (f) ia.analisarItem(rows[0].id, f.buffer, f.mimetype, f.originalname);
+
       const { itens } = await carregar('todos');
       res.status(201).json(itens.find((i) => i.id === rows[0].id));
     } catch (err) {
