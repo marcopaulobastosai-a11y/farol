@@ -2,9 +2,10 @@
 /**
  * Farol - proposta automatica para a Caixa de entrada.
  *
- * O modelo le o ficheiro e propoe o que ele e. PROPOE: nunca grava nada nas
- * tabelas de tarefas, eventos, documentos ou despesas. A proposta fica em
- * inbox_items.ai_json e so se torna real quando alguem carrega em Catalogar.
+ * O modelo le o ficheiro e propoe o que ele e. Aqui so se propoe: a proposta
+ * fica em inbox_items.ai_json e e devolvida a quem chamou. Quem decide se ela
+ * se torna real e o inbox.js - e so o faz quando o modelo diz que leu com
+ * confianca alta. Tudo o resto fica por triar, a espera de uma pessoa.
  *
  * Corre no Gemini, do Google (API de interactions), porque tem escalao
  * gratuito e chega de sobra para o volume de uma casa. Sem GEMINI_API_KEY o
@@ -151,11 +152,11 @@ async function perguntar(buffer, mime, nome) {
  * nao pode estragar um upload que ja correu bem.
  */
 async function analisarItem(id, buffer, mime, nome) {
-  if (!ativa() || !buffer) return;
+  if (!ativa() || !buffer) return null;
   if (buffer.length > MAX_BYTES) {
     await query("UPDATE inbox_items SET ai_status = 'falhou', ai_erro = $2, ai_at = now() WHERE id = $1",
       [id, 'ficheiro grande demais para analisar']).catch(() => {});
-    return;
+    return null;
   }
   try {
     const proposta = await perguntar(buffer, mime, nome);
@@ -163,10 +164,12 @@ async function analisarItem(id, buffer, mime, nome) {
       "UPDATE inbox_items SET ai_status = 'feito', ai_json = $2, ai_erro = NULL, ai_at = now() WHERE id = $1",
       [id, JSON.stringify(proposta)]);
     console.log('[farol] item', id, 'analisado:', (proposta.destinos || []).map((d) => d.tipo).join(', ') || 'nada');
+    return proposta;
   } catch (err) {
     console.warn('[farol] analise do item', id, 'falhou:', err.message);
     await query("UPDATE inbox_items SET ai_status = 'falhou', ai_erro = $2, ai_at = now() WHERE id = $1",
       [id, String(err.message).slice(0, 300)]).catch(() => {});
+    return null;
   }
 }
 
