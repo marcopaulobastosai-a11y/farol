@@ -47,7 +47,7 @@ function acMontar() {
 
   var nav = $('nav');
   if (nav && !nav.querySelector('[data-view="acessos"]')) {
-    nav.appendChild(el('div', 'nav-label mono', 'Administracao'));
+    nav.appendChild(el('div', 'nav-label mono', 'Administração'));
     var b = el('button', null, 'Acessos');
     b.dataset.view = 'acessos';
     nav.appendChild(b);
@@ -60,7 +60,7 @@ function acMontar() {
   var lista = el('div', 'card');
   acCabecalho(lista, 'Quem pode entrar', '');
   var aviso = el('div', 'ac-aviso',
-    'Quem entra ve tudo: tarefas, projetos, documentos e financas. Nao ha perfis dentro da app - dar acesso e dar acesso a tudo.');
+    'Quem entra vê tudo: tarefas, projetos, documentos e finanças. Não há perfis dentro da app — dar acesso é dar acesso a tudo.');
   lista.appendChild(aviso);
   var corpo = el('div');
   corpo.id = 'acLista';
@@ -69,7 +69,7 @@ function acMontar() {
 
   /* --- adicionar --- */
   var novo = el('div', 'card');
-  acCabecalho(novo, 'Dar acesso a alguem', null);
+  acCabecalho(novo, 'Dar acesso a alguém', null);
 
   var f1 = el('label', 'field');
   f1.appendChild(el('span', null, 'Email da conta Google'));
@@ -91,8 +91,8 @@ function acMontar() {
   f3.appendChild(el('span', null, 'Papel'));
   var sel = el('select');
   sel.id = 'acPapel';
-  var o1 = el('option', null, 'Membro - entra e usa a app'); o1.value = 'membro';
-  var o2 = el('option', null, 'Administrador - tambem gere acessos'); o2.value = 'admin';
+  var o1 = el('option', null, 'Membro — entra e usa a app'); o1.value = 'membro';
+  var o2 = el('option', null, 'Administrador — também gere acessos'); o2.value = 'admin';
   sel.appendChild(o1); sel.appendChild(o2);
   f3.appendChild(sel);
   linha.appendChild(f3);
@@ -125,7 +125,7 @@ function acRender() {
   if (cab) cab.textContent = AC.contas.length + (AC.contas.length === 1 ? ' conta' : ' contas');
 
   if (!AC.contas.length) {
-    alvo.appendChild(el('div', 'ac-vazio', 'Ninguem, o que nao deveria acontecer.'));
+    alvo.appendChild(el('div', 'ac-vazio', 'Ninguém, o que não deveria acontecer.'));
     return;
   }
 
@@ -137,10 +137,10 @@ function acRender() {
     corpo.appendChild(el('div', 'ac-email', c.nome ? c.nome + ' - ' + c.email : c.email));
 
     var partes = [];
-    if (c.protegido) partes.push('administrador do Farol, nao pode ser removido');
+    if (c.protegido) partes.push('administrador do Farol, não pode ser removido');
     else if (c.papel === 'admin') partes.push('administrador');
-    if (c.visto_em) partes.push('ultima entrada ' + acData(c.visto_em));
-    else partes.push('ainda nao entrou');
+    if (c.visto_em) partes.push('última entrada ' + acData(c.visto_em));
+    else partes.push('ainda não entrou');
     if (c.criado_em) partes.push('desde ' + acData(c.criado_em));
     corpo.appendChild(el('div', 'ac-meta', partes.join(' · ')));
     linha.appendChild(corpo);
@@ -191,7 +191,7 @@ function acAdicionar() {
     $('acPapel').value = 'membro';
     acGuardar(d);
     toast(email + ' passa a ter acesso.');
-  }).catch(function (e) { toast(e.message || 'Nao foi possivel dar o acesso.'); });
+  }).catch(function (e) { toast(e.message || 'Não foi possível dar o acesso.'); });
 }
 
 function acPapel(c, papel) {
@@ -202,14 +202,14 @@ function acPapel(c, papel) {
   }).then(function (d) {
     acGuardar(d);
     toast(c.email + (papel === 'admin' ? ' passa a administrador.' : ' passa a membro.'));
-  }).catch(function (e) { toast(e.message || 'Nao foi possivel mudar o papel.'); });
+  }).catch(function (e) { toast(e.message || 'Não foi possível mudar o papel.'); });
 }
 
 function acRemover(c) {
   apiGestao('/api/acessos/' + c.id, { method: 'DELETE' }).then(function (d) {
     acGuardar(d);
     toast(c.email + ' deixou de ter acesso.');
-  }).catch(function (e) { toast(e.message || 'Nao foi possivel retirar o acesso.'); });
+  }).catch(function (e) { toast(e.message || 'Não foi possível retirar o acesso.'); });
 }
 
 /* ---------------- arranque ---------------- */
