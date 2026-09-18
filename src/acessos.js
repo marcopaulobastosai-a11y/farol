@@ -49,6 +49,9 @@ function daRede(email) {
 function podeEntrar(email) {
   const e = normalizar(email);
   if (!e) return false;
+  /* O administrador entra sempre, aconteca o que acontecer a tabela: e a
+     garantia de que ninguem fica fechado do lado de fora. */
+  if (e === ADMIN) return true;
   if (!pronto) return daRede(e);
   return cache.some((c) => c.email === e);
 }
