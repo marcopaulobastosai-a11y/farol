@@ -183,9 +183,12 @@ function instalar(app, sessao, ativa) {
       if (corpo.papel && PAPEIS.indexOf(corpo.papel) < 0) {
         return res.status(400).json({ error: 'Papel desconhecido.' });
       }
+      /* O nome so muda quando vem no pedido — e ai pode mesmo ficar vazio,
+         para quem escreveu um nome errado o poder apagar. */
+      const temNome = Object.prototype.hasOwnProperty.call(corpo, 'nome');
       await pool.query(
-        'UPDATE access_emails SET papel = COALESCE($2, papel), nome = COALESCE($3, nome) WHERE id = $1',
-        [req.params.id, corpo.papel || null, (corpo.nome || '').trim() || null]
+        'UPDATE access_emails SET papel = COALESCE($2, papel), nome = CASE WHEN $3 THEN $4 ELSE nome END WHERE id = $1',
+        [req.params.id, corpo.papel || null, temNome, temNome ? ((corpo.nome || '').trim() || null) : null]
       );
       console.log('[farol] acesso alterado: ' + rows[0].email + ' por ' + req.quem);
       await responder(res);
