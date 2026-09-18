@@ -11,7 +11,7 @@
 
 var IB = { itens: [], porTriar: 0, estado: 'por_triar', triando: null, montado: false, carregado: false };
 
-var IB_CSS = "#view-inbox .ib-drop{display:flex;align-items:center;gap:.75rem;padding:1.25rem;border:1px dashed var(--line);border-radius:var(--radius);background:var(--surface-2);cursor:pointer;transition:border-color .15s,background .15s}\n#view-inbox .ib-drop:hover,#view-inbox .ib-drop.is-over{border-color:var(--accent);background:var(--accent-soft)}\n#view-inbox .ib-drop input[type=file]{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}\n#view-inbox .ib-dropi{flex:0 0 auto;width:34px;height:34px;border-radius:8px;background:var(--surface);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;color:var(--accent);font-family:var(--mono);font-size:1rem}\n#view-inbox .ib-dropt{font-weight:500;color:var(--ink-2)}\n#view-inbox .ib-drops{font-size:.8125rem;color:var(--muted);margin-top:.125rem}\n#view-inbox .ib-item{display:flex;gap:.875rem;padding:.9rem 0;border-top:1px solid var(--line-soft);align-items:flex-start}\n#view-inbox .ib-item:first-child{border-top:0;padding-top:.25rem}\n#view-inbox .ib-thumb{flex:0 0 52px;width:52px;height:52px;border-radius:8px;border:1px solid var(--line);background:var(--surface-2);display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:var(--fs-mono);color:var(--faint);text-transform:uppercase;overflow:hidden}\n#view-inbox .ib-thumb img{width:100%;height:100%;object-fit:cover;display:block}\n#view-inbox .ib-body{flex:1 1 auto;min-width:0}\n#view-inbox .ib-title{font-weight:500;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\n#view-inbox .ib-meta{font-size:.8125rem;color:var(--muted);margin-top:.15rem}\n#view-inbox .ib-note{font-size:.875rem;color:var(--ink-2);margin:.4rem 0 0}\n#view-inbox .ib-acts{display:flex;gap:.375rem;flex-wrap:wrap;margin-top:.55rem}\n#view-inbox .ib-dest{border:1px solid var(--line);border-radius:var(--radius);padding:.55rem .8rem;margin-bottom:.35rem;background:var(--surface)}\n#view-inbox .ib-dest.is-on{border-color:var(--accent);background:var(--accent-soft)}\n#view-inbox .ib-desth{display:flex;align-items:center;gap:.5rem;font-weight:500;cursor:pointer;color:var(--ink)}\n#view-inbox .ib-destc{margin-top:.75rem}\n#view-inbox .ib-alvo{font-family:var(--mono);font-size:var(--fs-mono);color:var(--accent-ink);background:var(--accent-soft);border-radius:6px;padding:.3rem .5rem;display:inline-block;margin:.1rem 0 .7rem}\n#view-inbox .ib-empty{padding:2.25rem 1rem;text-align:center;color:var(--muted);font-size:.9375rem}\n#view-inbox .ib-drop{padding:1.4rem 1.25rem;border-radius:12px;border-width:1.5px;gap:1rem}\n#view-inbox .ib-dropi{width:40px;height:40px;border-radius:10px;font-size:1.35rem;line-height:1}\n#view-inbox .ib-dropt{font-size:.9375rem;color:var(--ink)}\n#view-inbox .field{gap:6px;margin:1.1rem 0 0}\n#view-inbox input[type=text],#view-inbox input[type=number],#view-inbox input[type=date],#view-inbox input[type=time],#view-inbox select{font:inherit;font-size:.875rem;color:var(--ink);background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:9px 11px;width:100%;min-width:0;transition:border-color .15s ease,box-shadow .15s ease}\n#view-inbox input::placeholder{color:var(--faint)}\n#view-inbox input:focus,#view-inbox select:focus{outline:0;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}\n#view-inbox .form-actions{display:flex;justify-content:flex-end;gap:.5rem;margin-top:1rem}\n#view-inbox .form-actions .btn{padding:8px 16px;font-size:.875rem}\n#view-inbox .tabs{margin:1.1rem 0}\n#view-inbox .ib-empty{padding:3rem 1rem}";
+var IB_CSS = "#view-inbox .ib-drop{display:flex;align-items:center;gap:.75rem;padding:1.25rem;border:1px dashed var(--line);border-radius:var(--radius);background:var(--surface-2);cursor:pointer;transition:border-color .15s,background .15s}\n#view-inbox .ib-drop:hover,#view-inbox .ib-drop.is-over{border-color:var(--accent);background:var(--accent-soft)}\n#view-inbox .ib-drop input[type=file]{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}\n#view-inbox .ib-dropi{flex:0 0 auto;width:34px;height:34px;border-radius:8px;background:var(--surface);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;color:var(--accent);font-family:var(--mono);font-size:1rem}\n#view-inbox .ib-dropt{font-weight:500;color:var(--ink-2)}\n#view-inbox .ib-drops{font-size:.8125rem;color:var(--muted);margin-top:.125rem}\n#view-inbox .ib-item{display:flex;gap:.875rem;padding:.9rem 0;border-top:1px solid var(--line-soft);align-items:flex-start}\n#view-inbox .ib-item:first-child{border-top:0;padding-top:.25rem}\n#view-inbox .ib-thumb{flex:0 0 52px;width:52px;height:52px;border-radius:8px;border:1px solid var(--line);background:var(--surface-2);display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:var(--fs-mono);color:var(--faint);text-transform:uppercase;overflow:hidden}\n#view-inbox .ib-thumb img{width:100%;height:100%;object-fit:cover;display:block}\n#view-inbox .ib-body{flex:1 1 auto;min-width:0}\n#view-inbox .ib-title{font-weight:500;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\n#view-inbox .ib-meta{font-size:.8125rem;color:var(--muted);margin-top:.15rem}\n#view-inbox .ib-note{font-size:.875rem;color:var(--ink-2);margin:.4rem 0 0}\n#view-inbox .ib-acts{display:flex;gap:.375rem;flex-wrap:wrap;margin-top:.55rem}\n#view-inbox .ib-dest{border:1px solid var(--line);border-radius:var(--radius);padding:.55rem .8rem;margin-bottom:.35rem;background:var(--surface)}\n#view-inbox .ib-dest.is-on{border-color:var(--accent);background:var(--accent-soft)}\n#view-inbox .ib-desth{display:flex;align-items:center;gap:.5rem;font-weight:500;cursor:pointer;color:var(--ink)}\n#view-inbox .ib-destc{margin-top:.75rem}\n#view-inbox .ib-alvo{font-family:var(--mono);font-size:var(--fs-mono);color:var(--accent-ink);background:var(--accent-soft);border-radius:6px;padding:.3rem .5rem;display:inline-block;margin:.1rem 0 .7rem}\n#view-inbox .ib-empty{padding:2.25rem 1rem;text-align:center;color:var(--muted);font-size:.9375rem}\n#view-inbox .ib-drop{padding:1.4rem 1.25rem;border-radius:12px;border-width:1.5px;gap:1rem}\n#view-inbox .ib-dropi{width:40px;height:40px;border-radius:10px;font-size:1.35rem;line-height:1}\n#view-inbox .ib-dropt{font-size:.9375rem;color:var(--ink)}\n#view-inbox .field{gap:6px;margin:1.1rem 0 0}\n#view-inbox input[type=text],#view-inbox input[type=number],#view-inbox input[type=date],#view-inbox input[type=time],#view-inbox select{font:inherit;font-size:.875rem;color:var(--ink);background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:9px 11px;width:100%;min-width:0;transition:border-color .15s ease,box-shadow .15s ease}\n#view-inbox input::placeholder{color:var(--faint)}\n#view-inbox input:focus,#view-inbox select:focus{outline:0;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}\n#view-inbox .form-actions{display:flex;justify-content:flex-end;gap:.5rem;margin-top:1rem}\n#view-inbox .form-actions .btn{padding:8px 16px;font-size:.875rem}\n#view-inbox .tabs{margin:1.1rem 0}\n#view-inbox .ib-empty{padding:3rem 1rem}\n#view-inbox .ib-sug{display:flex;gap:.55rem;align-items:baseline;flex-wrap:wrap;border:1px solid var(--accent);background:var(--accent-soft);color:var(--ink-2);border-radius:10px;padding:.65rem .85rem;margin:.1rem 0 .9rem;font-size:.875rem}\n#view-inbox .ib-sugt{font-family:var(--mono);font-size:var(--fs-mono);letter-spacing:.07em;text-transform:uppercase;color:var(--accent-ink)}\n#view-inbox .ib-conf{margin-left:auto;font-family:var(--mono);font-size:var(--fs-mono);text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}\n#view-inbox .ib-conf.alta{color:var(--good)}\n#view-inbox .ib-ia{font-size:.8125rem;color:var(--muted);margin-top:.2rem}\n#view-inbox .ib-ia.pronta{color:var(--accent-ink)}";
 
 var IB_DESTINOS = [
   { tipo: 'tarefa', nome: 'Tarefa', campos: [
@@ -222,6 +222,16 @@ function ibItem(item) {
   body.appendChild(el('div', 'ib-meta',
     [ibQuando(item.captured_at), ibTamanho(item.byte_size)].filter(Boolean).join('  -  ')));
 
+  /* Estado da leitura automatica, se estiver ligada. */
+  if (item.ai_status === 'pendente') {
+    body.appendChild(el('div', 'ib-ia', 'a ler o ficheiro\u2026'));
+  } else if (item.ai_status === 'feito') {
+    var jx = ibProposta(item);
+    body.appendChild(el('div', 'ib-ia' + (jx ? ' pronta' : ''),
+      jx ? 'sugest\u00e3o pronta: ' + jx.destinos.map(function (x) { return x.tipo; }).join(', ')
+         : 'sem sugest\u00e3o'));
+  }
+
   if (item.note && item.note !== titulo) body.appendChild(el('p', 'ib-note', item.note));
 
   if ((item.links && item.links.length) || (item.status === 'catalogado' && item.store === 'inbox')) {
@@ -262,8 +272,41 @@ function ibItem(item) {
 }
 
 /* ---------------- triagem ---------------- */
+/* ---------------- proposta da IA ---------------- */
+/* A proposta chega em ai_json e nunca e aplicada sozinha: marca os destinos,
+   preenche os campos, e fica a espera que alguem carregue em Catalogar. */
+function ibProposta(item) {
+  if (!item || !item.ai_json) return null;
+  var j = item.ai_json;
+  if (typeof j === 'string') { try { j = JSON.parse(j); } catch (e) { return null; } }
+  if (!j || !j.destinos || !j.destinos.length) return null;
+  return j;
+}
+
+function ibPorTipo(item) {
+  var j = ibProposta(item);
+  var mapa = {};
+  if (j) j.destinos.forEach(function (x) { if (x && x.tipo && !mapa[x.tipo]) mapa[x.tipo] = x; });
+  return mapa;
+}
+
+/* O modelo devolve um nome; aqui procura-se a pessoa correspondente. */
+function ibPessoaPorNome(nome) {
+  if (!nome || typeof G === 'undefined' || !G.people) return null;
+  var alvo = String(nome).trim().toLowerCase();
+  if (alvo.length < 3) return null;
+  for (var i = 0; i < G.people.length; i++) {
+    var p = G.people[i];
+    var n = String(p.name || '').toLowerCase();
+    var c = String(p.full_name || '').toLowerCase();
+    if (n === alvo || c === alvo || c.indexOf(alvo) >= 0 || alvo.indexOf(n) >= 0) return p.id;
+  }
+  return null;
+}
+
 function ibAbrirTriagem(item) {
   IB.triando = item;
+  IB.prop = ibPorTipo(item);
   if (typeof gState !== 'undefined' && !gState.loaded && typeof loadGestao === 'function') {
     loadGestao().then(function () { ibDesenharTriagem(); });
   }
@@ -280,7 +323,15 @@ function ibDesenharTriagem() {
 
   ibCabecalho(p, 'No que e que isto se transforma?', null);
   p.appendChild(el('div', 'ib-alvo', IB.triando.file_name || ibNomeBonito(IB.triando) || 'Nota sem ficheiro'));
-  p.appendChild(el('p', 'ib-note', 'Pode ser mais do que uma coisa. O talao da maquina e despesa e e garantia.'));
+  p.appendChild(el('p', 'ib-note', 'Pode ser mais do que uma coisa. O tal\u00e3o da m\u00e1quina \u00e9 despesa e \u00e9 garantia.'));
+
+  var jp = ibProposta(IB.triando);
+  if (jp) {
+    var sug0 = el('div', 'ib-sug');
+    sug0.appendChild(el('span', 'ib-sugt', 'Sugest\u00e3o'));
+    sug0.appendChild(el('span', null, jp.resumo || 'Li o ficheiro e marquei o que me pareceu.'));
+    p.appendChild(sug0);
+  }
 
   IB_DESTINOS.forEach(function (d) {
     var bloco = el('div', 'ib-dest');
@@ -302,6 +353,15 @@ function ibDesenharTriagem() {
       campos.hidden = !cx.checked;
       bloco.classList.toggle('is-on', cx.checked);
     };
+
+    /* O que a IA propos ja vem marcado e preenchido, por confirmar. */
+    var sugd = IB.prop && IB.prop[d.tipo];
+    if (sugd) {
+      cx.checked = true;
+      campos.hidden = false;
+      bloco.classList.add('is-on');
+      if (sugd.confianca) cab.appendChild(el('span', 'ib-conf' + (sugd.confianca === 'alta' ? ' alta' : ''), sugd.confianca));
+    }
     bloco.appendChild(campos);
     p.appendChild(bloco);
   });
@@ -340,7 +400,16 @@ function ibCampo(tipo, c) {
     if (c.tipo === 'number') input.step = '0.01';
   }
   input.id = 'ibC_' + tipo + '_' + c.k;
-  if (c.k === 'title' || c.k === 'name' || c.k === 'description') {
+
+  /* Primeiro o que a IA leu; so depois o nome do ficheiro. */
+  var dados = IB.prop && IB.prop[tipo] && IB.prop[tipo].dados;
+  var val = dados ? dados[c.k] : null;
+  if ((val === null || val === undefined) && dados && c.tipo === 'pessoa' && dados.pessoa) {
+    val = ibPessoaPorNome(dados.pessoa);
+  }
+  if (val !== null && val !== undefined && val !== '') {
+    input.value = String(val);
+  } else if (c.k === 'title' || c.k === 'name' || c.k === 'description') {
     var it = IB.triando;
     if (it) input.value = ibNomeBonito(it);
   }
