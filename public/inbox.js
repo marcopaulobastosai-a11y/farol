@@ -11,28 +11,28 @@
 
 var IB = { itens: [], porTriar: 0, estado: 'por_triar', triando: null, montado: false, carregado: false };
 
-var IB_CSS = "#view-inbox .ib-drop{display:flex;align-items:center;gap:.75rem;padding:1.25rem;border:1px dashed var(--line);border-radius:var(--radius);background:var(--surface-2);cursor:pointer;transition:border-color .15s,background .15s}\n#view-inbox .ib-drop:hover,#view-inbox .ib-drop.is-over{border-color:var(--accent);background:var(--accent-soft)}\n#view-inbox .ib-drop input[type=file]{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}\n#view-inbox .ib-dropi{flex:0 0 auto;width:34px;height:34px;border-radius:8px;background:var(--surface);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;color:var(--accent);font-family:var(--mono);font-size:1rem}\n#view-inbox .ib-dropt{font-weight:500;color:var(--ink-2)}\n#view-inbox .ib-drops{font-size:.8125rem;color:var(--muted);margin-top:.125rem}\n#view-inbox .ib-item{display:flex;gap:.875rem;padding:.9rem 0;border-top:1px solid var(--line-soft);align-items:flex-start}\n#view-inbox .ib-item:first-child{border-top:0;padding-top:.25rem}\n#view-inbox .ib-thumb{flex:0 0 52px;width:52px;height:52px;border-radius:8px;border:1px solid var(--line);background:var(--surface-2);display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:var(--fs-mono);color:var(--faint);text-transform:uppercase;overflow:hidden}\n#view-inbox .ib-thumb img{width:100%;height:100%;object-fit:cover;display:block}\n#view-inbox .ib-body{flex:1 1 auto;min-width:0}\n#view-inbox .ib-title{font-weight:500;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\n#view-inbox .ib-meta{font-size:.8125rem;color:var(--muted);margin-top:.15rem}\n#view-inbox .ib-note{font-size:.875rem;color:var(--ink-2);margin:.4rem 0 0}\n#view-inbox .ib-acts{display:flex;gap:.375rem;flex-wrap:wrap;margin-top:.55rem}\n#view-inbox .ib-dest{border:1px solid var(--line);border-radius:var(--radius);padding:.55rem .8rem;margin-bottom:.35rem;background:var(--surface)}\n#view-inbox .ib-dest.is-on{border-color:var(--accent);background:var(--accent-soft)}\n#view-inbox .ib-desth{display:flex;align-items:center;gap:.5rem;font-weight:500;cursor:pointer;color:var(--ink)}\n#view-inbox .ib-destc{margin-top:.75rem}\n#view-inbox .ib-alvo{font-family:var(--mono);font-size:var(--fs-mono);color:var(--accent-ink);background:var(--accent-soft);border-radius:6px;padding:.3rem .5rem;display:inline-block;margin:.1rem 0 .7rem}\n#view-inbox .ib-empty{padding:2.25rem 1rem;text-align:center;color:var(--muted);font-size:.9375rem}";
+var IB_CSS = "#view-inbox .ib-drop{display:flex;align-items:center;gap:.75rem;padding:1.25rem;border:1px dashed var(--line);border-radius:var(--radius);background:var(--surface-2);cursor:pointer;transition:border-color .15s,background .15s}\n#view-inbox .ib-drop:hover,#view-inbox .ib-drop.is-over{border-color:var(--accent);background:var(--accent-soft)}\n#view-inbox .ib-drop input[type=file]{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}\n#view-inbox .ib-dropi{flex:0 0 auto;width:34px;height:34px;border-radius:8px;background:var(--surface);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;color:var(--accent);font-family:var(--mono);font-size:1rem}\n#view-inbox .ib-dropt{font-weight:500;color:var(--ink-2)}\n#view-inbox .ib-drops{font-size:.8125rem;color:var(--muted);margin-top:.125rem}\n#view-inbox .ib-item{display:flex;gap:.875rem;padding:.9rem 0;border-top:1px solid var(--line-soft);align-items:flex-start}\n#view-inbox .ib-item:first-child{border-top:0;padding-top:.25rem}\n#view-inbox .ib-thumb{flex:0 0 52px;width:52px;height:52px;border-radius:8px;border:1px solid var(--line);background:var(--surface-2);display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:var(--fs-mono);color:var(--faint);text-transform:uppercase;overflow:hidden}\n#view-inbox .ib-thumb img{width:100%;height:100%;object-fit:cover;display:block}\n#view-inbox .ib-body{flex:1 1 auto;min-width:0}\n#view-inbox .ib-title{font-weight:500;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\n#view-inbox .ib-meta{font-size:.8125rem;color:var(--muted);margin-top:.15rem}\n#view-inbox .ib-note{font-size:.875rem;color:var(--ink-2);margin:.4rem 0 0}\n#view-inbox .ib-acts{display:flex;gap:.375rem;flex-wrap:wrap;margin-top:.55rem}\n#view-inbox .ib-dest{border:1px solid var(--line);border-radius:var(--radius);padding:.55rem .8rem;margin-bottom:.35rem;background:var(--surface)}\n#view-inbox .ib-dest.is-on{border-color:var(--accent);background:var(--accent-soft)}\n#view-inbox .ib-desth{display:flex;align-items:center;gap:.5rem;font-weight:500;cursor:pointer;color:var(--ink)}\n#view-inbox .ib-destc{margin-top:.75rem}\n#view-inbox .ib-alvo{font-family:var(--mono);font-size:var(--fs-mono);color:var(--accent-ink);background:var(--accent-soft);border-radius:6px;padding:.3rem .5rem;display:inline-block;margin:.1rem 0 .7rem}\n#view-inbox .ib-empty{padding:2.25rem 1rem;text-align:center;color:var(--muted);font-size:.9375rem}\n#view-inbox .ib-drop{padding:1.4rem 1.25rem;border-radius:12px;border-width:1.5px;gap:1rem}\n#view-inbox .ib-dropi{width:40px;height:40px;border-radius:10px;font-size:1.35rem;line-height:1}\n#view-inbox .ib-dropt{font-size:.9375rem;color:var(--ink)}\n#view-inbox .field{gap:6px;margin:1.1rem 0 0}\n#view-inbox input[type=text],#view-inbox input[type=number],#view-inbox input[type=date],#view-inbox input[type=time],#view-inbox select{font:inherit;font-size:.875rem;color:var(--ink);background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:9px 11px;width:100%;min-width:0;transition:border-color .15s ease,box-shadow .15s ease}\n#view-inbox input::placeholder{color:var(--faint)}\n#view-inbox input:focus,#view-inbox select:focus{outline:0;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}\n#view-inbox .form-actions{display:flex;justify-content:flex-end;gap:.5rem;margin-top:1rem}\n#view-inbox .form-actions .btn{padding:8px 16px;font-size:.875rem}\n#view-inbox .tabs{margin:1.1rem 0}\n#view-inbox .ib-empty{padding:3rem 1rem}";
 
 var IB_DESTINOS = [
   { tipo: 'tarefa', nome: 'Tarefa', campos: [
-    { k: 'title', l: 'O que e preciso fazer', tipo: 'text' },
+    { k: 'title', l: 'O que é preciso fazer', tipo: 'text' },
     { k: 'due_on', l: 'Prazo', tipo: 'date' },
     { k: 'owner_id', l: 'Quem faz', tipo: 'pessoa' },
     { k: 'project_id', l: 'Projeto', tipo: 'projeto' }
   ] },
   { tipo: 'evento', nome: 'Evento na Agenda', campos: [
-    { k: 'title', l: 'Titulo', tipo: 'text' },
+    { k: 'title', l: 'Título', tipo: 'text' },
     { k: 'day', l: 'Dia', tipo: 'date' },
     { k: 'at', l: 'Hora', tipo: 'time' }
   ] },
   { tipo: 'documento', nome: 'Documento', campos: [
     { k: 'name', l: 'Nome', tipo: 'text' },
     { k: 'entity', l: 'Entidade', tipo: 'text' },
-    { k: 'valid_on', l: 'Valido ate', tipo: 'date' },
+    { k: 'valid_on', l: 'Válido até', tipo: 'date' },
     { k: 'person_id', l: 'De quem', tipo: 'pessoa' }
   ] },
   { tipo: 'despesa', nome: 'Despesa', campos: [
-    { k: 'description', l: 'Descricao', tipo: 'text' },
+    { k: 'description', l: 'Descrição', tipo: 'text' },
     { k: 'amount', l: 'Valor (\u20ac)', tipo: 'number' },
     { k: 'spent_on', l: 'Data', tipo: 'date' },
     { k: 'merchant', l: 'Onde', tipo: 'text' }
@@ -110,7 +110,7 @@ function ibMontar() {
   var dt1 = el('div', 'ib-dropt', 'Escolher ficheiro ou arrastar para aqui');
   dt1.id = 'ibDropT';
   dtxt.appendChild(dt1);
-  dtxt.appendChild(el('div', 'ib-drops', 'Fotografias, PDF, documentos - ate 25 MB'));
+  dtxt.appendChild(el('div', 'ib-drops', 'Fotografias, PDF, documentos — até 25 MB'));
   drop.appendChild(dtxt);
   var fich = el('input');
   fich.type = 'file'; fich.id = 'ibFicheiro';
@@ -122,7 +122,7 @@ function ibMontar() {
   lbl.appendChild(el('span', null, 'Nota (opcional)'));
   var nota = el('input');
   nota.type = 'text'; nota.id = 'ibNota';
-  nota.placeholder = 'Ex.: talao da maquina de lavar, garantia 2 anos';
+  nota.placeholder = 'Ex.: talão da máquina de lavar, garantia 2 anos';
   lbl.appendChild(nota);
   cap.appendChild(lbl);
 
@@ -170,7 +170,7 @@ function ibCarregar() {
     IB.porTriar = d.porTriar || 0;
     IB.carregado = true;
     ibRender();
-  }).catch(function () { toast('Nao foi possivel ler a caixa de entrada.'); });
+  }).catch(function () { toast('Não foi possível ler a caixa de entrada.'); });
 }
 
 function ibRender() {
@@ -191,7 +191,7 @@ function ibRender() {
 
   if (!IB.itens.length) {
     lista.appendChild(el('div', 'ib-empty', IB.estado === 'por_triar'
-      ? 'Nada por triar. A caixa esta limpa.'
+      ? 'Nada por triar. A caixa está limpa.'
       : 'Nada aqui.'));
     return;
   }
@@ -388,7 +388,7 @@ function ibSubmeterTriagem() {
     ibRender();
     if (typeof loadGestao === 'function') loadGestao();
     toast('Catalogado.');
-  }).catch(function (e) { toast(e.message || 'Nao foi possivel catalogar.'); });
+  }).catch(function (e) { toast(e.message || 'Não foi possível catalogar.'); });
 }
 
 /* ---------------- escrita ---------------- */
@@ -404,7 +404,7 @@ function ibGuardar() {
   if (texto) fd.append('note', texto);
 
   var btn = $('ibGuardar');
-  if (btn) { btn.disabled = true; btn.textContent = 'A guardar...'; }
+  if (btn) { btn.disabled = true; btn.textContent = 'A guardar…'; }
 
   // Sem Content-Type a mao: o browser tem de escrever o boundary do multipart.
   fetch('/api/inbox', { method: 'POST', body: fd })
@@ -421,7 +421,7 @@ function ibGuardar() {
       toast('Guardado.');
       return ibCarregar();
     })
-    .catch(function (e) { toast(e.message || 'Nao foi possivel guardar.'); })
+    .catch(function (e) { toast(e.message || 'Não foi possível guardar.'); })
     .then(function () {
       if (btn) { btn.disabled = false; btn.textContent = 'Guardar na caixa'; }
     });
@@ -434,14 +434,14 @@ function ibEstado(id, status) {
     body: JSON.stringify({ status: status })
   }).then(function (d) {
     IB.itens = d.itens || []; IB.porTriar = d.porTriar || 0; ibRender();
-  }).catch(function (e) { toast(e.message || 'Nao foi possivel gravar.'); });
+  }).catch(function (e) { toast(e.message || 'Não foi possível gravar.'); });
 }
 
 function ibApagar(id) {
   apiGestao('/api/inbox/' + id + '?estado=' + IB.estado, { method: 'DELETE' })
     .then(function (d) {
       IB.itens = d.itens || []; IB.porTriar = d.porTriar || 0; ibRender();
-    }).catch(function (e) { toast(e.message || 'Nao foi possivel apagar.'); });
+    }).catch(function (e) { toast(e.message || 'Não foi possível apagar.'); });
 }
 
 /* ---------------- ligacoes ---------------- */
