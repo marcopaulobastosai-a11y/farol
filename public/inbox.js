@@ -214,7 +214,10 @@ function ibItem(item) {
   w.appendChild(th);
 
   var body = el('div', 'ib-body');
-  var titulo = item.title || item.file_name || (item.note || '').slice(0, 70) || 'Sem nome';
+  /* O nome do ficheiro tal como vem do telemovel nao e um titulo:
+     ibNomeBonito tira a extensao, os underscores e a cauda de numeros. */
+  var titulo = ibNomeBonito(item) || 'Sem nome';
+  if (titulo.length > 80) titulo = titulo.slice(0, 80) + '…';
   body.appendChild(el('div', 'ib-title', titulo));
   body.appendChild(el('div', 'ib-meta',
     [ibQuando(item.captured_at), ibTamanho(item.byte_size)].filter(Boolean).join('  -  ')));
