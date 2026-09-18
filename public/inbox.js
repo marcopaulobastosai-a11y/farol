@@ -491,7 +491,7 @@ function ibGuardar() {
       if (nota) nota.value = '';
       ibNomeEscolhido(null);
       toast('Guardado.');
-      return ibCarregar();
+      return ibCarregar().then(ibAcompanhar);
     })
     .catch(function (e) { toast(e.message || 'Não foi possível guardar.'); })
     .then(function () {
@@ -560,6 +560,29 @@ function ibLigar() {
       ibCarregar();
     });
   }
+}
+
+/* A análise corre no servidor depois da resposta, e o que ela decidir muda a
+   lista: o item ganha nome, ou sai daqui para Catalogados. Em vez de obrigar
+   a carregar em Actualizar, espreita-se algumas vezes e pára. */
+function ibAcompanhar(tentativa) {
+  var n = tentativa || 0;
+  var antes = (IB.itens || []).filter(function (x) { return x.ai_status === 'pendente'; })
+    .map(function (x) { return x.id; });
+  if (!antes.length || n > 7) return;
+
+  setTimeout(function () {
+    ibCarregar().then(function () {
+      var agora = (IB.itens || []).map(function (x) { return x.id; });
+      var sumiu = antes.filter(function (id) { return agora.indexOf(id) < 0; });
+      if (sumiu.length && IB.estado === 'por_triar') {
+        toast(sumiu.length === 1
+          ? 'Catalogado sozinho. Está em Catalogados.'
+          : sumiu.length + ' catalogados sozinhos. Estão em Catalogados.');
+      }
+      ibAcompanhar(n + 1);
+    }).catch(function () {});
+  }, n < 3 ? 2500 : 5000);
 }
 
 /* Arranque preguicoso: so le a caixa quando alguem a abre. */
