@@ -6,45 +6,45 @@
  * tabelas de tarefas, eventos, documentos ou despesas. A proposta fica em
  * inbox_items.ai_json e so se torna real quando alguem carrega em Catalogar.
  *
- * Corre no Gemini, do Google, porque tem escalao gratuito e chega de sobra
- * para o volume de uma casa. Sem GEMINI_API_KEY o modulo desliga-se sozinho e
- * a Caixa funciona na mesma, so sem sugestoes.
+ * Corre no Gemini, do Google (API de interactions), porque tem escalao
+ * gratuito e chega de sobra para o volume de uma casa. Sem GEMINI_API_KEY o
+ * modulo desliga-se sozinho e a Caixa funciona na mesma, so sem sugestoes.
  */
 const { query } = require('./db');
 
 const CHAVE = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '';
-const MODELO = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+const MODELO = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
 const ativa = () => Boolean(CHAVE);
 
 const IMAGENS = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/heic', 'image/heif'];
 // Limite pratico do corpo do pedido. Acima disto nem vale a pena tentar.
 const MAX_BYTES = 6 * 1024 * 1024;
 
-const texto = (d) => ({ type: 'STRING', description: d });
+const texto = (d) => ({ type: 'string', description: d });
 
 /**
  * Esquema fixo em vez de pedir JSON em texto: assim a resposta nao pode vir
  * malformada nem embrulhada em conversa.
  */
 const ESQUEMA = {
-  type: 'OBJECT',
+  type: 'object',
   properties: {
     resumo: texto('Uma linha a dizer o que e o ficheiro.'),
     destinos: {
-      type: 'ARRAY',
+      type: 'array',
       description: 'Um ou mais destinos. Vazio se nao for possivel perceber.',
       items: {
-        type: 'OBJECT',
+        type: 'object',
         properties: {
-          tipo: { type: 'STRING', enum: ['tarefa', 'evento', 'documento', 'despesa'] },
-          confianca: { type: 'STRING', enum: ['alta', 'media', 'baixa'] },
+          tipo: { type: 'string', enum: ['tarefa', 'evento', 'documento', 'despesa'] },
+          confianca: { type: 'string', enum: ['alta', 'media', 'baixa'] },
           dados: {
-            type: 'OBJECT',
+            type: 'object',
             properties: {
               title: texto('Titulo da tarefa ou do evento.'),
               name: texto('Nome do documento.'),
               description: texto('Descricao da despesa.'),
-              amount: { type: 'NUMBER', description: 'Valor total em euros.' },
+              amount: { type: 'number', description: 'Valor total em euros.' },
               spent_on: texto('Data da despesa, AAAA-MM-DD.'),
               merchant: texto('Estabelecimento ou entidade que cobrou.'),
               day: texto('Dia do evento, AAAA-MM-DD.'),
@@ -97,49 +97,52 @@ function suportado(mime) {
 async function perguntar(buffer, mime, nome) {
   if (!suportado(mime)) throw new Error('tipo de ficheiro nao suportado pela analise');
 
-  const r = await fetch(
-    'https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(MODELO) + ':generateContent',
-    {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-goog-api-key': CHAVE },
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: SISTEMA }] },
-        contents: [{
-          role: 'user',
-          parts: [
-            { inline_data: { mime_type: mime, data: buffer.toString('base64') } },
-            { text: 'Nome do ficheiro: ' + (nome || 'sem nome') }
-          ]
-        }],
-        generationConfig: {
-          temperature: 0,
-          maxOutputTokens: 2048,
-          responseMimeType: 'application/json',
-          responseSchema: ESQUEMA
-        }
-      })
-    }
-  );
+  const parte = mime === 'application/pdf'
+    ? { type: 'document', data: buffer.toString('base64'), mime_type: mime }
+    : mime === 'text/plain'
+      ? { type: 'text', text: buffer.toString('utf8').slice(0, 20000) }
+      : { type: 'image', data: buffer.toString('base64'), mime_type: mime };
+
+  const r = await fetch('https://generativelanguage.googleapis.com/v1beta/interactions', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-goog-api-key': CHAVE },
+    body: JSON.stringify({
+      model: MODELO,
+      system_instruction: SISTEMA,
+      store: false,
+      input: [parte, { type: 'text', text: 'Nome do ficheiro: ' + (nome || 'sem nome') }],
+      response_format: { type: 'text', mime_type: 'application/json', schema: ESQUEMA }
+    })
+  });
 
   if (!r.ok) {
     const t = await r.text().catch(() => '');
-    throw new Error('API ' + r.status + ' ' + t.slice(0, 200));
+    throw new Error('API ' + r.status + ' ' + t.replace(/\s+/g, ' ').slice(0, 220));
   }
 
   const j = await r.json();
-  const c = (j.candidates || [])[0];
-  const partes = (c && c.content && c.content.parts) || [];
-  const cru = partes.map((p) => p.text).filter(Boolean).join('');
-  if (!cru) throw new Error('resposta sem proposta' + (c && c.finishReason ? ' (' + c.finishReason + ')' : ''));
+
+  /* A resposta vem em passos; o texto e o que interessa. */
+  let cru = '';
+  (j.steps || []).forEach((passo) => {
+    (passo.content || []).forEach((c) => {
+      if (c && c.type === 'text' && c.text) cru += c.text;
+    });
+  });
+  if (!cru && typeof j.output_text === 'string') cru = j.output_text;
+  if (!cru) throw new Error('resposta sem proposta');
 
   let proposta;
   try { proposta = JSON.parse(cru); }
   catch (e) { throw new Error('proposta ilegivel'); }
 
-  const uso = j.usageMetadata || {};
+  const uso = j.usage || j.usageMetadata || {};
   return Object.assign({}, proposta, {
     modelo: MODELO,
-    tokens: { entrada: uso.promptTokenCount, saida: uso.candidatesTokenCount }
+    tokens: {
+      entrada: uso.input_tokens || uso.promptTokenCount,
+      saida: uso.output_tokens || uso.candidatesTokenCount
+    }
   });
 }
 
