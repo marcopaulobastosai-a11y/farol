@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacidade · Farol</title>
+<meta name="robots" content="noindex">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500&family=Newsreader:wght@400;500&display=swap">
+<style>
+:root{--bg:#F7F6F3;--surface:#FFFFFF;--ink:#1C1F1E;--ink-2:#3C4240;--muted:#6B7472;--line:#E2E0DA;--accent:#0F6E70}
+@media (prefers-color-scheme:dark){:root{--bg:#141716;--surface:#1B1F1E;--ink:#ECEAE4;--ink-2:#C7CAC7;--muted:#8E9895;--line:#2C312F;--accent:#5FB3B0}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;line-height:1.6}
+main{max-width:44rem;margin:0 auto;padding:3rem 1.25rem 4rem}
+h1{font-family:Newsreader,Georgia,serif;font-weight:500;font-size:2rem;margin:0 0 .25rem}
+h2{font-family:Newsreader,Georgia,serif;font-weight:500;font-size:1.25rem;margin:2rem 0 .5rem}
+p,li{color:var(--ink-2)}
+ul{padding-left:1.15rem}
+.sub{color:var(--muted);font-size:.9375rem;margin:0 0 2rem}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:1.25rem 1.5rem}
+a{color:var(--accent)}
+footer{margin-top:2.5rem;padding-top:1.25rem;border-top:1px solid var(--line);color:var(--muted);font-size:.875rem}
+</style>
+</head>
+<body>
+<main>
+<h1>Privacidade</h1>
+<p class="sub">O que o Farol guarda, porqu&ecirc; e durante quanto tempo.</p>
+<div class="card">
+<h2>O que isto &eacute;</h2>
+<p>O Farol &eacute; uma aplica&ccedil;&atilde;o pessoal, feita para uma fam&iacute;lia gerir a sua pr&oacute;pria vida: tarefas, agenda, documentos, despesas e projectos. N&atilde;o &eacute; um servi&ccedil;o p&uacute;blico, n&atilde;o tem clientes e n&atilde;o se registam contas: entra quem for convidado.</p>
+
+<h2>O que recebemos do Google</h2>
+<p>Ao entrar com a conta Google, o Farol recebe apenas <strong>o nome pr&oacute;prio e o endere&ccedil;o de email</strong> dessa conta, e a confirma&ccedil;&atilde;o de que o email est&aacute; validado. Serve para uma coisa s&oacute;: confirmar que essa conta consta da lista de quem pode entrar. N&atilde;o pedimos acesso ao Gmail, ao Drive, aos contactos, ao calend&aacute;rio nem a nada mais.</p>
+
+<h2>O que guardamos</h2>
+<ul>
+<li>O email e o nome da conta, com a data da &uacute;ltima entrada.</li>
+<li>O que quem entra escreve ou carrega na aplica&ccedil;&atilde;o: tarefas, eventos, documentos, despesas e ficheiros.</li>
+<li>Um <em>cookie</em> de sess&atilde;o, assinado, v&aacute;lido 30 dias, para n&atilde;o ser preciso entrar a cada visita. N&atilde;o h&aacute; cookies de publicidade nem de an&aacute;lise de tr&aacute;fego.</li>
+</ul>
+<p>Os dados ficam numa base de dados PostgreSQL e em armazenamento de ficheiros alojados na Railway, em Amesterd&atilde;o (Uni&atilde;o Europeia).</p>
+
+<h2>Quem v&ecirc;</h2>
+<p>Apenas as contas que constam da lista de acessos. N&atilde;o vendemos, n&atilde;o partilhamos e n&atilde;o cedemos nada a terceiros. N&atilde;o h&aacute; publicidade e n&atilde;o h&aacute; an&aacute;lise de comportamento.</p>
+
+<h2>Intelig&ecirc;ncia artificial</h2>
+<p>Quando um ficheiro &eacute; guardado na Caixa de entrada, a aplica&ccedil;&atilde;o pode pedir a um modelo da Anthropic (Claude) uma sugest&atilde;o de como catalog&aacute;-lo. Nesse caso o ficheiro e o seu nome s&atilde;o enviados para a API da Anthropic, que devolve a sugest&atilde;o. A decis&atilde;o final &eacute; sempre de quem est&aacute; a usar a aplica&ccedil;&atilde;o. Esta funcionalidade s&oacute; est&aacute; activa se houver uma chave de API configurada; sem ela, a Caixa de entrada funciona na mesma, apenas sem sugest&otilde;es.</p>
+
+<h2>Sair</h2>
+<p>O acesso pode ser retirado a qualquer momento pelo administrador, e tem efeito imediato. Para apagar o que estiver guardado &agrave; sua conta, basta pedir pelo email abaixo.</p>
+
+<h2>Altera&ccedil;&otilde;es</h2>
+<p>Esta p&aacute;gina pode mudar &agrave; medida que a aplica&ccedil;&atilde;o muda. &Uacute;ltima revis&atilde;o: 18 de setembro de 2026.</p>
+</div>
+<footer>
+Farol &middot; aplica&ccedil;&atilde;o pessoal de Marco Bastos &middot;
+<a href="mailto:marcopaulobastosai@gmail.com">marcopaulobastosai@gmail.com</a><br>
+<a href="/">Voltar ao Farol</a> &middot; <a href="/privacidade.html">Privacidade</a> &middot; <a href="/termos.html">Termos</a>
+</footer>
+</main>
+</body>
+</html>
