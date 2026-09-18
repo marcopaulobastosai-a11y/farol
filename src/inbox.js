@@ -200,6 +200,122 @@ async function carregar(estado) {
 /* ------------------------------------------------------------------ *
  * Rotas
  * ------------------------------------------------------------------ */
+/* O mesmo caminho serve a triagem à mão e a automática: há uma só maneira de
+   um item da caixa se transformar em coisas. */
+async function executarTriagem(id, destinos) {
+  for (const d of destinos) {
+    if (!TIPOS.includes(d.tipo)) throw new Error('Destino desconhecido: ' + d.tipo);
+  }
+  await query('BEGIN');
+  try {
+    const linhas = await all(
+      'SELECT id, file_path, mime_type, store FROM inbox_items WHERE id = $1 FOR UPDATE', [id]);
+    if (!linhas.length) throw new Error('Item não encontrado.');
+    const item = linhas[0];
+
+    const criados = [];
+    for (const d of destinos) {
+      const novoId = await CRIAR[d.tipo](d.dados || {});
+      await query(
+        `INSERT INTO inbox_links (inbox_id, target_type, target_id) VALUES ($1,$2,$3)
+         ON CONFLICT DO NOTHING`, [id, d.tipo, novoId]);
+      criados.push({ tipo: d.tipo, id: novoId });
+    }
+    await query("UPDATE inbox_items SET status = 'catalogado', resolved_at = now() WHERE id = $1", [id]);
+    await query('COMMIT');
+
+    if (item.file_path && item.store === 'inbox') {
+      try {
+        if (await arquivar(item.file_path, item.mime_type)) {
+          await query("UPDATE inbox_items SET store = 'arquivo' WHERE id = $1", [id]);
+        }
+      } catch (e) {
+        console.warn('[farol] item', id, 'catalogado mas não arquivado:', e.message);
+      }
+    }
+    return criados;
+  } catch (err) {
+    await query('ROLLBACK').catch(() => {});
+    throw err;
+  }
+}
+
+/* ---------------- catalogação automática ---------------- */
+/* Só avança sozinho quando o modelo diz que leu, não quando deduziu. Um
+   destino de confiança média, ou a que falte o essencial, fica por triar:
+   mais vale dar trabalho a alguém do que escrever uma despesa errada em
+   silêncio. */
+const CAMPOS_MINIMOS = {
+  tarefa: (x) => Boolean(x.title),
+  evento: (x) => Boolean(x.title && x.day),
+  documento: (x) => Boolean(x.name),
+  despesa: (x) => Boolean(x.description) && x.amount !== undefined && x.amount !== null && x.amount !== ''
+};
+
+async function pessoaPorNome(nome) {
+  const alvo = String(nome || '').trim();
+  if (alvo.length < 3) return null;
+  const rows = await all(
+    `SELECT id FROM people
+      WHERE lower(name) = lower($1) OR lower(full_name) = lower($1)
+         OR lower(full_name) LIKE lower($2)
+      ORDER BY length(name) LIMIT 1`,
+    [alvo, '%' + alvo + '%']);
+  return rows.length ? rows[0].id : null;
+}
+
+/* O modelo devolve um nome de pessoa e notas; as tabelas querem ids e outros
+   nomes de campo. É aqui que se faz a tradução. */
+async function paraDestino(d) {
+  const dados = Object.assign({}, d.dados || {});
+  const pid = await pessoaPorNome(dados.pessoa);
+  if (pid) {
+    if (d.tipo === 'documento' || d.tipo === 'despesa') dados.person_id = pid;
+    if (d.tipo === 'tarefa') dados.subjects = [pid];
+  }
+  if (d.tipo === 'despesa' && dados.notes && !dados.note) dados.note = dados.notes;
+  if (d.tipo === 'evento' && dados.notes && !dados.detail) dados.detail = dados.notes;
+  delete dados.pessoa;
+  return { tipo: d.tipo, dados: dados };
+}
+
+function tituloDaProposta(proposta) {
+  const d = (proposta.destinos || [])[0];
+  const x = (d && d.dados) || {};
+  const t = x.name || x.title || x.description || proposta.resumo || '';
+  return String(t).trim().slice(0, 120) || null;
+}
+
+async function autoCatalogar(id, proposta) {
+  if (!proposta || !Array.isArray(proposta.destinos) || !proposta.destinos.length) return null;
+
+  /* O nome do ficheiro em bruto deixa de ser o título, mesmo que o item fique
+     por triar. Só se escreve se ninguém tiver escrito um. */
+  const titulo = tituloDaProposta(proposta);
+  if (titulo) {
+    await query("UPDATE inbox_items SET title = COALESCE(NULLIF(title, ''), $2) WHERE id = $1",
+      [id, titulo]).catch(() => {});
+  }
+
+  const bons = proposta.destinos.filter((d) =>
+    d && d.confianca === 'alta' && TIPOS.includes(d.tipo) && CAMPOS_MINIMOS[d.tipo](d.dados || {}));
+  if (!bons.length || bons.length !== proposta.destinos.length) {
+    console.log('[farol] item', id, 'fica por triar: confiança ou campos em falta');
+    return null;
+  }
+
+  try {
+    const destinos = [];
+    for (const d of bons) destinos.push(await paraDestino(d));
+    const criados = await executarTriagem(id, destinos);
+    console.log('[farol] item', id, 'catalogado sozinho:', criados.map((c) => c.tipo).join(', '));
+    return criados;
+  } catch (err) {
+    console.warn('[farol] item', id, 'não deu para catalogar sozinho:', err.message);
+    return null;
+  }
+}
+
 function instalar(app) {
   app.get('/api/inbox', async (req, res) => {
     try {
@@ -240,7 +356,11 @@ function instalar(app) {
          checksum, limpar(b.captured_by), (f && ia.ativa()) ? 'pendente' : 'nenhum']);
       // A analise corre a seguir a resposta, nao antes: quem envia uma foto
       // nao deve esperar pelo modelo. O ecra mostra 'a analisar' e actualiza.
-      if (f) ia.analisarItem(rows[0].id, f.buffer, f.mimetype, f.originalname);
+      if (f) {
+        ia.analisarItem(rows[0].id, f.buffer, f.mimetype, f.originalname)
+          .then((proposta) => autoCatalogar(rows[0].id, proposta))
+          .catch((e) => console.warn('[farol] análise e catalogação:', e.message));
+      }
 
       const { itens } = await carregar('todos');
       res.status(201).json(itens.find((i) => i.id === rows[0].id));
@@ -310,45 +430,14 @@ function instalar(app) {
     if (!Array.isArray(destinos) || !destinos.length) {
       return res.status(400).json({ error: 'Diz pelo menos no que se transforma.' });
     }
-    for (const d of destinos) {
-      if (!TIPOS.includes(d.tipo)) return res.status(400).json({ error: 'Destino desconhecido: ' + d.tipo });
-    }
-    let item;
     try {
-      await query('BEGIN');
-      const linhas = await all(
-        'SELECT id, file_path, mime_type, store FROM inbox_items WHERE id = $1 FOR UPDATE', [id]);
-      if (!linhas.length) { await query('ROLLBACK'); return res.status(404).json({ error: 'Item não encontrado.' }); }
-      item = linhas[0];
-
-      const criados = [];
-      for (const d of destinos) {
-        const novoId = await CRIAR[d.tipo](d.dados || {});
-        await query(
-          `INSERT INTO inbox_links (inbox_id, target_type, target_id) VALUES ($1,$2,$3)
-           ON CONFLICT DO NOTHING`, [id, d.tipo, novoId]);
-        criados.push({ tipo: d.tipo, id: novoId });
-      }
-      await query("UPDATE inbox_items SET status = 'catalogado', resolved_at = now() WHERE id = $1", [id]);
-      await query('COMMIT');
-
-      if (item.file_path && item.store === 'inbox') {
-        try {
-          if (await arquivar(item.file_path, item.mime_type)) {
-            await query("UPDATE inbox_items SET store = 'arquivo' WHERE id = $1", [id]);
-          }
-        } catch (e) {
-          console.warn('[farol] item', id, 'catalogado mas não arquivado:', e.message);
-        }
-      }
+      const criados = await executarTriagem(id, destinos);
       res.json({ criados, ...(await carregar(req.query.estado || 'por_triar')) });
     } catch (err) {
-      await query('ROLLBACK').catch(() => {});
       console.error('[farol] POST triagem:', err.message);
       res.status(400).json({ error: err.message || 'Não foi possível catalogar.' });
     }
   });
-
   app.delete('/api/inbox/:id', async (req, res) => {
     try {
       const rows = await all(
