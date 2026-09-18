@@ -7,16 +7,19 @@
  * do Google, confirma que o email está na lista de quem pode entrar, e emite um
  * cookie de sessão assinado por nós. Não há client_secret: o cliente é público
  * e o que vale é a assinatura do Google.
+ *
+ * Quem pode entrar está na base de dados (ver src/acessos.js), não no
+ * ALLOWED_EMAILS: a lista muda-se pela página de Acessos, sem deploy. E é
+ * confirmada a cada pedido, para que retirar o acesso a alguém tenha efeito
+ * imediato, mesmo que essa pessoa já tivesse cookie válido.
  */
 const crypto = require('crypto');
+const acessos = require('./acessos');
 
 const CLIENT_ID = (process.env.GOOGLE_CLIENT_ID || '').trim();
 const SESSION_SECRET = process.env.SESSION_SECRET || '';
 const DIAS = 30;
 const COOKIE = 'farol_sessao';
-
-const permitidos = (process.env.ALLOWED_EMAILS || '')
-  .split(',').map((e) => e.trim().toLowerCase()).filter(Boolean);
 
 const ativa = () => Boolean(CLIENT_ID && SESSION_SECRET);
 
@@ -90,17 +93,18 @@ function sessao(req) {
 }
 
 function podeEntrar(email) {
-  if (!permitidos.length) return false;
-  return permitidos.includes(String(email).toLowerCase());
+  return acessos.podeEntrar(email);
 }
 
 /* ---------------- ligação ao Express ---------------- */
 function instalar(app) {
   app.get('/api/config', (req, res) => {
+    const s = ativa() ? sessao(req) : null;
     res.json({
       authEnabled: ativa(),
       googleClientId: CLIENT_ID || null,
-      sessao: ativa() ? (sessao(req) || null) : null
+      sessao: s || null,
+      admin: ativa() ? Boolean(s && acessos.ehAdmin(s.email)) : true
     });
   });
 
@@ -108,7 +112,7 @@ function instalar(app) {
     if (!ativa()) return res.json({ email: null, aberto: true });
     const s = sessao(req);
     if (!s) return res.status(401).json({ error: 'Entra com a tua conta Google.' });
-    res.json(s);
+    res.json(Object.assign({}, s, { admin: acessos.ehAdmin(s.email) }));
   });
 
   app.post('/auth/google', async (req, res) => {
@@ -119,12 +123,14 @@ function instalar(app) {
         console.warn('[farol] entrada recusada:', info.email);
         return res.status(403).json({ error: 'Esta conta não tem acesso ao Farol.' });
       }
+      const nome = info.given_name || info.name || null;
       const exp = Math.floor(Date.now() / 1000) + DIAS * 24 * 3600;
-      const valor = assinar({ email: info.email, nome: info.given_name || info.name || null, exp });
+      const valor = assinar({ email: info.email, nome, exp });
       res.setHeader('Set-Cookie',
         COOKIE + '=' + encodeURIComponent(valor) +
         '; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=' + DIAS * 24 * 3600);
-      res.json({ email: info.email, nome: info.given_name || info.name || null });
+      acessos.registarEntrada(info.email, nome);
+      res.json({ email: info.email, nome });
     } catch (err) {
       console.warn('[farol] login falhou:', err.message);
       res.status(401).json({ error: 'Não foi possível confirmar o login.' });
@@ -141,9 +147,25 @@ function instalar(app) {
   app.use('/api', (req, res, next) => {
     if (!ativa()) return next();
     if (req.path === '/health' || req.path === '/config' || req.path === '/me') return next();
-    if (sessao(req)) return next();
-    res.status(401).json({ error: 'Sessão terminada. Entra outra vez.' });
+    const s = sessao(req);
+    if (!s) return res.status(401).json({ error: 'Sessão terminada. Entra outra vez.' });
+    // A lista pode ter mudado desde que o cookie foi emitido: quem deixou de
+    // ter acesso perde-o já, sem esperar pelos 30 dias do cookie.
+    if (!podeEntrar(s.email)) {
+      console.warn('[farol] cookie válido mas sem acesso:', s.email);
+      return res.status(403).json({ error: 'Esta conta já não tem acesso ao Farol.' });
+    }
+    next();
   });
+
+  // A gestão de acessos entra depois da barreira: já só passa por aqui quem
+  // tem sessão, e lá dentro ainda se confirma que é administrador.
+  acessos.instalar(app, sessao, ativa);
+  acessos.arrancar().catch((err) => console.error('[farol] acessos: arranque falhou —', err.message));
 }
 
-module.exports = { instalar, ativa, permitidos };
+module.exports = {
+  instalar,
+  ativa,
+  get permitidos() { return acessos.emails(); }
+};
