@@ -11,7 +11,7 @@
 
 var AC = { contas: [], administrador: null, montado: false, carregado: false };
 
-var AC_CSS = "#view-acessos .ac-linha{display:flex;gap:.875rem;align-items:flex-start;padding:.85rem 0;border-top:1px solid var(--line-soft)}\n#view-acessos .ac-linha:first-child{border-top:0;padding-top:.25rem}\n#view-acessos .ac-av{flex:0 0 34px;width:34px;height:34px;border-radius:50%;background:var(--accent-soft);color:var(--accent-ink);display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:var(--fs-mono);text-transform:uppercase}\n#view-acessos .ac-corpo{flex:1 1 auto;min-width:0}\n#view-acessos .ac-email{font-weight:500;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\n#view-acessos .ac-meta{font-size:.8125rem;color:var(--muted);margin-top:.15rem}\n#view-acessos .ac-acts{display:flex;gap:.375rem;flex-wrap:wrap;align-items:center;flex:0 0 auto}\n#view-acessos .ac-aviso{border:1px solid var(--line);border-left:3px solid var(--warn,#8A5A16);border-radius:var(--radius);padding:.7rem .9rem;background:var(--surface-2);color:var(--ink-2);font-size:.875rem;margin-bottom:.9rem}\n#view-acessos .ac-vazio{padding:2rem 1rem;text-align:center;color:var(--muted)}";
+var AC_CSS = "#view-acessos .ac-linha{display:flex;gap:.875rem;align-items:flex-start;padding:.85rem 0;border-top:1px solid var(--line-soft)}\n#view-acessos .ac-linha:first-child{border-top:0;padding-top:.25rem}\n#view-acessos .ac-av{flex:0 0 34px;width:34px;height:34px;border-radius:50%;background:var(--accent-soft);color:var(--accent-ink);display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:var(--fs-mono);text-transform:uppercase}\n#view-acessos .ac-corpo{flex:1 1 auto;min-width:0}\n#view-acessos .ac-email{font-weight:500;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\n#view-acessos .ac-meta{font-size:.8125rem;color:var(--muted);margin-top:.15rem}\n#view-acessos .ac-acts{display:flex;gap:.375rem;flex-wrap:wrap;align-items:center;flex:0 0 auto}\n#view-acessos .ac-aviso{border:1px solid var(--line);border-left:3px solid var(--warn,#8A5A16);border-radius:var(--radius);padding:.7rem .9rem;background:var(--surface-2);color:var(--ink-2);font-size:.875rem;margin-bottom:.9rem}\n#view-acessos .ac-vazio{padding:2rem 1rem;text-align:center;color:var(--muted)}\n#view-acessos .card > header .btn{align-self:center}\n.ac-dlg{border:0;padding:0;background:transparent;max-width:30rem;width:calc(100% - 2rem)}\n.ac-dlg::backdrop{background:rgba(20,23,22,.42)}\n.ac-dlgc{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:1.4rem 1.5rem 1.25rem;box-shadow:0 18px 48px rgba(20,23,22,.18)}\n.ac-dlgc h3{margin:0 0 .2rem;font-size:1.125rem}\n.ac-dlgs{color:var(--muted);font-size:.875rem;margin:0 0 1.1rem}\n.ac-dlgc .field{margin-bottom:.8rem}\n.ac-dlga{display:flex;gap:.5rem;justify-content:flex-end;margin-top:1.25rem}";
 
 /* ---------------- utilitarios ---------------- */
 function acInicial(c) {
@@ -31,10 +31,11 @@ function acEstilo() {
   s.textContent = AC_CSS;
   document.head.appendChild(s);
 }
-function acCabecalho(pai, titulo, direita) {
+function acCabecalho(pai, titulo, direita, accao) {
   var h = document.createElement('header');
   h.appendChild(el('h3', null, titulo));
   if (direita != null) h.appendChild(el('span', 'mono', direita));
+  if (accao) h.appendChild(accao);
   pai.appendChild(h);
 }
 
@@ -47,7 +48,7 @@ function acMontar() {
 
   var nav = $('nav');
   if (nav && !nav.querySelector('[data-view="acessos"]')) {
-    nav.appendChild(el('div', 'nav-label mono', 'Administração'));
+    nav.appendChild(el('div', 'nav-label mono', 'Administra\u00e7\u00e3o'));
     var b = el('button', null, 'Acessos');
     b.dataset.view = 'acessos';
     nav.appendChild(b);
@@ -58,25 +59,43 @@ function acMontar() {
 
   /* --- lista --- */
   var lista = el('div', 'card');
-  acCabecalho(lista, 'Quem pode entrar', '');
-  var aviso = el('div', 'ac-aviso',
-    'Quem entra vê tudo: tarefas, projetos, documentos e finanças. Não há perfis dentro da app — dar acesso é dar acesso a tudo.');
-  lista.appendChild(aviso);
+  var abrir = el('button', 'btn primary', 'Dar acesso');
+  abrir.type = 'button';
+  abrir.id = 'acAbrir';
+  acCabecalho(lista, 'Quem pode entrar', '', abrir);
+  lista.appendChild(el('div', 'ac-aviso',
+    'Quem entra v\u00ea tudo: tarefas, projetos, documentos e finan\u00e7as. N\u00e3o h\u00e1 perfis dentro da app \u2014 dar acesso \u00e9 dar acesso a tudo.'));
   var corpo = el('div');
   corpo.id = 'acLista';
   lista.appendChild(corpo);
   sec.appendChild(lista);
 
-  /* --- adicionar --- */
-  var novo = el('div', 'card');
-  acCabecalho(novo, 'Dar acesso a alguém', null);
+  var irmao = document.querySelector('.view');
+  (irmao ? irmao.parentNode : document.body).appendChild(sec);
+
+  acMontarDialogo();
+  abrir.onclick = acAbrir;
+
+  AC.montado = true;
+}
+
+/* A janela de dar acesso vive fora da p\u00e1gina: s\u00f3 aparece quando \u00e9 chamada. */
+function acMontarDialogo() {
+  if ($('acDlg')) return;
+
+  var dlg = el('dialog', 'ac-dlg');
+  dlg.id = 'acDlg';
+
+  var cx = el('div', 'ac-dlgc');
+  cx.appendChild(el('h3', null, 'Dar acesso a algu\u00e9m'));
+  cx.appendChild(el('p', 'ac-dlgs', 'A pessoa entra com esta conta Google e passa a ver tudo o que est\u00e1 no Farol.'));
 
   var f1 = el('label', 'field');
   f1.appendChild(el('span', null, 'Email da conta Google'));
   var iEmail = el('input');
   iEmail.type = 'email'; iEmail.id = 'acEmail'; iEmail.placeholder = 'nome@gmail.com';
   f1.appendChild(iEmail);
-  novo.appendChild(f1);
+  cx.appendChild(f1);
 
   var linha = el('div', 'field-row');
 
@@ -91,28 +110,48 @@ function acMontar() {
   f3.appendChild(el('span', null, 'Papel'));
   var sel = el('select');
   sel.id = 'acPapel';
-  var o1 = el('option', null, 'Membro — entra e usa a app'); o1.value = 'membro';
-  var o2 = el('option', null, 'Administrador — também gere acessos'); o2.value = 'admin';
+  var o1 = el('option', null, 'Membro \u2014 entra e usa a app'); o1.value = 'membro';
+  var o2 = el('option', null, 'Administrador \u2014 tamb\u00e9m gere acessos'); o2.value = 'admin';
   sel.appendChild(o1); sel.appendChild(o2);
   f3.appendChild(sel);
   linha.appendChild(f3);
 
-  novo.appendChild(linha);
+  cx.appendChild(linha);
 
-  var acts = el('div', 'form-actions');
-  var btn = el('button', 'btn primary', 'Dar acesso');
-  btn.type = 'button'; btn.id = 'acAdicionar';
-  acts.appendChild(btn);
-  novo.appendChild(acts);
-  sec.appendChild(novo);
+  var acts = el('div', 'ac-dlga');
+  var cancelar = el('button', 'btn', 'Cancelar');
+  cancelar.type = 'button';
+  cancelar.onclick = acFechar;
+  var dar = el('button', 'btn primary', 'Dar acesso');
+  dar.type = 'button';
+  dar.id = 'acAdicionar';
+  dar.onclick = acAdicionar;
+  acts.appendChild(cancelar);
+  acts.appendChild(dar);
+  cx.appendChild(acts);
 
-  var irmao = document.querySelector('.view');
-  (irmao ? irmao.parentNode : document.body).appendChild(sec);
+  dlg.appendChild(cx);
+  document.body.appendChild(dlg);
 
-  btn.onclick = acAdicionar;
   iEmail.addEventListener('keydown', function (e) { if (e.key === 'Enter') acAdicionar(); });
+  /* Clicar fora fecha. */
+  dlg.addEventListener('click', function (e) { if (e.target === dlg) acFechar(); });
+}
 
-  AC.montado = true;
+function acAbrir() {
+  var dlg = $('acDlg');
+  if (!dlg) return;
+  $('acEmail').value = '';
+  $('acNome').value = '';
+  $('acPapel').value = 'membro';
+  if (dlg.showModal) dlg.showModal(); else dlg.setAttribute('open', '');
+  $('acEmail').focus();
+}
+
+function acFechar() {
+  var dlg = $('acDlg');
+  if (!dlg) return;
+  if (dlg.close) dlg.close(); else dlg.removeAttribute('open');
 }
 
 /* ---------------- desenho ---------------- */
@@ -186,9 +225,7 @@ function acAdicionar() {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email: email, nome: nome, papel: papel })
   }).then(function (d) {
-    $('acEmail').value = '';
-    $('acNome').value = '';
-    $('acPapel').value = 'membro';
+    acFechar();
     acGuardar(d);
     toast(email + ' passa a ter acesso.');
   }).catch(function (e) { toast(e.message || 'Não foi possível dar o acesso.'); });
