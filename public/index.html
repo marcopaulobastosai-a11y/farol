@@ -285,37 +285,6 @@
             </form>
             <div id="tProjects"></div>
           </div>
-
-          <div class="card">
-            <header><h3>Pessoas</h3><button class="btn small" id="btnPessoa">+ Pessoa</button></header>
-            <form id="peForm" class="form" hidden autocomplete="off">
-              <div class="field-row">
-                <label class="field"><span>Como lhe chamas</span>
-                  <input type="text" name="name" required placeholder="Ex.: Sofia"></label>
-                <label class="field"><span>Nome completo</span>
-                  <input type="text" name="full_name" placeholder="Opcional"></label>
-              </div>
-              <div class="field-row">
-                <label class="field"><span>Quem é</span>
-                  <input type="text" name="role" placeholder="Ex.: Filha"></label>
-                <label class="field"><span>Tipo</span>
-                  <select name="kind">
-                    <option value="adulto">Adulto</option>
-                    <option value="crianca">Criança</option>
-                    <option value="familiar">Familiar</option>
-                    <option value="animal">Animal</option>
-                  </select></label>
-              </div>
-              <label class="field checkbox">
-                <input type="checkbox" name="can_own_tasks" checked>
-                <span>Pode ter tarefas atribuídas</span></label>
-              <div class="form-actions">
-                <button type="submit" class="btn primary">Adicionar pessoa</button>
-                <button type="button" class="btn" id="peCancel">Cancelar</button>
-              </div>
-            </form>
-            <div id="tPeople"></div>
-          </div>
         </div>
       </div>
     </section>
@@ -522,5 +491,6 @@
 <script src="/app.js"></script>
   <script src="/inbox.js"></script>
   <script src="/acessos.js"></script>
+  <script src="/pessoas.js"></script>
 </body>
 </html>
