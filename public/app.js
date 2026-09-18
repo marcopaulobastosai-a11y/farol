@@ -1063,30 +1063,6 @@ function construirChips(id, pessoas){
 }
 
 /* ---------- painéis laterais ---------- */
-function renderPessoas(){
-  var box = $('tPeople');
-  clear(box);
-  box.className = 'plist';
-  if (!G.people.length){
-    box.appendChild(el('p', 'empty', 'Sem pessoas registadas.'));
-    return;
-  }
-  G.people.forEach(function(p){
-    var abertas = G.tasks.filter(function(t){
-      return t.status !== 'concluida' && t.status !== 'cancelada' &&
-             (t.owner_id === p.id || (t.subjects || []).indexOf(p.id) >= 0);
-    }).length;
-    var right = abertas ? pill(abertas + (abertas === 1 ? ' aberta' : ' abertas'), abertas ? '' : '') : pill('—');
-    var sub = (p.role || '') + (p.can_own_tasks ? '' : ' · só assunto');
-    var r = row(p.name, sub, right);
-    var dot = el('i', 'dot');
-    dot.style.background = p.color || 'var(--c1)';
-    dot.style.marginRight = '2px';
-    r.insertBefore(dot, r.firstChild);
-    box.appendChild(r);
-  });
-}
-
 function renderProjetos(){
   var box = $('tProjects');
   clear(box);
@@ -1166,7 +1142,6 @@ function renderGestao(){
   encherSelects();
   renderLista();
   renderProjetos();
-  renderPessoas();
   var abertas = G.tasks.filter(function(t){ return t.status !== 'concluida' && t.status !== 'cancelada'; }).length;
   $('badgeTarefas').textContent = abertas || '';
   var alvo = gState.person ? pessoa(gState.person) : null;
@@ -1222,30 +1197,6 @@ function ligarGestao(){
     }).catch(function(){ toast('Não deu para apagar.'); });
   });
 
-  $('btnPessoa').addEventListener('click', function(){
-    var f = $('peForm');
-    f.hidden = !f.hidden;
-    if (!f.hidden) f.name.focus();
-  });
-  $('peCancel').addEventListener('click', function(){ $('peForm').hidden = true; });
-  $('peForm').addEventListener('submit', function(e){
-    e.preventDefault();
-    var f = e.target;
-    apiGestao('/api/gestao/pessoas', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: f.name.value.trim(),
-        full_name: f.full_name.value.trim() || null,
-        role: f.role.value.trim() || null,
-        kind: f.kind.value,
-        can_own_tasks: f.can_own_tasks.checked
-      })
-    }).then(function(){
-      f.reset(); f.hidden = true;
-      return loadGestao();
-    }).then(function(){ toast('Pessoa adicionada.'); })
-      .catch(function(){ toast('Não deu para gravar a pessoa.'); });
-  });
 
   $('btnProjeto').addEventListener('click', function(){
     var f = $('pForm');
