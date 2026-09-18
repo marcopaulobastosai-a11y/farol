@@ -15,6 +15,7 @@
  */
 const crypto = require('crypto');
 const acessos = require('./acessos');
+const pessoas = require('./pessoas');
 
 const CLIENT_ID = (process.env.GOOGLE_CLIENT_ID || '').trim();
 const SESSION_SECRET = process.env.SESSION_SECRET || '';
@@ -162,6 +163,10 @@ function instalar(app) {
   // tem sessão, e lá dentro ainda se confirma que é administrador.
   acessos.instalar(app, sessao, ativa);
   acessos.arrancar().catch((err) => console.error('[farol] acessos: arranque falhou —', err.message));
+
+  // As pessoas do agregado. Mesmo sítio, pela mesma razão: já passou a barreira.
+  pessoas.instalar(app);
+  pessoas.arrancar().catch((err) => console.error('[farol] pessoas: arranque falhou —', err.message));
 }
 
 module.exports = {
