@@ -424,6 +424,32 @@ function instalar(app) {
    * ficheiro continua no bucket temporário e o store diz isso — é recuperável.
    * Se estivesse dentro, uma falha do S3 desfazia uma triagem já correcta.
    */
+  /* A análise pode falhar por carga do modelo, e nesse caso não é preciso
+     voltar a carregar o ficheiro: ele continua no balde. */
+  app.post('/api/inbox/:id/analisar', async (req, res) => {
+    const id = Number(req.params.id);
+    try {
+      if (!ia.ativa()) return res.status(400).json({ error: 'A leitura automática está desligada.' });
+      const linhas = await all(
+        'SELECT id, file_path, file_name, mime_type, store FROM inbox_items WHERE id = $1', [id]);
+      if (!linhas.length) return res.status(404).json({ error: 'Item não encontrado.' });
+      const it = linhas[0];
+      if (!it.file_path) return res.status(400).json({ error: 'Este item não tem ficheiro para ler.' });
+
+      await query("UPDATE inbox_items SET ai_status = 'pendente', ai_erro = NULL WHERE id = $1", [id]);
+      const obj = await ler(it.store || 'inbox', it.file_path);
+      const buffer = await bytes(obj.Body);
+      ia.analisarItem(id, buffer, it.mime_type, it.file_name)
+        .then((proposta) => autoCatalogar(id, proposta))
+        .catch((e) => console.warn('[farol] nova análise:', e.message));
+
+      res.json(await carregar(req.query.estado || 'por_triar'));
+    } catch (err) {
+      console.error('[farol] POST analisar:', err.message);
+      res.status(400).json({ error: err.message || 'Não foi possível tentar outra vez.' });
+    }
+  });
+
   app.post('/api/inbox/:id/triagem', async (req, res) => {
     const id = Number(req.params.id);
     const destinos = (req.body || {}).destinos;
