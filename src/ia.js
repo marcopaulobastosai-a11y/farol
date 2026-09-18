@@ -6,62 +6,62 @@
  * tabelas de tarefas, eventos, documentos ou despesas. A proposta fica em
  * inbox_items.ai_json e so se torna real quando alguem carrega em Catalogar.
  *
- * Sem ANTHROPIC_API_KEY o modulo desliga-se sozinho e a Inbox funciona na
- * mesma, so sem sugestoes.
+ * Corre no Gemini, do Google, porque tem escalao gratuito e chega de sobra
+ * para o volume de uma casa. Sem GEMINI_API_KEY o modulo desliga-se sozinho e
+ * a Caixa funciona na mesma, so sem sugestoes.
  */
 const { query } = require('./db');
 
-const CHAVE = process.env.ANTHROPIC_API_KEY;
-const MODELO = process.env.ANTHROPIC_MODEL || 'claude-sonnet-5';
+const CHAVE = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '';
+const MODELO = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 const ativa = () => Boolean(CHAVE);
 
-const IMAGENS = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+const IMAGENS = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/heic', 'image/heif'];
 // Limite pratico do corpo do pedido. Acima disto nem vale a pena tentar.
-const MAX_BYTES = 4 * 1024 * 1024;
+const MAX_BYTES = 6 * 1024 * 1024;
+
+const texto = (d) => ({ type: 'STRING', description: d });
 
 /**
- * Uma ferramenta com esquema fixo em vez de pedir JSON em texto: assim a
- * resposta nao pode vir malformada nem embrulhada em conversa.
+ * Esquema fixo em vez de pedir JSON em texto: assim a resposta nao pode vir
+ * malformada nem embrulhada em conversa.
  */
-const FERRAMENTA = {
-  name: 'catalogar',
-  description: 'Classifica um ficheiro da caixa de entrada de um gestor pessoal e familiar.',
-  input_schema: {
-    type: 'object',
-    properties: {
-      resumo: { type: 'string', description: 'Uma linha a dizer o que e o ficheiro.' },
-      destinos: {
-        type: 'array',
-        description: 'Um ou mais destinos. Vazio se nao for possivel perceber.',
-        items: {
-          type: 'object',
-          properties: {
-            tipo: { type: 'string', enum: ['tarefa', 'evento', 'documento', 'despesa'] },
-            confianca: { type: 'string', enum: ['alta', 'media', 'baixa'] },
-            dados: {
-              type: 'object',
-              properties: {
-                title: { type: 'string', description: 'Titulo da tarefa ou do evento.' },
-                name: { type: 'string', description: 'Nome do documento.' },
-                description: { type: 'string', description: 'Descricao da despesa.' },
-                amount: { type: 'number', description: 'Valor total em euros.' },
-                spent_on: { type: 'string', description: 'Data da despesa, AAAA-MM-DD.' },
-                merchant: { type: 'string', description: 'Estabelecimento ou entidade que cobrou.' },
-                day: { type: 'string', description: 'Dia do evento, AAAA-MM-DD.' },
-                at: { type: 'string', description: 'Hora do evento, HH:MM.' },
-                due_on: { type: 'string', description: 'Prazo da tarefa, AAAA-MM-DD.' },
-                entity: { type: 'string', description: 'Entidade emissora do documento.' },
-                valid_on: { type: 'string', description: 'Data de validade, AAAA-MM-DD.' },
-                notes: { type: 'string' }
-              }
+const ESQUEMA = {
+  type: 'OBJECT',
+  properties: {
+    resumo: texto('Uma linha a dizer o que e o ficheiro.'),
+    destinos: {
+      type: 'ARRAY',
+      description: 'Um ou mais destinos. Vazio se nao for possivel perceber.',
+      items: {
+        type: 'OBJECT',
+        properties: {
+          tipo: { type: 'STRING', enum: ['tarefa', 'evento', 'documento', 'despesa'] },
+          confianca: { type: 'STRING', enum: ['alta', 'media', 'baixa'] },
+          dados: {
+            type: 'OBJECT',
+            properties: {
+              title: texto('Titulo da tarefa ou do evento.'),
+              name: texto('Nome do documento.'),
+              description: texto('Descricao da despesa.'),
+              amount: { type: 'NUMBER', description: 'Valor total em euros.' },
+              spent_on: texto('Data da despesa, AAAA-MM-DD.'),
+              merchant: texto('Estabelecimento ou entidade que cobrou.'),
+              day: texto('Dia do evento, AAAA-MM-DD.'),
+              at: texto('Hora do evento, HH:MM.'),
+              due_on: texto('Prazo da tarefa, AAAA-MM-DD.'),
+              entity: texto('Entidade emissora do documento.'),
+              valid_on: texto('Data de validade, AAAA-MM-DD.'),
+              pessoa: texto('Nome da pessoa da casa a quem o ficheiro diz respeito, se estiver escrito nele.'),
+              notes: texto('Qualquer coisa util que nao caiba nos outros campos.')
             }
-          },
-          required: ['tipo', 'dados']
-        }
+          }
+        },
+        required: ['tipo', 'dados']
       }
-    },
-    required: ['destinos']
-  }
+    }
+  },
+  required: ['destinos']
 };
 
 const SISTEMA = [
@@ -81,6 +81,8 @@ const SISTEMA = [
   'Regras:',
   '- Datas sempre AAAA-MM-DD. Valores em euros, como numero, com ponto decimal.',
   '- Portugues de Portugal, sem gerundio.',
+  '- Se o ficheiro nomear uma pessoa (o titular, o utente, o segurado), poe esse',
+  '  nome em pessoa. E o que permite arrumar o documento a quem pertence.',
   '- Nao inventes. Se um campo nao esta legivel no ficheiro, deixa-o de fora.',
   '  Um campo em falta custa ao utilizador cinco segundos a escrever; um campo',
   '  inventado passa despercebido e fica errado para sempre.',
@@ -88,52 +90,56 @@ const SISTEMA = [
   '- Se nao perceberes o que e, devolve destinos vazio. Nao e falha nenhuma.'
 ].join('\n');
 
-function bloco(buffer, mime) {
-  const dados = buffer.toString('base64');
-  if (mime === 'application/pdf') {
-    return { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: dados } };
-  }
-  if (IMAGENS.indexOf(mime) >= 0) {
-    return { type: 'image', source: { type: 'base64', media_type: mime, data: dados } };
-  }
-  return null;
+function suportado(mime) {
+  return mime === 'application/pdf' || mime === 'text/plain' || IMAGENS.indexOf(mime) >= 0;
 }
 
 async function perguntar(buffer, mime, nome) {
-  const conteudo = bloco(buffer, mime);
-  if (!conteudo) throw new Error('tipo de ficheiro nao suportado pela analise');
+  if (!suportado(mime)) throw new Error('tipo de ficheiro nao suportado pela analise');
 
-  const r = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'x-api-key': CHAVE,
-      'anthropic-version': '2023-06-01'
-    },
-    body: JSON.stringify({
-      model: MODELO,
-      max_tokens: 1024,
-      system: SISTEMA,
-      tools: [FERRAMENTA],
-      tool_choice: { type: 'tool', name: 'catalogar' },
-      messages: [{
-        role: 'user',
-        content: [conteudo, { type: 'text', text: 'Nome do ficheiro: ' + (nome || 'sem nome') }]
-      }]
-    })
-  });
+  const r = await fetch(
+    'https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(MODELO) + ':generateContent',
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-goog-api-key': CHAVE },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: SISTEMA }] },
+        contents: [{
+          role: 'user',
+          parts: [
+            { inline_data: { mime_type: mime, data: buffer.toString('base64') } },
+            { text: 'Nome do ficheiro: ' + (nome || 'sem nome') }
+          ]
+        }],
+        generationConfig: {
+          temperature: 0,
+          maxOutputTokens: 2048,
+          responseMimeType: 'application/json',
+          responseSchema: ESQUEMA
+        }
+      })
+    }
+  );
 
   if (!r.ok) {
-    const texto = await r.text().catch(() => '');
-    throw new Error('API ' + r.status + ' ' + texto.slice(0, 200));
+    const t = await r.text().catch(() => '');
+    throw new Error('API ' + r.status + ' ' + t.slice(0, 200));
   }
+
   const j = await r.json();
-  const uso = j.usage || {};
-  const bloco_tool = (j.content || []).filter((c) => c.type === 'tool_use')[0];
-  if (!bloco_tool) throw new Error('resposta sem proposta');
-  return Object.assign({}, bloco_tool.input, {
+  const c = (j.candidates || [])[0];
+  const partes = (c && c.content && c.content.parts) || [];
+  const cru = partes.map((p) => p.text).filter(Boolean).join('');
+  if (!cru) throw new Error('resposta sem proposta' + (c && c.finishReason ? ' (' + c.finishReason + ')' : ''));
+
+  let proposta;
+  try { proposta = JSON.parse(cru); }
+  catch (e) { throw new Error('proposta ilegivel'); }
+
+  const uso = j.usageMetadata || {};
+  return Object.assign({}, proposta, {
     modelo: MODELO,
-    tokens: { entrada: uso.input_tokens, saida: uso.output_tokens }
+    tokens: { entrada: uso.promptTokenCount, saida: uso.candidatesTokenCount }
   });
 }
 
@@ -161,4 +167,4 @@ async function analisarItem(id, buffer, mime, nome) {
   }
 }
 
-module.exports = { ativa, analisarItem };
+module.exports = { ativa, analisarItem, MODELO };
