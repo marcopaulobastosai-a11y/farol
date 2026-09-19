@@ -76,7 +76,11 @@ var IB_CSS_PESSOA =
   '.ib-pessoa{display:flex;align-items:center;gap:.55rem;padding:.5rem .6rem;border:1px solid var(--line);border-radius:10px;background:var(--ground);cursor:pointer;font:inherit;font-size:.875rem;text-align:left}' +
   '.ib-pessoa:hover{border-color:var(--accent)}' +
   '.ib-pessoa.on{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}' +
-  '.ib-dlga{display:flex;justify-content:flex-end;gap:.5rem;margin-top:1rem}';
+  '.ib-dlga{display:flex;justify-content:flex-end;gap:.5rem;margin-top:1rem}' +
+  /* Catalogar e corrigir sao formularios, nao uma escolha rapida: precisam
+     de mais largura e de poder rolar quando o ecra e baixo. */
+  '.ib-dlg.larga{max-width:46rem}' +
+  '.ib-dlg.larga .card{border:none;box-shadow:none;margin:0;max-height:82vh;overflow:auto}';
 
 function ibEstilo() {
   if (document.getElementById('ibCss')) return;
@@ -190,10 +194,15 @@ function ibMontar() {
   caixa.appendChild(lista);
   sec.appendChild(caixa);
 
+  /* Catalogar deixou de acontecer no meio da pagina: abre em janela, como
+     tudo o resto que pede para preencher campos. */
+  var janela = el('dialog', 'ib-dlg larga');
+  janela.id = 'ibTriagemJanela';
   var painel = el('div', 'card');
   painel.id = 'ibTriagem';
-  painel.hidden = true;
-  sec.appendChild(painel);
+  janela.appendChild(painel);
+  janela.addEventListener('cancel', function () { setTimeout(ibFecharTriagem, 0); });
+  sec.appendChild(janela);
 
   var irmao = document.querySelector('.view');
   (irmao ? irmao.parentNode : document.body).appendChild(sec);
@@ -341,6 +350,13 @@ function ibItem(item) {
     desc.onclick = function () { ibEstado(item.id, 'descartado'); };
     acoes.appendChild(desc);
   } else if (item.status === 'catalogado' && !item.approved_at) {
+    var alvo = (item.links || []).filter(function (l) { return IB_EDITAVEIS.indexOf(l.tipo) >= 0; })[0];
+    if (alvo) {
+      var ed = el('button', 'btn', 'Editar');
+      ed.type = 'button';
+      ed.onclick = function () { ibEditarAlvo(item, alvo); };
+      acoes.appendChild(ed);
+    }
     var ok = el('button', 'btn primary', 'Aprovar');
     ok.type = 'button';
     ok.onclick = function () { ibAprovar(item.id); };
@@ -459,15 +475,23 @@ function ibAbrirTriagem(item) {
     loadGestao().then(function () { ibDesenharTriagem(); });
   }
   ibDesenharTriagem();
+  var j = $('ibTriagemJanela');
+  if (j && !j.open) j.showModal();
+}
+
+/* O evento close do <dialog> nao e de confianca aqui: fecha-se a mao. */
+function ibFecharTriagem() {
+  IB.triando = null;
+  var j = $('ibTriagemJanela');
+  if (j && j.open) { try { j.close(); } catch (e) { /* ja estava fechada */ } }
   var p = $('ibTriagem');
-  if (p && p.scrollIntoView) p.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  if (p) clear(p);
 }
 
 function ibDesenharTriagem() {
   var p = $('ibTriagem');
   if (!p || !IB.triando) return;
   clear(p);
-  p.hidden = false;
 
   ibCabecalho(p, 'No que e que isto se transforma?', null);
   p.appendChild(el('div', 'ib-alvo', IB.triando.file_name || ibNomeBonito(IB.triando) || 'Nota sem ficheiro'));
@@ -520,12 +544,12 @@ function ibDesenharTriagem() {
   ok.onclick = ibSubmeterTriagem;
   var cancelar = el('button', 'btn', 'Cancelar');
   cancelar.type = 'button';
-  cancelar.onclick = function () { IB.triando = null; p.hidden = true; clear(p); };
+  cancelar.onclick = ibFecharTriagem;
   acoes.appendChild(ok); acoes.appendChild(cancelar);
   p.appendChild(acoes);
 }
 
-function ibCampo(tipo, c) {
+function ibCampo(tipo, c, valores, prefixo) {
   var w = el('label', 'field');
   w.appendChild(el('span', null, c.l));
   var input;
@@ -561,10 +585,10 @@ function ibCampo(tipo, c) {
     input.type = c.tipo;
     if (c.tipo === 'number') input.step = '0.01';
   }
-  input.id = 'ibC_' + tipo + '_' + c.k;
+  input.id = (prefixo || 'ibC_') + tipo + '_' + c.k;
 
   /* Primeiro o que a IA leu; so depois o nome do ficheiro. */
-  var dados = IB.prop && IB.prop[tipo] && IB.prop[tipo].dados;
+  var dados = valores || (IB.prop && IB.prop[tipo] && IB.prop[tipo].dados);
   var val = dados ? dados[c.k] : null;
   if ((val === null || val === undefined) && dados && c.tipo === 'pessoa' && dados.pessoa) {
     val = ibPessoaPorNome(dados.pessoa);
@@ -574,7 +598,7 @@ function ibCampo(tipo, c) {
   }
   if (val !== null && val !== undefined && val !== '') {
     input.value = String(val);
-  } else if (c.k === 'title' || c.k === 'name' || c.k === 'description') {
+  } else if (!valores && (c.k === 'title' || c.k === 'name' || c.k === 'description')) {
     var it = IB.triando;
     if (it) input.value = ibNomeBonito(it);
   }
@@ -641,10 +665,8 @@ function ibSubmeterTriagem() {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ destinos: destinos })
   }).then(function (d) {
-    IB.triando = null;
-    var p = $('ibTriagem');
-    p.hidden = true; clear(p);
-    IB.itens = d.itens || []; IB.porTriar = d.porTriar || 0;
+    ibFecharTriagem();
+    IB.itens = d.itens || []; IB.porTriar = d.porTriar || 0; IB.porAprovar = d.porAprovar || 0;
     ibRender();
     if (typeof loadGestao === 'function') loadGestao();
     toast('Catalogado.');
@@ -742,9 +764,7 @@ function ibLigar() {
       IB.estado = b.dataset.tab;
       var todos = tabs.querySelectorAll('button');
       for (var i = 0; i < todos.length; i++) todos[i].classList.toggle('is-active', todos[i] === b);
-      var p = $('ibTriagem');
-      if (p) { p.hidden = true; clear(p); }
-      IB.triando = null;
+      ibFecharTriagem();
       ibCarregar();
     });
   }
@@ -758,11 +778,77 @@ function ibLigar() {
 /* A entidade nao trava a catalogacao, mas vale a pena dizer que falta antes
    de alguem aprovar um papel sem saber quem o emitiu. */
 function ibSemEntidade(item) {
+  /* Depois de catalogado, quem manda e a linha gravada: o cartao dizia «sem
+     entidade» para sempre porque continuava a ler a proposta da IA, mesmo
+     depois de alguem ter escrito a entidade a mao. */
+  var docs = (item.links || []).filter(function (l) { return l.tipo === 'documento'; });
+  if (docs.length) {
+    return docs.some(function (l) { return !((l.dados || {}).entity || '').trim(); });
+  }
   var j = ibProposta(item);
   if (!j) return false;
   return j.destinos.some(function (d) {
     return d.tipo === 'documento' && !((d.dados || {}).entity || '').trim();
   });
+}
+
+/* Corrigir antes de aprovar. Os mesmos campos da catalogacao, desta vez
+   preenchidos com o que esta gravado, numa janela - nao no meio da pagina. */
+var IB_EDITAVEIS = ['documento', 'despesa'];
+var IB_ROTAS = { documento: '/api/documentos/', despesa: '/api/despesas/' };
+
+function ibEditarAlvo(item, link) {
+  var d = IB_DESTINOS.filter(function (x) { return x.tipo === link.tipo; })[0];
+  if (!d) return;
+  var valores = link.dados || {};
+
+  var dlg = el('dialog', 'ib-dlg larga');
+  var cx = el('div', 'card');
+  ibCabecalho(cx, 'Corrigir ' + (link.tipo === 'documento' ? 'o documento' : 'a despesa'), null);
+  cx.appendChild(el('p', 'ib-note', 'O que ficar aqui e o que vai para os ecras quando aprovares.'));
+
+  var par = null;
+  d.campos.forEach(function (c, i) {
+    if (i % 2 === 0) { par = el('div', 'field-row'); cx.appendChild(par); }
+    par.appendChild(ibCampo(link.tipo, c, valores, 'ibE_'));
+  });
+
+  var acoes = el('div', 'form-actions');
+  var gravar = el('button', 'btn primary', 'Gravar');
+  gravar.type = 'button';
+  gravar.onclick = function () { ibGravarAlvo(item, link, d, dlg); };
+  var fechar = el('button', 'btn', 'Cancelar');
+  fechar.type = 'button';
+  fechar.onclick = function () { dlg.close(); dlg.remove(); };
+  acoes.appendChild(gravar); acoes.appendChild(fechar);
+  cx.appendChild(acoes);
+
+  dlg.appendChild(cx);
+  dlg.addEventListener('cancel', function () { setTimeout(function () { dlg.remove(); }, 0); });
+  /* Dentro do ecra e nao no body: o estilo dos campos da caixa esta todo
+     pendurado em #view-inbox, e uma janela no body sai de la sem roupa. */
+  ($('view-inbox') || document.body).appendChild(dlg);
+  dlg.showModal();
+}
+
+function ibGravarAlvo(item, link, d, dlg) {
+  var corpo = {};
+  d.campos.forEach(function (c) {
+    var campo = $('ibE_' + link.tipo + '_' + c.k);
+    if (!campo) return;
+    var v = campo.value.trim();
+    corpo[c.k] = v === '' ? null : (c.tipo === 'number' ? Number(v) : v);
+  });
+
+  apiGestao(IB_ROTAS[link.tipo] + link.id, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(corpo)
+  }).then(function () {
+    dlg.close(); dlg.remove();
+    toast('Gravado.');
+    return ibCarregar();
+  }).catch(function (e) { toast(e.message || 'Nao foi possivel gravar.'); });
 }
 
 /* O passo que faltava: ate aqui e uma proposta da maquina, daqui para a
