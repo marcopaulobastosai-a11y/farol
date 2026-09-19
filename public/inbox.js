@@ -585,14 +585,21 @@ function ibCampo(tipo, c) {
 /* A IA escreve a area como a leu na lista: «Casa > Quinta do Anjo». Aqui
    dentro isso e um numero. Vale o ultimo pedaco - a sub-area e mais precisa
    que a area - e so se nao houver e que se fica pelo primeiro. */
+function ibSimples(s) {
+  /* Acentos nao podem decidir onde se arruma um papel: a IA escreve Familia,
+     a area chama-se Familia com acento, e sem isto nao se encontravam. */
+  return String(s || '').normalize('NFD').split('')
+    .filter(function (c) { var n = c.charCodeAt(0); return n < 768 || n > 879; })
+    .join('').toLowerCase().trim();
+}
+
 function ibContextoPorNome(nome) {
   var ctx = (typeof G !== 'undefined' && G.contextos) ? G.contextos : [];
   if (!ctx.length || !nome) return null;
-  var partes = String(nome).split('>').map(function (x) { return x.trim().toLowerCase(); })
-    .filter(Boolean);
+  var partes = String(nome).split('>').map(ibSimples).filter(Boolean);
   for (var i = partes.length - 1; i >= 0; i--) {
     for (var j = 0; j < ctx.length; j++) {
-      if (String(ctx[j].name).trim().toLowerCase() === partes[i]) return ctx[j].id;
+      if (ibSimples(ctx[j].name) === partes[i]) return ctx[j].id;
     }
   }
   return null;
