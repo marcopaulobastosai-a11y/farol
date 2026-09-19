@@ -17,6 +17,7 @@ const crypto = require('crypto');
 const acessos = require('./acessos');
 const pessoas = require('./pessoas');
 const catalogo = require('./catalogo');
+const contextos = require('./contextos');
 
 const CLIENT_ID = (process.env.GOOGLE_CLIENT_ID || '').trim();
 const SESSION_SECRET = process.env.SESSION_SECRET || '';
@@ -168,6 +169,10 @@ function instalar(app) {
   // Desfazer uma catalogação e ver as despesas. Mesmo sítio, pela mesma
   // razão: já passou a barreira.
   catalogo.instalar(app);
+
+  // As áreas e sub-áreas onde tudo se arruma.
+  contextos.instalar(app);
+  contextos.arrancar().catch((err) => console.error('[farol] áreas: arranque falhou —', err.message));
 
   // As pessoas do agregado. Mesmo sítio, pela mesma razão: já passou a barreira.
   pessoas.instalar(app);
