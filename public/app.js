@@ -789,7 +789,9 @@ function renderDocumentos(){
     var tr = el('tr');
     tr.appendChild(el('td', null, d.name));
     var dono = pessoaDoc(d.person_id);
-    tr.appendChild(el('td', null, dono ? dono.name : ''));
+    var tdp = el('td', null, dono ? dono.name : '');
+    tdp.style.whiteSpace = 'nowrap';
+    tr.appendChild(tdp);
     tr.appendChild(el('td', null, d.entity || ''));
     tr.appendChild(el('td', 'n', d.valid_until || ''));
     var td = el('td');
@@ -800,6 +802,10 @@ function renderDocumentos(){
     var tdx = el('td');
     var bx = el('button', 'btn danger', 'Apagar');
     bx.type = 'button';
+    /* Accao secundaria e destrutiva: discreta, e a coluna nao rouba largura
+       ao nome do documento. */
+    bx.style.padding = '.18rem .5rem';
+    bx.style.fontSize = '.75rem';
     bx.addEventListener('click', function(){ apagarDocumento(d); });
     tdx.appendChild(bx);
     tr.appendChild(tdx);
