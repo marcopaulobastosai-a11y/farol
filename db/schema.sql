@@ -456,3 +456,7 @@ BEGIN
 EXCEPTION WHEN OTHERS THEN
   RAISE WARNING '[farol] nao foi possivel remover a demonstracao: %', SQLERRM;
 END $$;
+
+-- A caixa de entrada tambem guarda de quem e o ficheiro. A catalogacao
+-- automatica escreve aqui o que leu; o botao Pessoa, na caixa, corrige.
+ALTER TABLE inbox_items ADD COLUMN IF NOT EXISTS person_id INTEGER REFERENCES people(id) ON DELETE SET NULL;
