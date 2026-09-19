@@ -528,3 +528,49 @@ UPDATE tasks t SET context_id = c.id FROM contexts c
  WHERE t.context_id IS NULL AND lower(trim(t.area)) = c.slug;
 UPDATE projects p SET context_id = c.id FROM contexts c
  WHERE p.context_id IS NULL AND lower(trim(p.area)) = c.slug;
+
+-- ---------------------------------------------------------------------------
+-- Segunda limpeza: o que sobrou da maqueta nas tabelas sem coluna origin
+--
+-- A primeira limpeza so alcancou o que tinha origin. Ficaram 67 linhas
+-- inventadas em Casa, Financas e Saude & rotinas: consumos de agua que
+-- ninguem gastou, um orcamento de agosto, subscricoes que nao existem,
+-- calendarios de pessoas que nao ha. Os ecras ficam - o desenho presta e um
+-- dia enchem-se com o que e verdade. O que sai e a mentira.
+--
+-- attention e tiles saem tambem: o painel Hoje passou a calcular os dois a
+-- partir de tarefas e documentos, e as tabelas deixaram de ser lidas.
+-- ---------------------------------------------------------------------------
+DO $$
+DECLARE
+  t    text;
+  alvo text[] := ARRAY['attention','tiles','maintenance','consumption','issues',
+                       'assets','budget_categories','finance_summary','finance_alerts',
+                       'subscriptions','credits','reserves','business_income',
+                       'habits','habit_log','appointments','activity',
+                       'archive_sources','support_routines','family_dates',
+                       'event_sources','calendars'];
+BEGIN
+  IF EXISTS (SELECT 1 FROM settings WHERE key = 'maqueta_removida') THEN
+    RETURN;
+  END IF;
+
+  FOREACH t IN ARRAY alvo LOOP
+    IF EXISTS (SELECT 1 FROM information_schema.tables
+                WHERE table_schema = 'public' AND table_name = t) THEN
+      EXECUTE format('DELETE FROM %I', t);
+    END IF;
+  END LOOP;
+
+  -- O texto dos avisos descrevia um comportamento que nao existe (30, 15 e 5
+  -- dias); o Hoje avisa a 7 e a 30. Sai com o resto.
+  DELETE FROM notes WHERE slug = 'docs_avisos';
+
+  INSERT INTO settings (key, value)
+  VALUES ('maqueta_removida', now()::text)
+  ON CONFLICT (key) DO NOTHING;
+
+  RAISE NOTICE '[farol] maqueta removida.';
+EXCEPTION WHEN OTHERS THEN
+  RAISE WARNING '[farol] nao foi possivel remover a maqueta: %', SQLERRM;
+END $$;
