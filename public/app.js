@@ -1102,6 +1102,13 @@ function itemTarefa(t){
     var pill = pill_(pr.name, 'accent');
     meta.appendChild(pill);
   }
+  /* Quantos papeis leva agarrados: quem olha para a lista fica a saber que
+     nao precisa de andar a procura deles noutro lado. */
+  if ((t.documents || []).length){
+    meta.appendChild(el('span', 'sep', '·'));
+    meta.appendChild(el('span', null, t.documents.length +
+      (t.documents.length === 1 ? ' documento' : ' documentos')));
+  }
   if (t.notes){
     meta.appendChild(el('span', 'sep', '·'));
     meta.appendChild(el('span', null, t.notes));
@@ -1142,6 +1149,10 @@ function editarTarefa(t){
   f.due_on.value = t.due_on || '';
   f.project_id.value = t.project_id || '';
   f.context_id.value = t.context_id || '';
+  f.starts_on.value = t.starts_on || '';
+  tDocsSel = (t.documents || []).slice();
+  renderDocsTarefa();
+  encherDocsAdd();
   f.priority.value = t.priority || 'normal';
   f.repeat_every.value = t.repeat_every || '';
   f.notes.value = t.notes || '';
@@ -1159,6 +1170,9 @@ function limparForm(){
   var f = $('tForm');
   f.reset();
   marcarChips('tSubjects', []);
+  tDocsSel = [];
+  renderDocsTarefa();
+  encherDocsAdd();
   $('tFormTitle').textContent = 'Nova tarefa';
   $('tFormHint').textContent = '';
   $('tSubmit').textContent = 'Adicionar';
@@ -1300,6 +1314,8 @@ function encherSelects(){
      e a sub-area fica opcional por construcao. */
   encherAreas('tArea');
   encherAreas('pArea');
+  renderDocsTarefa();
+  encherDocsAdd();
 
   construirChips('tSubjects', G.people);
   construirChips('pMembers', G.people);
@@ -1320,6 +1336,63 @@ function encherAreas(id){
     s.appendChild(g);
   });
   s.value = atual;
+}
+
+/* Os documentos que a tarefa em edicao leva consigo. Vive fora do formulario
+   porque nao e um campo: e uma lista que se constroi a clicar. */
+var tDocsSel = [];
+
+function docPorId(id){
+  if (!window.D || !D.documents) return null;
+  for (var i = 0; i < D.documents.length; i++) if (D.documents[i].id === id) return D.documents[i];
+  return null;
+}
+
+function renderDocsTarefa(){
+  var box = $('tDocs');
+  if (!box) return;
+  clear(box);
+  tDocsSel.forEach(function(id){
+    var doc = docPorId(id);
+    var linha = el('div');
+    linha.style.cssText = 'display:flex;align-items:center;gap:.5rem;padding:.25rem 0;font-size:.8125rem';
+    var nome = el('span', null, doc ? doc.name : 'documento ' + id);
+    if (doc && doc.inbox_id){
+      nome = el('a', null, doc.name);
+      nome.href = '/api/inbox/' + doc.inbox_id + '/ficheiro';
+      nome.target = '_blank'; nome.rel = 'noopener';
+    }
+    linha.appendChild(nome);
+    var tira = el('button', null, '\u00d7');
+    tira.type = 'button';
+    tira.title = 'Tirar da tarefa';
+    tira.style.cssText = 'border:0;background:none;padding:0 .25rem;font:inherit;color:var(--faint);cursor:pointer';
+    tira.addEventListener('click', function(){
+      tDocsSel = tDocsSel.filter(function(x){ return x !== id; });
+      renderDocsTarefa();
+      encherDocsAdd();
+    });
+    linha.appendChild(tira);
+    box.appendChild(linha);
+  });
+  if (!tDocsSel.length){
+    var vazio = el('div', null, 'Nenhum \u2014 junta abaixo se a tarefa precisar de algum.');
+    vazio.style.cssText = 'font-size:.75rem;color:var(--muted);padding:.25rem 0';
+    box.appendChild(vazio);
+  }
+}
+
+function encherDocsAdd(){
+  var s = $('tDocAdd');
+  if (!s) return;
+  clear(s);
+  s.appendChild(new Option('\u2014 juntar documento \u2014', ''));
+  ((window.D && D.documents) || []).forEach(function(doc){
+    if (tDocsSel.indexOf(doc.id) >= 0) return;
+    var dono = pessoaDoc(doc.person_id);
+    s.appendChild(new Option(doc.name + (dono ? ' (' + dono.name + ')' : ''), doc.id));
+  });
+  s.value = '';
 }
 
 function renderGestao(){
@@ -1354,6 +1427,8 @@ function ligarGestao(){
       due_on: f.due_on.value || null,
       project_id: f.project_id.value || null,
       context_id: f.context_id.value || null,
+      starts_on: f.starts_on.value || null,
+      documents: tDocsSel,
       priority: f.priority.value,
       repeat_every: f.repeat_every.value || null,
       notes: f.notes.value.trim() || null,
@@ -1391,6 +1466,16 @@ function ligarGestao(){
     f.hidden = !f.hidden;
     if (!f.hidden) f.name.focus();
   });
+  /* Juntar um documento e escolher da lista: escolhe-se, entra, e sai da
+     lista para nao se poder juntar duas vezes. */
+  $('tDocAdd').addEventListener('change', function(e){
+    var id = Number(e.target.value);
+    if (!id) return;
+    if (tDocsSel.indexOf(id) < 0) tDocsSel.push(id);
+    renderDocsTarefa();
+    encherDocsAdd();
+  });
+
   $('pCancel').addEventListener('click', function(){ $('pForm').hidden = true; });
   $('pForm').addEventListener('submit', function(e){
     e.preventDefault();
