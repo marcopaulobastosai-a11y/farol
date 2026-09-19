@@ -179,7 +179,7 @@ const CRIAR = {
  * Leitura
  * ------------------------------------------------------------------ */
 const SELECT_ITEM = `
-  SELECT i.id, i.kind, i.title, i.note, i.file_name, i.mime_type, i.byte_size, i.store, i.ai_status, i.ai_json,
+  SELECT i.id, i.kind, i.title, i.note, i.file_name, i.mime_type, i.byte_size, i.store, i.ai_status, i.ai_json, i.ai_erro,
          i.person_id, i.captured_by, to_char(i.captured_at,'YYYY-MM-DD"T"HH24:MI') AS captured_at,
          i.status, to_char(i.resolved_at,'YYYY-MM-DD"T"HH24:MI') AS resolved_at
     FROM inbox_items i`;
