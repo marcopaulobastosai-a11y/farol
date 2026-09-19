@@ -367,7 +367,8 @@ function ibEscolherPessoa(item) {
   pe.appendChild(nada); pe.appendChild(fecha);
   cx.appendChild(pe);
   dlg.appendChild(cx);
-  dlg.addEventListener('close', function () { dlg.remove(); });
+  /* O evento close nao chega a disparar em todo o lado; a janela sai a mao. */
+  dlg.addEventListener('cancel', function () { setTimeout(function () { dlg.remove(); }, 0); });
   document.body.appendChild(dlg);
   dlg.showModal();
 }
@@ -379,7 +380,7 @@ function ibGravarPessoa(id, pid, dlg) {
     body: JSON.stringify({ person_id: pid })
   }).then(function (d) {
     IB.itens = d.itens || []; IB.porTriar = d.porTriar || 0; ibRender();
-    if (dlg) { dlg.close(); }
+    if (dlg) { dlg.close(); dlg.remove(); }
     if (typeof loadGestao === 'function') loadGestao();
     if (typeof load === 'function') load();
   }).catch(function (e) { toast(e.message || 'N\u00e3o foi poss\u00edvel gravar.'); });
