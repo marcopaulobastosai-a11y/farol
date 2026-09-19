@@ -381,8 +381,21 @@ function renderFamilia(){
   var box = $('people');
   clear(box);
   D.people.forEach(function(p){
+    /* O cartao passa a abrir a ficha: quem clica num nome quer ver a pessoa,
+       nao ficar a olhar para as iniciais. O modulo ficha.js escuta o clique
+       por este data-id. */
     var d = el('div', 'person');
-    var av = el('div', 'avatar', p.initials);
+    d.dataset.id = p.id;
+    d.tabIndex = 0;
+    d.setAttribute('role', 'button');
+    d.onkeydown = function(e){ if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); d.click(); } };
+    var av = el('div', 'avatar', p.tem_avatar ? '' : p.initials);
+    if (p.tem_avatar) {
+      var img = document.createElement('img');
+      img.src = '/api/pessoas/' + p.id + '/avatar';
+      img.alt = p.name || '';
+      av.appendChild(img);
+    }
     d.appendChild(av);
     d.appendChild(el('b', null, p.name));
     d.appendChild(el('span', 'role', p.role || ''));
