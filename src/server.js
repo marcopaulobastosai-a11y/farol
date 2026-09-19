@@ -61,7 +61,16 @@ app.get('/api/bootstrap', async (_req, res) => {
       all('SELECT habit_id, dow, level FROM habit_log ORDER BY habit_id, dow'),
       all('SELECT title, who, when_label, when_level FROM appointments ORDER BY sort'),
       all('SELECT week_index, minutes FROM activity ORDER BY week_index'),
-      all('SELECT id, name, entity, valid_on, valid_until, person_id, status_label, status_level FROM documents ORDER BY sort, id DESC'),
+      /* O ficheiro de onde o documento veio continua na caixa de entrada, com
+         o objecto ja no bucket do arquivo: e por ai que se abre o papel. */
+      all(`SELECT d.id, d.name, d.entity, d.person_id, d.status_label, d.status_level,
+                  to_char(d.issued_on, 'YYYY-MM-DD') AS issued_on,
+                  to_char(d.valid_on,  'YYYY-MM-DD') AS valid_on,
+                  d.valid_until, (d.read_at IS NOT NULL) AS lido,
+                  (SELECT l.inbox_id FROM inbox_links l
+                    WHERE l.target_type = 'documento' AND l.target_id = d.id
+                    ORDER BY l.inbox_id DESC LIMIT 1) AS inbox_id
+             FROM documents d ORDER BY d.sort, d.id DESC`),
       all('SELECT name, detail, status_label, status_level FROM archive_sources ORDER BY sort'),
       all('SELECT slug, body FROM notes')
     ]);
