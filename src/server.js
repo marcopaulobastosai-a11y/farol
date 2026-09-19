@@ -165,7 +165,7 @@ app.get('/api/bootstrap', async (_req, res) => {
     }));
 
     res.json({
-      meta: { env: APP_ENV, ...settings },
+      meta: { env: APP_ENV, ...settings, ...hojeMeta() },
       people, calendars, events, eventSources, attention, tasks, tiles,
       familyDates, support, maintenance, consumption, issues, assets,
       projects, budget, summary, alerts, subscriptions, credits, reserves,
