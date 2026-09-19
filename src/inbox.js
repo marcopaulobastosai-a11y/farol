@@ -113,6 +113,14 @@ async function arquivar(chave, mime) {
 /* ------------------------------------------------------------------ *
  * Triagem — cada destino sabe criar-se a si próprio
  * ------------------------------------------------------------------ */
+/* O modelo devolve datas com cauda: «2031-08-03Portal do Cidadao / Cartao...».
+   Uma coluna DATE rejeita isso e a catalogacao morre calada. Fica so a data
+   se ela estiver la ao principio; se nao estiver, fica vazio. */
+function soData(v) {
+  const m = /^\s*(\d{4}-\d{2}-\d{2})/.exec(String(v == null ? '' : v));
+  return m ? m[1] : null;
+}
+
 const CRIAR = {
   async tarefa(d) {
     const title = String(d.title || '').trim();
@@ -153,10 +161,10 @@ const CRIAR = {
        os ecras que ainda o leem. A data do documento tem coluna propria. */
     const rows = await all(
       `INSERT INTO documents (name, entity, kind, context_id, issued_on, valid_on,
-                              valid_until, person_id, origin)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'real') RETURNING id`,
+                              valid_until, person_id, origin, aprovado)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'real',FALSE) RETURNING id`,
       [name, limpar(d.entity), limpar(d.kind), limpar(d.context_id),
-       limpar(d.issued_on), limpar(d.valid_on), limpar(d.valid_on), limpar(d.person_id)]);
+       soData(d.issued_on), soData(d.valid_on), soData(d.valid_on), limpar(d.person_id)]);
     return rows[0].id;
   },
 
@@ -168,14 +176,17 @@ const CRIAR = {
     }
     const rows = await all(
       `INSERT INTO expenses (description, amount, spent_on, merchant, category,
-                             context_id, person_id, project_id, note, origin)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'real') RETURNING id`,
-      [description, Number(d.amount), d.spent_on || new Date(), limpar(d.merchant),
+                             context_id, person_id, project_id, note, origin, aprovado)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'real',FALSE) RETURNING id`,
+      [description, Number(d.amount), soData(d.spent_on) || new Date(), limpar(d.merchant),
        limpar(d.category), limpar(d.context_id), limpar(d.person_id),
        limpar(d.project_id), limpar(d.note)]);
     return rows[0].id;
   }
 };
+
+/* O que precisa de uma aprovacao antes de aparecer nos ecras, e onde mora. */
+const APROVAVEIS = { documento: 'documents', despesa: 'expenses' };
 
 /* ------------------------------------------------------------------ *
  * Leitura
@@ -183,7 +194,8 @@ const CRIAR = {
 const SELECT_ITEM = `
   SELECT i.id, i.kind, i.title, i.note, i.file_name, i.mime_type, i.byte_size, i.store, i.ai_status, i.ai_json, i.ai_erro,
          i.person_id, i.captured_by, to_char(i.captured_at,'YYYY-MM-DD"T"HH24:MI') AS captured_at,
-         i.status, to_char(i.resolved_at,'YYYY-MM-DD"T"HH24:MI') AS resolved_at
+         i.status, to_char(i.resolved_at,'YYYY-MM-DD"T"HH24:MI') AS resolved_at,
+         to_char(i.approved_at,'YYYY-MM-DD"T"HH24:MI') AS approved_at
     FROM inbox_items i`;
 
 async function carregar(estado) {
@@ -191,7 +203,11 @@ async function carregar(estado) {
   const itens = await all(`${SELECT_ITEM} ${where} ORDER BY i.captured_at DESC, i.id DESC`,
     where ? [estado] : []);
   const [{ n }] = await all("SELECT count(*)::int AS n FROM inbox_items WHERE status = 'por_triar'");
-  if (!itens.length) return { itens: [], porTriar: n };
+  /* Duas filas, dois numeros: o que ainda ninguem leu e o que ja esta lido a
+     espera de uma decisao. */
+  const [{ a }] = await all(
+    "SELECT count(*)::int AS a FROM inbox_items WHERE status = 'catalogado' AND approved_at IS NULL");
+  if (!itens.length) return { itens: [], porTriar: n, porAprovar: a };
   const ligacoes = await all(
     'SELECT inbox_id, target_type, target_id FROM inbox_links WHERE inbox_id = ANY($1)',
     [itens.map((i) => i.id)]);
@@ -199,7 +215,7 @@ async function carregar(estado) {
     i.links = ligacoes.filter((l) => l.inbox_id === i.id)
       .map((l) => ({ tipo: l.target_type, id: l.target_id }));
   });
-  return { itens, porTriar: n };
+  return { itens, porTriar: n, porAprovar: a };
 }
 
 /* ------------------------------------------------------------------ *
@@ -227,6 +243,12 @@ async function executarTriagem(id, destinos) {
       criados.push({ tipo: d.tipo, id: novoId });
     }
     await query("UPDATE inbox_items SET status = 'catalogado', resolved_at = now() WHERE id = $1", [id]);
+    /* So documentos e despesas esperam por uma aprovacao. Uma tarefa ou um
+       evento sao para agir agora: ficam aprovados a nascenca, senao o numero
+       no menu passava a vida a pedir uma decisao que nao existe. */
+    if (!criados.some((c) => APROVAVEIS[c.tipo])) {
+      await query('UPDATE inbox_items SET approved_at = now() WHERE id = $1', [id]);
+    }
     await query('COMMIT');
 
     if (item.file_path && item.store === 'inbox') {
@@ -253,9 +275,11 @@ async function executarTriagem(id, destinos) {
 const CAMPOS_MINIMOS = {
   tarefa: (x) => Boolean(x.title),
   evento: (x) => Boolean(x.title && x.day),
-  /* Um documento sem entidade fica por triar: quem o emitiu e metade do que
-     se procura quando se volta a ele meses depois. */
-  documento: (x) => Boolean(x.name && x.entity),
+  /* A entidade continua a ser metade do que se procura num papel velho, mas
+     deixou de travar a catalogacao: agora ha um passo de aprovacao, e um
+     documento sem entidade chega la marcado como incompleto em vez de ficar
+     preso na caixa sem ninguem perceber porque. */
+  documento: (x) => Boolean(x.name),
   despesa: (x) => Boolean(x.description) && x.amount !== undefined && x.amount !== null && x.amount !== ''
 };
 
@@ -582,6 +606,36 @@ function instalar(app) {
       res.status(400).json({ error: err.message || 'Não foi possível catalogar.' });
     }
   });
+  /* Catalogar e um palpite da maquina; aprovar e uma decisao de quem manda.
+     So aqui e que o documento passa a existir para o resto da app. */
+  app.post('/api/inbox/:id/aprovar', async (req, res) => {
+    const id = Number(req.params.id);
+    if (!id) return res.status(400).json({ error: 'Falta dizer o que aprovar.' });
+    try {
+      const item = await all(
+        "SELECT status, approved_at FROM inbox_items WHERE id = $1", [id]);
+      if (!item.length) return res.status(404).json({ error: 'Item nao encontrado.' });
+      if (item[0].status !== 'catalogado') {
+        return res.status(400).json({ error: 'So se aprova o que ja foi catalogado.' });
+      }
+
+      const ligados = await all(
+        'SELECT target_type, target_id FROM inbox_links WHERE inbox_id = $1', [id]);
+      for (const l of ligados) {
+        const tabela = APROVAVEIS[l.target_type];
+        if (tabela) {
+          await query('UPDATE ' + tabela + ' SET aprovado = TRUE WHERE id = $1', [l.target_id]);
+        }
+      }
+      await query('UPDATE inbox_items SET approved_at = now() WHERE id = $1', [id]);
+      console.log('[farol] item', id, 'aprovado:', ligados.map((l) => l.target_type).join(', '));
+      res.json({ ok: true, id, ...(await carregar(req.query.estado || 'catalogado')) });
+    } catch (err) {
+      console.error('[farol] POST aprovar:', err.message);
+      res.status(500).json({ error: 'Nao foi possivel aprovar.' });
+    }
+  });
+
   app.delete('/api/inbox/:id', async (req, res) => {
     try {
       const rows = await all(
