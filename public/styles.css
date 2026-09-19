@@ -536,3 +536,10 @@ td.vazio{padding:12px 6px;text-align:left;}
    a espera. Fica na cor da casa para nao gritar como os atrasos. */
 .badge.aprovar{background:var(--accent-soft);color:var(--accent-ink);}
 .nav button .badge + .badge{margin-left:4px;}
+
+/* Os cartoes do agregado abrem a ficha da pessoa: se clicam, tem de parecer
+   que clicam - e a fotografia, quando existe, vale mais do que as iniciais. */
+.person{cursor:pointer;transition:border-color .15s ease,box-shadow .15s ease;}
+.person:hover,.person:focus-visible{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft);outline:none;}
+.person .avatar{overflow:hidden;padding:0;}
+.person .avatar img{width:100%;height:100%;object-fit:cover;display:block;}
