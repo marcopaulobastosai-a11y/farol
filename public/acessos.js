@@ -40,6 +40,16 @@ function acCabecalho(pai, titulo, direita, accao) {
 }
 
 /* ---------------- montagem ---------------- */
+/* Uma chave: quem entra e quem nao entra. */
+function acIcone() {
+  var caixa = document.createElement('span');
+  caixa.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none"' +
+    ' stroke="currentColor" stroke-width="1.6" stroke-linecap="round"' +
+    ' stroke-linejoin="round"><circle cx="7.5" cy="12" r="3.5"/>' +
+    '<path d="M11 12h9.5"/><path d="M17.5 12v3"/><path d="M20.5 12v2"/></svg>';
+  return caixa.firstChild;
+}
+
 function acMontar() {
   if (AC.montado) return;
   acEstilo();
@@ -48,9 +58,17 @@ function acMontar() {
 
   var nav = $('nav');
   if (nav && !nav.querySelector('[data-view="acessos"]')) {
-    nav.appendChild(el('div', 'nav-label mono', 'Administra\u00e7\u00e3o'));
+    /* O cabecalho e posto por quem chegar primeiro: tres modulos vivem aqui
+       debaixo e nenhum sabe dos outros. */
+    var temLabel = false;
+    var labels = nav.querySelectorAll('.nav-label');
+    for (var i = 0; i < labels.length; i++) {
+      if (/administra/i.test(labels[i].textContent)) temLabel = true;
+    }
+    if (!temLabel) nav.appendChild(el('div', 'nav-label mono', 'Administra\u00e7\u00e3o'));
     var b = el('button', null, 'Acessos');
     b.dataset.view = 'acessos';
+    b.insertBefore(acIcone(), b.firstChild);
     nav.appendChild(b);
   }
 
