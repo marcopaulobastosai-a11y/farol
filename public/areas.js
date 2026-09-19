@@ -48,17 +48,23 @@ function arMontar() {
 
   var nav = $('nav');
   if (!nav) return;
-  /* O cabecalho da Administracao e posto por quem chegar primeiro: os modulos
-     nao sabem uns dos outros e a ordem de arranque nao e garantida. */
-  var temLabel = false;
-  var labels = nav.querySelectorAll('.nav-label');
-  for (var i = 0; i < labels.length; i++) {
-    if (/administra/i.test(labels[i].textContent)) temLabel = true;
-  }
-  if (!temLabel) nav.appendChild(el('div', 'nav-label mono', 'Administra\u00e7\u00e3o'));
   var b = el('button', null, '\u00c1reas');
   b.dataset.view = 'areas';
-  nav.appendChild(b);
+  /* Quem poe o cabecalho da Administracao e o primeiro modulo a chegar. Este
+     espera pelo das Pessoas (ver o fim do ficheiro) e entra antes dele, ja
+     debaixo do cabecalho. So o poe ele proprio se o outro faltar. */
+  var pessoas = nav.querySelector('[data-view="pessoas"]');
+  if (pessoas) {
+    nav.insertBefore(b, pessoas);
+  } else {
+    var temLabel = false;
+    var labels = nav.querySelectorAll('.nav-label');
+    for (var i = 0; i < labels.length; i++) {
+      if (/administra/i.test(labels[i].textContent)) temLabel = true;
+    }
+    if (!temLabel) nav.appendChild(el('div', 'nav-label mono', 'Administra\u00e7\u00e3o'));
+    nav.appendChild(b);
+  }
 
   var sec = el('section', 'view');
   sec.id = 'view-areas';
@@ -206,7 +212,17 @@ document.addEventListener('click', function (e) {
   if (b && !AR.carregado) arCarregar();
 });
 
-(function esperarApp() {
-  if ($('nav') && document.querySelector('.view')) { arMontar(); return; }
-  setTimeout(esperarApp, 400);
+(function esperarApp(tentativa) {
+  tentativa = tentativa || 0;
+  if ($('nav') && document.querySelector('.view')) {
+    /* Da tempo ao modulo das Pessoas de por o cabecalho da Administracao. Se
+       ao fim de uns segundos ele nao aparecer, seguimos sem ele. */
+    if (!$('nav').querySelector('[data-view="pessoas"]') && tentativa < 15) {
+      setTimeout(function () { esperarApp(tentativa + 1); }, 300);
+      return;
+    }
+    arMontar();
+    return;
+  }
+  setTimeout(function () { esperarApp(tentativa + 1); }, 400);
 })();
