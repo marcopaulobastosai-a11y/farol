@@ -134,10 +134,12 @@ function dpApagar(x) {
     toast(r.caixa && r.caixa.length
       ? 'Despesa apagada. O ficheiro voltou \u00e0 caixa, por triar.'
       : 'Despesa apagada.');
-    dpCarregar();
-    if (typeof ibCarregar === 'function') ibCarregar();
   }).catch(function (e) {
     toast(e.message || 'N\u00e3o foi poss\u00edvel apagar a despesa.');
+  /* Correndo bem ou mal, a lista volta a ser o que a base de dados diz. */
+  }).then(function () {
+    dpCarregar();
+    if (typeof ibCarregar === 'function') ibCarregar();
   });
 }
 
