@@ -16,6 +16,7 @@
 const crypto = require('crypto');
 const acessos = require('./acessos');
 const pessoas = require('./pessoas');
+const documentos = require('./documentos');
 
 const CLIENT_ID = (process.env.GOOGLE_CLIENT_ID || '').trim();
 const SESSION_SECRET = process.env.SESSION_SECRET || '';
@@ -163,6 +164,9 @@ function instalar(app) {
   // tem sessão, e lá dentro ainda se confirma que é administrador.
   acessos.instalar(app, sessao, ativa);
   acessos.arrancar().catch((err) => console.error('[farol] acessos: arranque falhou —', err.message));
+
+  // Apagar um documento. Mesmo sítio, pela mesma razão: já passou a barreira.
+  documentos.instalar(app);
 
   // As pessoas do agregado. Mesmo sítio, pela mesma razão: já passou a barreira.
   pessoas.instalar(app);
