@@ -124,10 +124,6 @@
             <header><h3>Agenda</h3><span class="mono" id="agendaDayLabel"></span></header>
             <ul class="agenda" id="agendaHoje"></ul>
           </div>
-          <div class="card">
-            <header><h3>Para fechar hoje</h3><span class="mono" id="todoCount"></span></header>
-            <ul class="check" id="todayList"></ul>
-          </div>
         </div>
       </div>
     </section>
@@ -153,10 +149,6 @@
             <div class="card">
               <header><h3 id="dayTitle">—</h3><span class="mono" id="dayCount"></span></header>
               <ul class="agenda" id="dayList"></ul>
-            </div>
-            <div class="card">
-              <header><h3>De onde vêm os eventos</h3></header>
-              <div id="eventSources"></div>
             </div>
           </div>
         </div>
@@ -297,16 +289,8 @@
         </div>
         <div class="stack">
           <div class="card">
-            <header><h3>Tarefas partilhadas</h3><span class="mono" id="famTaskCount"></span></header>
-            <ul class="check" id="familyTasks"></ul>
-          </div>
-          <div class="card">
-            <header><h3>Apoio aos pais</h3><span class="mono">Rotina</span></header>
-            <div id="support"></div>
-          </div>
-          <div class="card">
-            <header><h3>Datas a não falhar</h3></header>
-            <div id="famDates"></div>
+            <header><h3>Tarefas, apoio e datas</h3></header>
+            <p class="vazio">Ainda não há nada aqui. As tarefas de cada pessoa estão na ficha dela — clica num nome ao lado.</p>
           </div>
         </div>
       </div>
@@ -314,137 +298,32 @@
 
     <!-- CASA -->
     <section class="view" id="view-casa">
-      <div class="grid split">
-        <div class="stack">
-          <div class="card">
-            <header><h3>Manutenção</h3><span class="mono">Recorrente</span></header>
-            <div class="scroll">
-              <table>
-                <thead><tr><th>Item</th><th>Periodicidade</th><th>Última</th><th>Próxima</th><th>Estado</th></tr></thead>
-                <tbody id="maintenance"></tbody>
-              </table>
-            </div>
-          </div>
-          <div class="card">
-            <header><h3>Consumos</h3><span class="mono">Últimos 6 meses</span></header>
-            <div class="grid g3" id="consumption"></div>
-          </div>
+        <div class="card">
+          <header><h3>Casa</h3></header>
+          <p class="vazio">Manutenção, consumos, avarias e equipamentos. Ainda não há nada aqui — o ecrã será construído a partir do que a casa precisar mesmo, não do que a maqueta imaginou.</p>
         </div>
-        <div class="stack">
-          <div class="card">
-            <header><h3>Avarias abertas</h3><span class="mono" id="issuesCount"></span></header>
-            <div id="issues"></div>
-          </div>
-          <div class="card">
-            <header><h3>Equipamentos e garantias</h3></header>
-            <div class="scroll">
-              <table>
-                <thead><tr><th>Equipamento</th><th>Compra</th><th>Garantia</th></tr></thead>
-                <tbody id="assets"></tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
+      </section>
 
     <!-- PROJETOS -->
     <section class="view" id="view-projetos">
       <div class="grid g2" style="margin-bottom:14px" id="projects"></div>
-      <div class="grid split">
-        <div class="card">
-          <header><h3>Próximas ações</h3><span class="mono">Todas as frentes</span></header>
-          <ul class="check" id="projectActions"></ul>
-        </div>
-        <div class="card">
-          <header><h3>Onde foi o tempo</h3><span class="mono">Últimas 4 semanas</span></header>
-          <ul class="budget" id="timeSpent"></ul>
-          <p style="margin-top:12px;font-size:.8125rem;color:var(--muted)" id="timeNote"></p>
-        </div>
-      </div>
     </section>
 
     <!-- FINANÇAS -->
     <section class="view" id="view-financas">
-      <div class="tabs" data-tabs="fin">
-        <button class="is-active" data-tab="orcamento">Orçamento</button>
-        <button data-tab="subs">Subscrições</button>
-        <button data-tab="patrimonio">Património &amp; créditos</button>
-      </div>
-      <div data-pane="orcamento">
-        <div class="grid split">
-          <div class="card">
-            <header><h3 id="budgetMonth">—</h3><span class="mono" id="budgetDay"></span></header>
-            <ul class="budget" id="budget"></ul>
-          </div>
-          <div class="stack">
-            <div class="card">
-              <header><h3>Resumo do mês</h3></header>
-              <div class="tiles" id="finSummary"></div>
-            </div>
-            <div class="card">
-              <header><h3>Alertas</h3></header>
-              <div id="finAlerts"></div>
-            </div>
-          </div>
+        <div class="card" id="finVazio">
+          <header><h3>Orçamento, subscrições e créditos</h3></header>
+          <p class="vazio">Ainda não há nada aqui. As despesas já cá estão, em cima.</p>
         </div>
-      </div>
-      <div data-pane="subs" hidden>
-        <div class="card">
-          <header><h3>Subscrições e contas fixas</h3><span class="mono" id="subsTotal"></span></header>
-          <div class="scroll">
-            <table>
-              <thead><tr><th>Serviço</th><th>Valor</th><th>Ciclo</th><th>Próxima cobrança</th><th></th></tr></thead>
-              <tbody id="subs"></tbody>
-            </table>
-          </div>
-          <p style="margin-top:12px;font-size:.8125rem;color:var(--muted)" id="subsNote"></p>
-        </div>
-      </div>
-      <div data-pane="patrimonio" hidden>
-        <div class="grid split">
-          <div class="card">
-            <header><h3>Créditos</h3><span class="mono" id="creditTotal"></span></header>
-            <div id="credits"></div>
-          </div>
-          <div class="stack">
-            <div class="card">
-              <header><h3>Reservas</h3></header>
-              <div id="reserves"></div>
-            </div>
-            <div class="card">
-              <header><h3>Entradas dos negócios</h3><span class="mono">Só leitura</span></header>
-              <div id="business"></div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
+      </section>
 
     <!-- SAÚDE -->
     <section class="view" id="view-saude">
-      <div class="grid split">
         <div class="card">
-          <header><h3>Rotinas da semana</h3><span class="mono" id="habitsWeek"></span></header>
-          <table class="habits">
-            <thead><tr><th></th><th class="mono">S</th><th class="mono">T</th><th class="mono">Q</th><th class="mono">Q</th><th class="mono">S</th><th class="mono">S</th><th class="mono">D</th></tr></thead>
-            <tbody id="habits"></tbody>
-          </table>
-          <div style="margin-top:14px;display:flex;gap:16px;flex-wrap:wrap" id="habitStats"></div>
+          <header><h3>Saúde &amp; rotinas</h3></header>
+          <p class="vazio">Hábitos da semana, marcações e actividade. Ainda não há nada aqui.</p>
         </div>
-        <div class="stack">
-          <div class="card">
-            <header><h3>Marcações e rotinas anuais</h3></header>
-            <div id="appointments"></div>
-          </div>
-          <div class="card">
-            <header><h3>Atividade</h3><span class="mono" id="activityLabel"></span></header>
-            <div id="activity"></div>
-            <p style="font-size:.8125rem;color:var(--muted)" id="activityNote"></p>
-          </div>
-        </div>
-      </div>
-    </section>
+      </section>
 
     <!-- DOCUMENTOS -->
     <section class="view" id="view-documentos">
@@ -458,10 +337,6 @@
               <tbody id="documents"></tbody>
             </table>
           </div>
-        </div>
-        <div class="card">
-          <header><h3>Como funcionam os avisos</h3></header>
-          <p style="font-size:.8125rem;color:var(--muted)" id="docsNote"></p>
         </div>
       </div>
     </section>
