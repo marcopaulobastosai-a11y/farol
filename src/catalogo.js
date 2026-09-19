@@ -68,6 +68,23 @@ function instalar(app) {
   rotaApagar(app, '/api/documentos/:id', 'documento');
   rotaApagar(app, '/api/despesas/:id', 'despesa');
 
+  /* Lido ou por ler. Marca-se sozinho quando se abre o ficheiro pelo nome, e
+     pode voltar atras para quem quer deixar um papel a chamar por si. */
+  app.patch('/api/documentos/:id/lido', async (req, res) => {
+    const id = Number(req.params.id);
+    const lido = (req.body || {}).lido !== false;
+    try {
+      const r = await query(
+        'UPDATE documents SET read_at = ' + (lido ? 'COALESCE(read_at, now())' : 'NULL') +
+        ' WHERE id = $1', [id]);
+      if (!r.rowCount) return res.status(404).json({ error: 'Documento nao encontrado.' });
+      res.json({ ok: true, id: id, lido: lido });
+    } catch (err) {
+      console.error('[farol] PATCH lido:', err.message);
+      res.status(400).json({ error: 'Nao foi possivel marcar o documento.' });
+    }
+  });
+
   app.get('/api/despesas', async (req, res) => {
     try {
       const linhas = await all(
