@@ -248,6 +248,18 @@ function peFoto(prefixo, pessoa) {
 }
 
 /* ---------------- montagem ---------------- */
+/* Duas pessoas, uma a frente da outra. */
+function peIcone() {
+  var caixa = document.createElement('span');
+  caixa.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none"' +
+    ' stroke="currentColor" stroke-width="1.6" stroke-linecap="round"' +
+    ' stroke-linejoin="round"><circle cx="9" cy="8" r="3.2"/>' +
+    '<path d="M3.2 19c0-3.1 2.6-5 5.8-5s5.8 1.9 5.8 5"/>' +
+    '<path d="M16.2 5.3a3.2 3.2 0 0 1 0 5.4"/>' +
+    '<path d="M17.6 14.4c1.9.6 3.2 2 3.2 4.6"/></svg>';
+  return caixa.firstChild;
+}
+
 function peMontar() {
   if (PE.montado) return;
   peEstilo();
@@ -264,6 +276,7 @@ function peMontar() {
     if (!temLabel) nav.appendChild(el('div', 'nav-label mono', 'Administração'));
     var b = el('button', null, 'Pessoas');
     b.dataset.view = 'pessoas';
+    b.insertBefore(peIcone(), b.firstChild);
     nav.appendChild(b);
   }
 
