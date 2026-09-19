@@ -39,17 +39,11 @@ function dpMontar() {
   estilo.textContent = DP_CSS;
   document.head.appendChild(estilo);
 
-  var tabs = vista.querySelector('.tabs');
-  if (tabs) {
-    var b = el('button', null, 'Despesas');
-    b.type = 'button';
-    b.dataset.tab = 'despesas';
-    tabs.appendChild(b);
-  }
-
+  /* As Financas deixaram de ter separadores: o que restava neles era maqueta.
+     As despesas passam a ser o conteudo do ecra, acima da nota do que ainda
+     nao existe. */
   var pane = el('div');
   pane.dataset.pane = 'despesas';
-  pane.hidden = true;
 
   var card = el('div', 'card');
   var h = el('header');
@@ -74,7 +68,9 @@ function dpMontar() {
   scroll.appendChild(tab);
   card.appendChild(scroll);
   pane.appendChild(card);
-  vista.appendChild(pane);
+  var nota = document.getElementById('finVazio');
+  if (nota) vista.insertBefore(pane, nota);
+  else vista.appendChild(pane);
 }
 
 function dpCarregar() {
@@ -145,7 +141,7 @@ function dpApagar(x) {
 
 /* Arranque preguiçoso: só lê as despesas quando alguém abre o separador. */
 document.addEventListener('click', function (e) {
-  var b = e.target.closest && e.target.closest('button[data-tab="despesas"]');
+  var b = e.target.closest && e.target.closest('button[data-view="financas"]');
   if (b && !DP.carregado) dpCarregar();
 });
 
