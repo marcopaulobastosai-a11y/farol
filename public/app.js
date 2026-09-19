@@ -55,23 +55,6 @@ function calName(code){
   var c = (D.calendars || []).filter(function(x){ return x.code === code; })[0];
   return c ? c.name : code;
 }
-function checkItem(task, onToggle){
-  var li = el('li', task.done ? 'done' : '');
-  var b = el('button');
-  b.type = 'button';
-  var box = el('span', 'box');
-  box.innerHTML = '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke-width="3.2" stroke-linecap="round"><path d="M5 13l4 4L19 7"/></svg>';
-  b.appendChild(box);
-  b.appendChild(el('span', 'lbl', task.title));
-  if (task.tag) {
-    var t = pill(task.tag, task.tag_level);
-    t.classList.add('meta');
-    b.appendChild(t);
-  }
-  b.addEventListener('click', function(){ onToggle(task, li); });
-  li.appendChild(b);
-  return li;
-}
 
 /* ---------------- toast ---------------- */
 var toastTimer;
@@ -83,32 +66,9 @@ function toast(msg){
   toastTimer = setTimeout(function(){ t.classList.remove('show'); }, 3000);
 }
 
-/* ---------------- tarefas (escrita na base de dados) ---------------- */
-function toggleTask(task, li){
-  var next = !task.done;
-  fetch('/api/tasks/' + task.id, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ done: next })
-  }).then(function(r){
-    if (!r.ok) throw new Error('falhou');
-    return r.json();
-  }).then(function(saved){
-    task.done = saved.done;
-    li.classList.toggle('done', saved.done);
-    renderTaskCounters();
-  }).catch(function(){
-    toast('Não deu para gravar. A base de dados não respondeu.');
-  });
-}
-function renderTaskCounters(){
-  var hoje = D.tasks.filter(function(t){ return t.scope === 'hoje'; });
-  var done = hoje.filter(function(t){ return t.done; }).length;
-  $('todoCount').textContent = done + ' de ' + hoje.length;
-  var fam = D.tasks.filter(function(t){ return t.scope === 'familia' && !t.done; });
-  $('famTaskCount').textContent = fam.length + ' por fazer';
-  $('badgeFamilia').textContent = fam.length;
-}
+/* Os contadores viviam da coluna scope, que so o seed preenchia: diziam
+   sempre zero de zero. O numero que interessa e o das tarefas a serio, e esse
+   vem do /api/gestao - e escrito la. */
 
 /* ---------------- HOJE ---------------- */
 /* Quantos dias faltam, contados a partir de hoje. Negativo e passado. */
@@ -190,11 +150,6 @@ function renderHoje(){
   $('agendaDayLabel').textContent = DIAS[(parseDay(today).getDay()+6)%7];
   $('badgeAgenda').textContent = todays.length;
 
-  var ul = $('todayList');
-  clear(ul);
-  D.tasks.filter(function(t){ return t.scope === 'hoje'; }).forEach(function(t){
-    ul.appendChild(checkItem(t, toggleTask));
-  });
   $('tilesStamp').textContent = 'dados da base';
 }
 function agendaItem(e){
@@ -235,14 +190,7 @@ function renderAgendaShell(){
 
   $('calMonth').textContent = D.meta.month_label || '';
   $('calNote').textContent = D.notes.agenda_nota || '';
-  $('loadNote').textContent = D.notes.agenda_carga || '';
   $('loadLabel').textContent = D.meta.week_label || '';
-
-  var src = $('eventSources');
-  clear(src);
-  D.eventSources.forEach(function(s){
-    src.appendChild(row(s.name, s.detail, s.status_label ? pill(s.status_label, s.status_level) : null));
-  });
 
   var dec = $('decisions');
   clear(dec);
@@ -433,347 +381,11 @@ function renderFamilia(){
     p.insertBefore(dot, p.firstChild);
     leg.appendChild(p);
   });
-
-  var ul = $('familyTasks');
-  clear(ul);
-  D.tasks.filter(function(t){ return t.scope === 'familia'; }).forEach(function(t){
-    ul.appendChild(checkItem(t, toggleTask));
-  });
-
-  var sup = $('support');
-  clear(sup);
-  D.support.forEach(function(s){
-    sup.appendChild(row(s.title, s.detail, s.status_label ? pill(s.status_label, s.status_level) : null));
-  });
-
-  var fd = $('famDates');
-  clear(fd);
-  D.familyDates.forEach(function(f){
-    var right = el('span', 'mono num', f.when_label);
-    fd.appendChild(row(f.title, null, right));
-  });
-}
-
-/* ---------------- CASA ---------------- */
-function renderCasa(){
-  var tb = $('maintenance');
-  clear(tb);
-  D.maintenance.forEach(function(m){
-    var tr = el('tr');
-    tr.appendChild(el('td', null, m.item));
-    tr.appendChild(el('td', null, m.periodicity || ''));
-    tr.appendChild(el('td', 'n', m.last_label || ''));
-    tr.appendChild(el('td', 'n', m.next_label || ''));
-    var td = el('td');
-    td.appendChild(pill(m.status_label, m.status_level));
-    tr.appendChild(td);
-    tb.appendChild(tr);
-  });
-
-  var cons = $('consumption');
-  clear(cons);
-  var utilities = [];
-  D.consumption.forEach(function(c){ if (utilities.indexOf(c.utility) < 0) utilities.push(c.utility); });
-  utilities.forEach(function(u){
-    var rows = D.consumption.filter(function(c){ return c.utility === u; });
-    var max = Math.max.apply(null, rows.map(function(r){ return r.value; }));
-    var wrap = el('div');
-    wrap.appendChild(el('div', 'mono', u + ' · ' + (rows[0].unit || '')));
-    var ns = 'http://www.w3.org/2000/svg';
-    var svg = document.createElementNS(ns, 'svg');
-    svg.setAttribute('viewBox', '0 0 160 60');
-    svg.setAttribute('width', '100%');
-    svg.setAttribute('height', '60');
-    svg.setAttribute('role', 'img');
-    svg.setAttribute('aria-label', 'Consumo de ' + u + ' nos últimos seis meses');
-    rows.forEach(function(r, i){
-      var h = Math.max(4, Math.round(r.value / max * 52));
-      var rect = document.createElementNS(ns, 'rect');
-      rect.setAttribute('x', 2 + i * 26);
-      rect.setAttribute('y', 60 - h);
-      rect.setAttribute('width', 20);
-      rect.setAttribute('height', h);
-      rect.setAttribute('rx', 2);
-      rect.setAttribute('fill', r.is_current ? 'var(--accent)' : 'var(--accent-soft)');
-      svg.appendChild(rect);
-    });
-    wrap.appendChild(svg);
-    var foot = el('div');
-    foot.style.display = 'flex';
-    foot.style.justifyContent = 'space-between';
-    foot.appendChild(el('span', 'mono', rows[0].month_label));
-    var last = rows[rows.length - 1];
-    var delta = el('span', 'mono num', last.delta_label || '');
-    if (last.delta_level === 'good') delta.style.color = 'var(--good)';
-    if (last.delta_level === 'warn') delta.style.color = 'var(--warn)';
-    if (last.delta_level === 'bad') delta.style.color = 'var(--bad)';
-    foot.appendChild(delta);
-    wrap.appendChild(foot);
-    cons.appendChild(wrap);
-  });
-
-  var iss = $('issues');
-  clear(iss);
-  D.issues.forEach(function(i){
-    iss.appendChild(row(i.title, i.detail, pill(i.status_label, i.status_level)));
-  });
-  $('issuesCount').textContent = D.issues.length;
-  $('badgeCasa').textContent = D.issues.length;
-
-  var as = $('assets');
-  clear(as);
-  D.assets.forEach(function(a){
-    var tr = el('tr');
-    tr.appendChild(el('td', null, a.name));
-    tr.appendChild(el('td', 'n', a.bought_label || ''));
-    var td = el('td');
-    td.appendChild(pill(a.warranty_label, a.warranty_level));
-    tr.appendChild(td);
-    as.appendChild(tr);
-  });
-}
-
-/* ---------------- PROJETOS ---------------- */
-function renderProjetos(){
-  var box = $('projects');
-  clear(box);
-  D.projects.forEach(function(p){
-    var art = el('article', 'proj');
-    var top = el('div', 'top');
-    top.appendChild(el('h4', null, p.name));
-    var st = pill(p.status_label, p.status_level);
-    st.insertBefore(el('i', 'dot'), st.firstChild);
-    st.style.marginLeft = 'auto';
-    top.appendChild(st);
-    art.appendChild(top);
-    var desc = el('p', null, p.description || '');
-    desc.style.color = 'var(--muted)';
-    desc.style.fontSize = '.8125rem';
-    art.appendChild(desc);
-    var pct = el('div', 'pct');
-    pct.appendChild(el('span', null, 'Progresso'));
-    pct.appendChild(el('span', 'num', p.progress + '%'));
-    art.appendChild(pct);
-    var bar = el('div', 'bar' + (p.status_level ? ' ' + p.status_level : ''));
-    var fill = el('span');
-    fill.style.width = p.progress + '%';
-    bar.appendChild(fill);
-    art.appendChild(bar);
-    var next = el('div', 'next');
-    next.appendChild(el('span', null, 'Próximo marco'));
-    next.appendChild(document.createTextNode(p.milestone || ''));
-    art.appendChild(next);
-    box.appendChild(art);
-  });
-  $('badgeProjetos').textContent = D.projects.length;
-
-  var ul = $('projectActions');
-  clear(ul);
-  D.tasks.filter(function(t){ return t.scope === 'projetos'; }).forEach(function(t){
-    ul.appendChild(checkItem(t, toggleTask));
-  });
-
-  var ts = $('timeSpent');
-  clear(ts);
-  var max = Math.max.apply(null, D.projects.map(function(p){ return p.hours || 0; }).concat([1]));
-  D.projects.forEach(function(p){
-    var li = el('li');
-    li.appendChild(el('span', null, p.name));
-    li.appendChild(el('span', 'amt', (p.hours || 0) + ' h'));
-    var bar = el('div', 'bar' + (p.status_level ? ' ' + p.status_level : ''));
-    var fill = el('span');
-    fill.style.width = Math.round((p.hours || 0) / max * 100) + '%';
-    bar.appendChild(fill);
-    li.appendChild(bar);
-    ts.appendChild(li);
-  });
-  $('timeNote').textContent = D.notes.projetos_tempo || '';
 }
 
 /* ---------------- FINANÇAS ---------------- */
 function num(n){ return n.toLocaleString('pt-PT', { minimumFractionDigits: 0, maximumFractionDigits: 0 }); }
 function eur(n){ return num(n) + ' €'; }
-function renderFinancas(){
-  var ul = $('budget');
-  clear(ul);
-  D.budget.forEach(function(c){
-    var pctv = c.budget ? c.spent / c.budget : 0;
-    var li = el('li');
-    li.appendChild(el('span', null, c.name));
-    li.appendChild(el('span', 'amt', num(c.spent) + ' / ' + eur(c.budget)));
-    var level = pctv > 1 ? 'bad' : (pctv >= 1 ? '' : 'good');
-    var bar = el('div', 'bar' + (level ? ' ' + level : ''));
-    var fill = el('span');
-    fill.style.width = Math.min(100, Math.round(pctv * 100)) + '%';
-    bar.appendChild(fill);
-    li.appendChild(bar);
-    ul.appendChild(li);
-  });
-  $('budgetMonth').textContent = D.meta.month_label || '';
-  var dt = parseDay(D.meta.today);
-  var lastDay = new Date(dt.getFullYear(), dt.getMonth() + 1, 0).getDate();
-  $('budgetDay').textContent = 'dia ' + dt.getDate() + ' de ' + lastDay;
-
-  var sum = $('finSummary');
-  clear(sum);
-  D.summary.forEach(function(s){
-    var t = el('div', 'tile');
-    t.style.boxShadow = 'none';
-    t.style.borderColor = 'var(--line-soft)';
-    t.appendChild(el('span', 'k', s.label));
-    t.appendChild(el('span', 'v num', s.value));
-    t.appendChild(el('span', 'n', s.note || ''));
-    sum.appendChild(t);
-  });
-
-  var al = $('finAlerts');
-  clear(al);
-  D.alerts.forEach(function(a){
-    var r = el('div', 'row');
-    r.appendChild(pill(a.badge || '', a.level));
-    var g = el('div', 'grow');
-    g.appendChild(el('span', 't', a.title));
-    if (a.detail) g.appendChild(el('span', 's', a.detail));
-    r.appendChild(g);
-    al.appendChild(r);
-  });
-
-  var tb = $('subs');
-  clear(tb);
-  var yearly = 0, cut = 0;
-  D.subscriptions.forEach(function(s){
-    yearly += s.yearly || 0;
-    if (s.cuttable) cut += s.yearly || 0;
-    var tr = el('tr');
-    tr.appendChild(el('td', null, s.name));
-    tr.appendChild(el('td', 'n', s.amount_label));
-    tr.appendChild(el('td', null, s.cycle || ''));
-    tr.appendChild(el('td', 'n', s.next_charge || ''));
-    var td = el('td');
-    td.appendChild(pill(s.note, s.note_level));
-    tr.appendChild(td);
-    tb.appendChild(tr);
-  });
-  $('subsTotal').textContent = eur(Math.round(yearly)) + '/ano';
-  $('subsNote').textContent = cut ? 'Candidatas a corte: ' + eur(Math.round(cut)) + '/ano.' : (D.notes.subs_nota || '');
-
-  var cr = $('credits');
-  clear(cr);
-  D.credits.forEach(function(c){
-    var right = c.amount_label ? el('span', 'mono num', c.amount_label) : (c.badge ? pill(c.badge, c.badge_level) : null);
-    cr.appendChild(row(c.name, c.detail, right));
-  });
-  var monthly = D.credits.reduce(function(acc, c){
-    var m = (c.amount_label || '').match(/([\d\s.,]+)\s*€/);
-    return acc + (m ? parseFloat(m[1].replace(/\s/g, '').replace(',', '.')) : 0);
-  }, 0);
-  $('creditTotal').textContent = 'Prestação total ' + eur(Math.round(monthly)) + '/mês';
-
-  var rs = $('reserves');
-  clear(rs);
-  D.reserves.forEach(function(r){
-    rs.appendChild(row(r.name, r.detail, pill(r.status_label, r.status_level)));
-    if (r.pct != null){
-      var bar = el('div', 'bar ' + (r.status_level || ''));
-      bar.style.margin = '8px 0 4px';
-      var fill = el('span');
-      fill.style.width = r.pct + '%';
-      bar.appendChild(fill);
-      rs.appendChild(bar);
-    }
-  });
-
-  var bs = $('business');
-  clear(bs);
-  D.business.forEach(function(b){
-    bs.appendChild(row(b.name, b.detail, pill(b.status_label, b.status_level)));
-  });
-}
-
-/* ---------------- SAÚDE ---------------- */
-function renderSaude(){
-  var tb = $('habits');
-  clear(tb);
-  var total = 0, best = null, worst = null;
-  D.habits.forEach(function(h){
-    var score = h.days.reduce(function(a, v){ return a + (v === 2 ? 1 : v === 1 ? 0.5 : 0); }, 0);
-    total += score;
-    if (!best || score > best.score) best = { name: h.name, score: score };
-    if (!worst || score < worst.score) worst = { name: h.name, score: score };
-    var tr = el('tr');
-    tr.appendChild(el('td', null, h.name));
-    h.days.forEach(function(v){
-      var td = el('td');
-      td.appendChild(el('div', 'cell' + (v === 2 ? ' on' : v === 1 ? ' half' : '')));
-      tr.appendChild(td);
-    });
-    tb.appendChild(tr);
-  });
-  var stats = $('habitStats');
-  clear(stats);
-  function stat(label, value){
-    var d = el('div');
-    d.appendChild(el('div', 'mono', label));
-    var v = el('div', 'num', value);
-    v.style.fontFamily = 'var(--serif)';
-    v.style.fontSize = '1.4rem';
-    d.appendChild(v);
-    return d;
-  }
-  var pct = D.habits.length ? Math.round(total / (D.habits.length * 7) * 100) : 0;
-  stats.appendChild(stat('Cumprimento', pct + '%'));
-  if (best) stats.appendChild(stat('Melhor rotina', best.name.split(' ')[0]));
-  if (worst) stats.appendChild(stat('A escorregar', worst.name.split(' ')[0]));
-  $('habitsWeek').textContent = D.meta.week_label || '';
-
-  var ap = $('appointments');
-  clear(ap);
-  D.appointments.forEach(function(a){
-    var right = a.when_level ? pill(a.when_label, a.when_level) : el('span', 'mono num', a.when_label || '');
-    ap.appendChild(row(a.title, a.who, right));
-  });
-
-  var box = $('activity');
-  clear(box);
-  /* Sem historico de atividade nao ha linha para desenhar. */
-  if (!D.activity.length) {
-    $('activityLabel').textContent = '';
-    $('activityNote').textContent = D.notes.saude_nota || '';
-    return;
-  }
-  var ns = 'http://www.w3.org/2000/svg';
-  var svg = document.createElementNS(ns, 'svg');
-  svg.setAttribute('viewBox', '0 0 300 70');
-  svg.setAttribute('width', '100%');
-  svg.setAttribute('height', '70');
-  svg.setAttribute('role', 'img');
-  svg.setAttribute('aria-label', 'Minutos de atividade por semana');
-  var max = Math.max.apply(null, D.activity.map(function(a){ return a.minutes; }).concat([1]));
-  var pts = D.activity.map(function(a, i){
-    var x = 10 + i * (280 / Math.max(1, D.activity.length - 1));
-    var y = 62 - (a.minutes / max) * 46;
-    return [Math.round(x), Math.round(y)];
-  });
-  var poly = document.createElementNS(ns, 'polyline');
-  poly.setAttribute('points', pts.map(function(p){ return p.join(','); }).join(' '));
-  poly.setAttribute('fill', 'none');
-  poly.setAttribute('stroke', 'var(--accent)');
-  poly.setAttribute('stroke-width', '2');
-  poly.setAttribute('stroke-linejoin', 'round');
-  poly.setAttribute('stroke-linecap', 'round');
-  var area = document.createElementNS(ns, 'polygon');
-  area.setAttribute('points', pts.map(function(p){ return p.join(','); }).join(' ') + ' ' + pts[pts.length-1][0] + ',70 ' + pts[0][0] + ',70');
-  area.setAttribute('fill', 'var(--accent-soft)');
-  var end = document.createElementNS(ns, 'circle');
-  end.setAttribute('cx', pts[pts.length-1][0]);
-  end.setAttribute('cy', pts[pts.length-1][1]);
-  end.setAttribute('r', '3.5');
-  end.setAttribute('fill', 'var(--accent)');
-  svg.appendChild(area); svg.appendChild(poly); svg.appendChild(end);
-  box.appendChild(svg);
-  $('activityLabel').textContent = D.activity.length + ' semanas';
-  $('activityNote').textContent = D.notes.saude_nota || '';
-}
 
 /* ---------------- DOCUMENTOS ---------------- */
 /* De quem e cada papel. O filtro por cima da tabela responde a pergunta que
@@ -1022,7 +634,6 @@ function renderDocumentos(){
       ? porLer + ' por ler'
       : (D.documents.length ? 'tudo lido' : '');
   }
-  if ($('docsNote')) $('docsNote').textContent = D.notes.docs_avisos || '';
 }
 
 function marcarLido(d, lido){
@@ -1093,37 +704,6 @@ function renderEnvBar(){
   document.body.classList.add('has-envbar');
 }
 
-var VAZIO_TEXTO = 'Ainda não há nada aqui.';
-
-function marcarVazios(){
-  ['view-casa', 'view-financas', 'view-saude'].forEach(function(id){
-    var vista = $(id);
-    if (!vista) return;
-    var cards = vista.querySelectorAll('.card');
-    for (var i = 0; i < cards.length; i++) {
-      var card = cards[i];
-      var corpos = card.querySelectorAll('tbody');
-      for (var j = 0; j < corpos.length; j++) {
-        if (corpos[j].children.length) continue;
-        var colunas = card.querySelectorAll('thead th').length || 1;
-        var tr = el('tr');
-        var td = el('td', 'vazio', VAZIO_TEXTO);
-        td.colSpan = colunas;
-        tr.appendChild(td);
-        corpos[j].appendChild(tr);
-      }
-      var filhos = card.children;
-      for (var k = 0; k < filhos.length; k++) {
-        var f = filhos[k];
-        if (f.tagName !== 'DIV' && f.tagName !== 'UL' && f.tagName !== 'OL') continue;
-        if (f.children.length) continue;
-        if (f.textContent.trim()) continue;
-        f.appendChild(el('p', 'vazio', VAZIO_TEXTO));
-      }
-    }
-  });
-}
-
 function renderAll(){
   $('brandSub').textContent = D.meta.household || '';
   $('ownerName').textContent = D.meta.owner || '';
@@ -1138,13 +718,7 @@ function renderAll(){
   renderAgendaShell();
   renderMonth(); renderDay(); renderUpcoming(); renderLoad();
   renderFamilia();
-  renderCasa();
-  renderProjetos();
-  renderFinancas();
-  renderSaude();
   renderDocumentos();
-  renderTaskCounters();
-  marcarVazios();
 }
 
 function load(notify){
@@ -1422,8 +996,17 @@ function projetoNome(id){
   return '';
 }
 
+/* O mesmo desenho serve o cartao das Tarefas e o ecra dos Projetos: um
+   projeto e a mesma coisa nos dois sitios. */
 function renderProjetos(){
-  var box = $('tProjects');
+  renderProjetosEm($('tProjects'));
+  renderProjetosEm($('projects'));
+  var b = $('badgeProjetos');
+  if (b) b.textContent = G.projects.length || '';
+}
+
+function renderProjetosEm(box){
+  if (!box) return;
   clear(box);
   if (!G.projects.length){
     box.appendChild(el('p', 'empty', 'Ainda sem projetos. A mudança de casa e a sociedade nova entram aqui.'));
