@@ -5,6 +5,43 @@ const { query, ensureSchema, isEmpty, seed } = require('./db');
 const auth = require('./auth');
 const inbox = require('./inbox');
 
+/* Hoje e hoje. O seed deixou uma data fixa nas settings (28 de agosto) e a app
+   inteira acreditava nela: o cabecalho mentia e a Agenda mostrava o dia errado.
+   Estas quatro linhas passam a mandar sobre o que la estiver guardado. */
+const MESES = ['janeiro', 'fevereiro', 'marco', 'abril', 'maio', 'junho', 'julho',
+  'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+const MESES_PT = ['janeiro', 'fevereiro', 'mar\u00e7o', 'abril', 'maio', 'junho', 'julho',
+  'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+const DIAS_PT = ['Domingo', 'Segunda-feira', 'Ter\u00e7a-feira', 'Quarta-feira',
+  'Quinta-feira', 'Sexta-feira', 'S\u00e1bado'];
+
+function doisDigitos(n) { return (n < 10 ? '0' : '') + n; }
+
+function semanaDoAno(d) {
+  const alvo = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const dia = alvo.getUTCDay() || 7;
+  alvo.setUTCDate(alvo.getUTCDate() + 4 - dia);
+  const ano = new Date(Date.UTC(alvo.getUTCFullYear(), 0, 1));
+  return Math.ceil(((alvo - ano) / 86400000 + 1) / 7);
+}
+
+function hojeMeta() {
+  const d = new Date();
+  const iso = d.getFullYear() + '-' + doisDigitos(d.getMonth() + 1) + '-' + doisDigitos(d.getDate());
+  const mes = MESES_PT[d.getMonth()];
+  const seg = new Date(d); seg.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+  const dom = new Date(seg); dom.setDate(seg.getDate() + 6);
+  const curto = (x) => x.getDate() + ' ' + MESES[x.getMonth()].slice(0, 3);
+  return {
+    today: iso,
+    today_label: DIAS_PT[d.getDay()] + ', ' + d.getDate() + ' de ' + mes +
+      ' de ' + d.getFullYear() + ' \u00b7 semana ' + semanaDoAno(d),
+    month: iso.slice(0, 7),
+    month_label: mes.charAt(0).toUpperCase() + mes.slice(1) + ' de ' + d.getFullYear(),
+    week_label: curto(seg) + ' \u2013 ' + curto(dom)
+  };
+}
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 const APP_ENV = process.env.APP_ENV || 'qualidade';
