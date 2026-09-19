@@ -111,26 +111,63 @@ function renderTaskCounters(){
 }
 
 /* ---------------- HOJE ---------------- */
+/* Quantos dias faltam, contados a partir de hoje. Negativo e passado. */
+function diasAte(iso){
+  var d = parseDay(iso);
+  if (!d) return null;
+  var hoje = new Date();
+  hoje.setHours(0, 0, 0, 0);
+  d.setHours(0, 0, 0, 0);
+  return Math.round((d - hoje) / 86400000);
+}
+
+/* A mesma data quer dizer coisas diferentes conforme o que expira: um prazo
+   de tarefa e urgente a dois dias, um cartao avisa-se com um mes. */
+function urgencia(n, origem){
+  if (n === null) return { texto: '', nivel: '' };
+  var perto = origem === 'documento' ? 30 : 7;
+  var texto = n < 0 ? (n === -1 ? 'ontem' : 'h\u00e1 ' + (-n) + ' dias')
+    : n === 0 ? 'hoje'
+    : n === 1 ? 'amanh\u00e3'
+    : 'em ' + n + ' dias';
+  var nivel = n < 0 ? 'bad' : n <= perto ? 'warn' : '';
+  return { texto: texto, nivel: nivel };
+}
+
 function renderHoje(){
   var list = $('attnList');
   clear(list);
-  D.attention.forEach(function(a){
-    var art = el('article', a.level);
+  var itens = (D.attention || []).map(function(a){
+    var n = diasAte(a.quando);
+    var u = urgencia(n, a.origem);
+    return { a: a, dias: n, u: u };
+  });
+  itens.forEach(function(x){
+    var a = x.a;
+    var art = el('article', x.u.nivel);
     var g = el('div', 'grow');
     g.appendChild(el('h4', null, a.title));
-    if (a.detail) g.appendChild(el('p', null, a.detail));
+    var abaixo = [a.origem === 'documento' ? 'validade' : 'prazo', a.detail]
+      .filter(Boolean).join(' · ');
+    g.appendChild(el('p', null, abaixo));
     art.appendChild(g);
-    if (a.when_label) {
-      var w = el('div', 'when');
-      var p = pill(a.when_label, a.when_level);
-      p.insertBefore(el('i', 'dot'), p.firstChild);
-      w.appendChild(p);
-      art.appendChild(w);
-    }
+    var w = el('div', 'when');
+    var p = pill(x.u.texto || dataCurta(a.quando), x.u.nivel);
+    p.insertBefore(el('i', 'dot'), p.firstChild);
+    w.appendChild(p);
+    art.appendChild(w);
+    /* Clicar leva ao sitio onde se resolve, nao a lado nenhum. */
+    art.style.cursor = 'pointer';
+    art.addEventListener('click', function(){
+      show(a.origem === 'documento' ? 'documentos' : 'tarefas');
+    });
     list.appendChild(art);
   });
-  $('attnLabel').textContent = 'Precisa de ti · ' + D.attention.length;
-  $('badgeHoje').textContent = D.attention.length;
+  if (!itens.length){
+    list.appendChild(el('p', 'empty', 'Nada com data a chegar. O que tiver prazo aparece aqui sozinho.'));
+  }
+  $('attnLabel').textContent = 'Precisa de ti · ' + itens.length;
+  $('badgeHoje').textContent = itens.length;
 
   var tiles = $('tiles');
   clear(tiles);
@@ -733,6 +770,94 @@ function pessoaDoc(id){
 
 /* Apagar o papel, nao o ficheiro: se o documento tinha vindo da caixa de
    entrada, o ficheiro fica la, outra vez por triar. */
+var DOC_TIPOS = ['cart\u00e3o', 'contrato', 'ap\u00f3lice', 'declara\u00e7\u00e3o',
+  'certid\u00e3o', 'fatura', 'recibo', 'exame', 'outro'];
+
+/* Corrigir um documento a mao. A leitura automatica erra de vez em quando, e
+   o remedio nao pode ser apagar e voltar a submeter o ficheiro. */
+function editarDocumento(d){
+  var dlg = el('dialog', 'ar-dlg');
+  var cx = el('div', 'ar-dlgc');
+  cx.appendChild(el('h3', null, 'Documento'));
+
+  function campo(rotulo, elemento){
+    var w = el('div');
+    w.appendChild(el('label', null, rotulo));
+    w.appendChild(elemento);
+    cx.appendChild(w);
+    return elemento;
+  }
+
+  var iNome = el('input'); iNome.type = 'text'; iNome.value = d.name || '';
+  campo('Nome', iNome);
+  var iEnt = el('input'); iEnt.type = 'text'; iEnt.value = d.entity || '';
+  campo('Entidade', iEnt);
+
+  var iArea = el('select');
+  campo('\u00c1rea', iArea);
+  iArea.appendChild(new Option('\u2014 sem \u00e1rea \u2014', ''));
+  ((window.G && G.contextos) || []).filter(function(c){ return !c.parent_id && c.active; })
+    .forEach(function(area){
+      var g = document.createElement('optgroup');
+      g.label = area.name;
+      g.appendChild(new Option(area.name, area.id));
+      G.contextos.filter(function(c){ return c.parent_id === area.id && c.active; })
+        .forEach(function(sub){ g.appendChild(new Option('   ' + sub.name, sub.id)); });
+      iArea.appendChild(g);
+    });
+  iArea.value = d.context_id || '';
+
+  var iTipo = el('select');
+  campo('Tipo', iTipo);
+  iTipo.appendChild(new Option('\u2014 sem tipo \u2014', ''));
+  DOC_TIPOS.forEach(function(k){ iTipo.appendChild(new Option(k, k)); });
+  if (d.kind && DOC_TIPOS.indexOf(d.kind) < 0) iTipo.appendChild(new Option(d.kind, d.kind));
+  iTipo.value = d.kind || '';
+
+  var iQuem = el('select');
+  campo('De quem', iQuem);
+  iQuem.appendChild(new Option('\u2014 de ningu\u00e9m \u2014', ''));
+  (D.people || []).forEach(function(p){ iQuem.appendChild(new Option(p.name, p.id)); });
+  iQuem.value = d.person_id || '';
+
+  var iData = el('input'); iData.type = 'date'; iData.value = d.issued_on || '';
+  campo('Data do documento', iData);
+  var iVal = el('input'); iVal.type = 'date'; iVal.value = d.valid_on || '';
+  campo('V\u00e1lido at\u00e9', iVal);
+
+  var pe = el('div', 'ar-dlga');
+  var cancelar = el('button', 'btn', 'Cancelar');
+  cancelar.type = 'button';
+  cancelar.addEventListener('click', function(){ dlg.close(); dlg.remove(); });
+  var gravar = el('button', 'btn primary', 'Gravar');
+  gravar.type = 'button';
+  gravar.addEventListener('click', function(){
+    apiGestao('/api/documentos/' + d.id, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: iNome.value.trim() || d.name,
+        entity: iEnt.value.trim() || null,
+        context_id: iArea.value || null,
+        kind: iTipo.value || null,
+        person_id: iQuem.value || null,
+        issued_on: iData.value || null,
+        valid_on: iVal.value || null
+      })
+    }).then(function(){ dlg.close(); dlg.remove(); })
+      .catch(function(e){ toast(e.message || 'N\u00e3o foi poss\u00edvel gravar.'); })
+      .then(function(){ load(); });
+  });
+  pe.appendChild(cancelar); pe.appendChild(gravar);
+  cx.appendChild(pe);
+
+  dlg.appendChild(cx);
+  dlg.addEventListener('cancel', function(){ setTimeout(function(){ dlg.remove(); }, 0); });
+  document.body.appendChild(dlg);
+  dlg.showModal();
+  iNome.focus();
+}
+
 function apagarDocumento(d){
   var nome = d.name || 'este documento';
   if (!window.confirm('Apagar \u00ab' + nome + '\u00bb\u003f\n\nSe tiver vindo da caixa de entrada, o ficheiro volta a ficar por triar.')) return;
@@ -823,6 +948,14 @@ function renderDocumentos(){
       volta.addEventListener('click', function(){ marcarLido(d, false); });
       tdn.appendChild(volta);
     }
+    /* Onde vive e o que e, por baixo do nome: nao vale a pena mais duas
+       colunas numa tabela que ja tem sete. */
+    var onde = [areaNome(d.context_id), d.kind].filter(Boolean).join(' · ');
+    if (onde){
+      var sub = el('div', null, onde);
+      sub.style.cssText = 'font-size:.6875rem;color:var(--muted);margin-top:2px';
+      tdn.appendChild(sub);
+    }
     tr.appendChild(tdn);
 
     var dono = pessoaDoc(d.person_id);
@@ -837,6 +970,13 @@ function renderDocumentos(){
     /* A catalogacao automatica ha-de errar um dia; sem isto o papel errado
        ficava no ecra para sempre. */
     var tdx = el('td');
+    var be = el('button', 'btn', 'Editar');
+    be.type = 'button';
+    be.style.padding = '.18rem .5rem';
+    be.style.fontSize = '.75rem';
+    be.style.marginRight = '.35rem';
+    be.addEventListener('click', function(){ editarDocumento(d); });
+    tdx.appendChild(be);
     var bx = el('button', 'btn danger', 'Apagar');
     bx.type = 'button';
     bx.style.padding = '.18rem .5rem';
