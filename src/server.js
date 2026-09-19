@@ -1,7 +1,7 @@
 'use strict';
 const path = require('path');
 const express = require('express');
-const { query, ensureSchema, isEmpty, seed } = require('./db');
+const { query, ensureSchema } = require('./db');
 const auth = require('./auth');
 const inbox = require('./inbox');
 
@@ -67,23 +67,16 @@ app.get('/api/bootstrap', async (_req, res) => {
     const settingsRows = await all('SELECT key, value FROM settings');
     const settings = Object.fromEntries(settingsRows.map((r) => [r.key, r.value]));
 
-    const [
-      people, calendars, events, eventSources, attention, tasks, tiles,
-      familyDates, support, maintenance, consumption, issues, assets,
-      projects, budget, summary, alerts, subscriptions, credits, reserves,
-      business, habits, habitLog, appointments, activity, documents, archive, notes
-    ] = await Promise.all([
+    /* O arranque lia vinte e nove tabelas; vinte e uma delas eram da maqueta e
+       vinham sempre vazias - o ecra pagava-as a cada carregamento. Ficam as
+       que tem dados a serio, mais as duas que sao contas feitas na hora. */
+    const [people, calendars, events, attention, tiles, documents, notes] =
+      await Promise.all([
       all(`SELECT id, code, name, role, initials, color, note,
                   (avatar IS NOT NULL) AS tem_avatar
              FROM people WHERE active ORDER BY sort`),
       all('SELECT code, name, color FROM calendars ORDER BY sort'),
       all("SELECT id, to_char(day,'YYYY-MM-DD') AS day, at, title, calendar, detail FROM events ORDER BY day, at NULLS FIRST, id"),
-      all('SELECT name, detail, status_label, status_level FROM event_sources ORDER BY sort'),
-      /* O que precisa de ti deixou de ser texto escrito a mao: e o que tem
-         data e esta a chegar. Tarefas por fazer com prazo ate 30 dias (e as
-         atrasadas, sem limite para tras) e documentos a perder validade nos
-         proximos 60. A etiqueta e o nivel sao decididos no ecra, que sabe que
-         dia e hoje sem ter de perguntar. */
       all(`SELECT * FROM (
              SELECT 'tarefa' AS origem, t.id,
                     t.title AS title,
@@ -102,9 +95,6 @@ app.get('/api/bootstrap', async (_req, res) => {
               WHERE d.aprovado AND d.valid_on IS NOT NULL
                 AND d.valid_on <= CURRENT_DATE + INTERVAL '60 days'
            ) x ORDER BY quando, title`),
-      all("SELECT id, scope, title, tag, tag_level, done FROM tasks WHERE scope IS NOT NULL ORDER BY scope, sort"),
-      /* Os quatro numeros do topo, contados na hora. Antes eram do seed e
-         diziam coisas bonitas que nao correspondiam a nada. */
       all(`SELECT 'Por fazer' AS label,
                   (SELECT count(*) FROM tasks
                     WHERE origin = 'real' AND NOT done AND status <> 'cancelada')::text AS value,
@@ -125,26 +115,6 @@ app.get('/api/bootstrap', async (_req, res) => {
            SELECT 'Na caixa por triar',
                   (SELECT count(*) FROM inbox_items WHERE status = 'por_triar')::text,
                   'ficheiros a espera de decisao', 'inbox'`),
-      all('SELECT title, when_label FROM family_dates ORDER BY sort'),
-      all('SELECT title, detail, status_label, status_level FROM support_routines ORDER BY sort'),
-      all('SELECT item, periodicity, last_label, next_label, status_label, status_level FROM maintenance ORDER BY sort'),
-      all('SELECT utility, unit, month_label, value::float AS value, is_current, delta_label, delta_level FROM consumption ORDER BY utility, sort'),
-      all('SELECT title, detail, status_label, status_level FROM issues ORDER BY sort'),
-      all('SELECT name, bought_label, warranty_label, warranty_level FROM assets ORDER BY sort'),
-      all("SELECT name, description, status_label, status_level, progress, milestone, hours_4w::float AS hours FROM projects ORDER BY sort"),
-      all('SELECT name, spent::float AS spent, budget::float AS budget FROM budget_categories ORDER BY sort'),
-      all('SELECT label, value, note FROM finance_summary ORDER BY sort'),
-      all('SELECT level, badge, title, detail FROM finance_alerts ORDER BY sort'),
-      all('SELECT name, amount_label, cycle, next_charge, note, note_level, yearly::float AS yearly, cuttable FROM subscriptions ORDER BY sort'),
-      all('SELECT name, detail, amount_label, badge, badge_level FROM credits ORDER BY sort'),
-      all('SELECT name, detail, status_label, status_level, pct FROM reserves ORDER BY sort'),
-      all('SELECT name, detail, status_label, status_level FROM business_income ORDER BY sort'),
-      all('SELECT id, name FROM habits ORDER BY sort'),
-      all('SELECT habit_id, dow, level FROM habit_log ORDER BY habit_id, dow'),
-      all('SELECT title, who, when_label, when_level FROM appointments ORDER BY sort'),
-      all('SELECT week_index, minutes FROM activity ORDER BY week_index'),
-      /* O ficheiro de onde o documento veio continua na caixa de entrada, com
-         o objecto ja no bucket do arquivo: e por ai que se abre o papel. */
       all(`SELECT d.id, d.name, d.entity, d.person_id, d.kind, d.context_id,
                   d.status_label, d.status_level,
                   to_char(d.issued_on, 'YYYY-MM-DD') AS issued_on,
@@ -156,24 +126,12 @@ app.get('/api/bootstrap', async (_req, res) => {
              FROM documents d
             WHERE d.aprovado
             ORDER BY d.sort, d.id DESC`),
-      all('SELECT name, detail, status_label, status_level FROM archive_sources ORDER BY sort'),
       all('SELECT slug, body FROM notes')
     ]);
 
-    const habitsOut = habits.map((h) => ({
-      name: h.name,
-      days: [0, 1, 2, 3, 4, 5, 6].map((d) => {
-        const hit = habitLog.find((l) => l.habit_id === h.id && l.dow === d);
-        return hit ? hit.level : 0;
-      })
-    }));
-
     res.json({
       meta: { env: APP_ENV, ...settings, ...hojeMeta() },
-      people, calendars, events, eventSources, attention, tasks, tiles,
-      familyDates, support, maintenance, consumption, issues, assets,
-      projects, budget, summary, alerts, subscriptions, credits, reserves,
-      business, habits: habitsOut, appointments, activity, documents, archive,
+      people, calendars, events, attention, tiles, documents,
       notes: Object.fromEntries(notes.map((n) => [n.slug, n.body]))
     });
   } catch (err) {
@@ -474,8 +432,8 @@ app.get('*', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'i
 (async () => {
   try {
     await ensureSchema();
-    /* Os dados de demonstração deixaram de entrar sozinhos: a app mostra o que
-       lá está, e o que lá está é real. Para voltar a semear, npm run seed. */
+    /* Nada entra sozinho na base de dados: a app mostra o que la esta, e o
+       que la esta foi alguem que o poe. */
     console.log('[farol] base de dados pronta.');
   } catch (err) {
     console.error('[farol] arranque sem base de dados:', err.message);
