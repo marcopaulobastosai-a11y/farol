@@ -94,6 +94,33 @@ function instalar(app) {
     }
   });
 
+  /* A despesa tinha o mesmo problema do documento: dava para apagar, nao para
+     corrigir. Agora que espera por uma aprovacao, corrigir antes de aprovar e
+     o caminho normal. */
+  app.patch('/api/despesas/:id', async (req, res) => {
+    const id = Number(req.params.id);
+    const b = req.body || {};
+    const campos = [], valores = [];
+    ['description', 'amount', 'spent_on', 'merchant', 'category',
+     'context_id', 'person_id', 'project_id', 'note'].forEach((c) => {
+      if (b[c] !== undefined) {
+        campos.push(c + ' = $' + (campos.length + 1));
+        valores.push(b[c] === '' ? null : b[c]);
+      }
+    });
+    if (!campos.length) return res.json({ ok: true, id: id });
+    try {
+      valores.push(id);
+      const r = await query(
+        'UPDATE expenses SET ' + campos.join(', ') + ' WHERE id = $' + valores.length, valores);
+      if (!r.rowCount) return res.status(404).json({ error: 'Despesa nao encontrada.' });
+      res.json({ ok: true, id: id });
+    } catch (err) {
+      console.error('[farol] PATCH despesa:', err.message);
+      res.status(400).json({ error: 'Nao foi possivel gravar a despesa.' });
+    }
+  });
+
   /* Lido ou por ler. Marca-se sozinho quando se abre o ficheiro pelo nome, e
      pode voltar atras para quem quer deixar um papel a chamar por si. */
   app.patch('/api/documentos/:id/lido', async (req, res) => {
