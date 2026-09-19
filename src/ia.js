@@ -53,7 +53,7 @@ const ESQUEMA = {
               due_on: texto('Prazo da tarefa, AAAA-MM-DD.'),
               entity: texto('Entidade emissora do documento.'),
               valid_on: texto('Data de validade, AAAA-MM-DD.'),
-              pessoa: texto('Nome da pessoa da casa a quem o ficheiro diz respeito, se estiver escrito nele.'),
+              pessoa: texto('Pessoa da casa a quem o ficheiro diz respeito, escrita tal como vem na lista de pessoas desta casa.'),
               notes: texto('Qualquer coisa util que nao caiba nos outros campos.')
             }
           }
@@ -82,8 +82,11 @@ const SISTEMA = [
   'Regras:',
   '- Datas sempre AAAA-MM-DD. Valores em euros, como numero, com ponto decimal.',
   '- Portugues de Portugal, sem gerundio.',
-  '- Se o ficheiro nomear uma pessoa (o titular, o utente, o segurado), poe esse',
-  '  nome em pessoa. E o que permite arrumar o documento a quem pertence.',
+  '- Recebes a lista de quem mora nesta casa. Se o ficheiro nomear uma pessoa',
+  '  (o titular, o utente, o segurado, o destinatario) e ela estiver na lista,',
+  '  poe em pessoa o nome tal como aparece na lista, nem mais nem menos.',
+  '  E o que permite arrumar o ficheiro a quem pertence.',
+  '- Se o nome que vem no ficheiro nao for de ninguem da lista, deixa pessoa de fora.',
   '- Nao inventes. Se um campo nao esta legivel no ficheiro, deixa-o de fora.',
   '  Um campo em falta custa ao utilizador cinco segundos a escrever; um campo',
   '  inventado passa despercebido e fica errado para sempre.',
@@ -95,6 +98,23 @@ function suportado(mime) {
   return mime === 'application/pdf' || mime === 'text/plain' || IMAGENS.indexOf(mime) >= 0;
 }
 
+/**
+ * Quem mora nesta casa. O modelo acerta muito mais quando escolhe de uma
+ * lista do que quando copia o nome tal como vem escrito no papel: no papel
+ * vem Ana Lucia Garcia, aqui dentro a pessoa chama-se Ana Lucia.
+ */
+async function nomesDaCasa() {
+  try {
+    const r = await query('SELECT name, full_name FROM people WHERE active ORDER BY sort');
+    return r.rows.map((p) => (p.full_name && p.full_name !== p.name
+      ? p.name + ' (tambem ' + p.full_name + ')'
+      : p.name));
+  } catch (err) {
+    console.warn('[farol] nao deu para ler os nomes da casa:', err.message);
+    return [];
+  }
+}
+
 async function perguntar(buffer, mime, nome) {
   if (!suportado(mime)) throw new Error('tipo de ficheiro nao suportado pela analise');
 
@@ -104,6 +124,14 @@ async function perguntar(buffer, mime, nome) {
       ? { type: 'text', text: buffer.toString('utf8').slice(0, 20000) }
       : { type: 'image', data: buffer.toString('base64'), mime_type: mime };
 
+  const casa = await nomesDaCasa();
+  const contexto = ['Nome do ficheiro: ' + (nome || 'sem nome')]
+    .concat(casa.length
+      ? ['', 'Pessoas desta casa: ' + casa.join('; ') + '.',
+         'Se o ficheiro for de uma delas, escreve em pessoa o nome curto tal como esta nesta lista.']
+      : [])
+    .join('\n');
+
   const r = await fetch('https://generativelanguage.googleapis.com/v1beta/interactions', {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-goog-api-key': CHAVE },
@@ -111,7 +139,7 @@ async function perguntar(buffer, mime, nome) {
       model: MODELO,
       system_instruction: SISTEMA,
       store: false,
-      input: [parte, { type: 'text', text: 'Nome do ficheiro: ' + (nome || 'sem nome') }],
+      input: [parte, { type: 'text', text: contexto }],
       response_format: { type: 'text', mime_type: 'application/json', schema: ESQUEMA }
     })
   });
