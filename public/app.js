@@ -1074,6 +1074,37 @@ function renderEnvBar(){
   document.body.classList.add('has-envbar');
 }
 
+var VAZIO_TEXTO = 'Ainda não há nada aqui.';
+
+function marcarVazios(){
+  ['view-casa', 'view-financas', 'view-saude'].forEach(function(id){
+    var vista = $(id);
+    if (!vista) return;
+    var cards = vista.querySelectorAll('.card');
+    for (var i = 0; i < cards.length; i++) {
+      var card = cards[i];
+      var corpos = card.querySelectorAll('tbody');
+      for (var j = 0; j < corpos.length; j++) {
+        if (corpos[j].children.length) continue;
+        var colunas = card.querySelectorAll('thead th').length || 1;
+        var tr = el('tr');
+        var td = el('td', 'vazio', VAZIO_TEXTO);
+        td.colSpan = colunas;
+        tr.appendChild(td);
+        corpos[j].appendChild(tr);
+      }
+      var filhos = card.children;
+      for (var k = 0; k < filhos.length; k++) {
+        var f = filhos[k];
+        if (f.tagName !== 'DIV' && f.tagName !== 'UL' && f.tagName !== 'OL') continue;
+        if (f.children.length) continue;
+        if (f.textContent.trim()) continue;
+        f.appendChild(el('p', 'vazio', VAZIO_TEXTO));
+      }
+    }
+  });
+}
+
 function renderAll(){
   $('brandSub').textContent = D.meta.household || '';
   $('ownerName').textContent = D.meta.owner || '';
@@ -1094,6 +1125,7 @@ function renderAll(){
   renderSaude();
   renderDocumentos();
   renderTaskCounters();
+  marcarVazios();
 }
 
 function load(notify){
