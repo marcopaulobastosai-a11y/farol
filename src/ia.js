@@ -175,13 +175,31 @@ async function perguntar(buffer, mime, nome, modelo) {
          'mais precisa: se o papel e do carro, e Patrimonio > Carro, nao Patrimonio.']
       : [])
     .concat(['',
-      'Antes de responder, se isto for um documento, confere tres coisas:',
+      'Antes de responder, se isto for um documento, confere quatro coisas:',
       '1. entity - quem o emitiu. Esta quase sempre no topo ou no rodape, no',
       '   cabecalho, no carimbo ou na assinatura. Procura antes de desistir.',
+      '   Num documento de identificacao (cartao de cidadao, passaporte, carta',
+      '   de conducao, cartao de utente) quem emite e o Estado ou o servico',
+      '   impresso no proprio cartao - vem escrito la, muitas vezes so no',
+      '   cabecalho, ao lado do brasao.',
       '2. issued_on - a data do proprio documento (emitido em, passado em,',
-      '   Lisboa, 12 de marco de 2026, a data ao lado da assinatura).',
-      '3. valid_on - so se o papel disser ate quando vale. Se nao disser, deixa',
-      '   de fora; nao ponhas aqui a data em que foi emitido.'])
+      '   Lisboa, 12 de marco de 2026, a data ao lado da assinatura). Ha',
+      '   documentos que nao a tem - o cartao de cidadao portugues so traz a',
+      '   validade. Nesse caso deixa issued_on de fora, sem inventar.',
+      '3. valid_on - so se o papel disser ate quando vale (data de validade,',
+      '   valido ate, expiry date). Se nao disser, deixa de fora; nao ponhas',
+      '   aqui a data em que foi emitido.',
+      '4. area - onde isto se arruma, escolhida da lista acima.',
+      '',
+      'Duas regras sobre o que escreves nos campos:',
+      '- Um campo de data leva exactamente dez caracteres, AAAA-MM-DD, e mais',
+      '  nada. Nunca lhe cole o nome do documento, a fonte, ou uma explicacao.',
+      '  Se tiveres algo a dizer sobre a data, poe em notes.',
+      '- O nome do ficheiro e uma pista fraca e mente muitas vezes. A pessoa, a',
+      '  entidade e as datas saem do que esta escrito no documento. Se o nome',
+      '  do ficheiro disser uma coisa e o documento outra, vale o documento; se',
+      '  o documento nao nomear ninguem, deixa pessoa de fora em vez de a',
+      '  adivinhar pelo nome do ficheiro.'])
     .join('\n');
 
   let r;
