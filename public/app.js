@@ -720,14 +720,60 @@ function renderSaude(){
 }
 
 /* ---------------- DOCUMENTOS ---------------- */
+/* De quem e cada papel. O filtro por cima da tabela responde a pergunta que
+   se faz mesmo: mostra-me tudo o que e da Sofia. So aparecem as pessoas que
+   tem documentos - uma fila de chips vazios nao ajuda ninguem. */
+var DOCS_PESSOA = null;
+
+function pessoaDoc(id){
+  if (!id || !D.people) return null;
+  for (var i = 0; i < D.people.length; i++) if (D.people[i].id === id) return D.people[i];
+  return null;
+}
+
+function renderDocsFiltro(){
+  var box = $('docsFiltro');
+  if (!box) return;
+  clear(box);
+  var comDono = {};
+  D.documents.forEach(function(d){ if (d.person_id) comDono[d.person_id] = true; });
+  (D.people || []).forEach(function(p){
+    if (!comDono[p.id]) return;
+    var b = el('button', 'chip' + (DOCS_PESSOA && DOCS_PESSOA !== p.id ? ' off' : ''));
+    b.type = 'button';
+    var i = el('i');
+    i.style.background = p.color || 'var(--c1)';
+    b.appendChild(i);
+    b.appendChild(document.createTextNode(p.name));
+    b.addEventListener('click', function(){
+      DOCS_PESSOA = DOCS_PESSOA === p.id ? null : p.id;
+      renderDocumentos();
+    });
+    box.appendChild(b);
+  });
+  if (box.children.length){
+    var todos = el('button', 'chip' + (DOCS_PESSOA ? ' off' : ''));
+    todos.type = 'button';
+    todos.textContent = 'Todos';
+    todos.addEventListener('click', function(){ DOCS_PESSOA = null; renderDocumentos(); });
+    box.appendChild(todos);
+  }
+}
+
 function renderDocumentos(){
   var tb = $('documents');
   clear(tb);
+  renderDocsFiltro();
   var urgent = 0;
-  D.documents.forEach(function(d){
-    if (d.status_level === 'bad') urgent++;
+  D.documents.forEach(function(d){ if (d.status_level === 'bad') urgent++; });
+  var lista = D.documents.filter(function(d){
+    return !DOCS_PESSOA || d.person_id === DOCS_PESSOA;
+  });
+  lista.forEach(function(d){
     var tr = el('tr');
     tr.appendChild(el('td', null, d.name));
+    var dono = pessoaDoc(d.person_id);
+    tr.appendChild(el('td', null, dono ? dono.name : ''));
     tr.appendChild(el('td', null, d.entity || ''));
     tr.appendChild(el('td', 'n', d.valid_until || ''));
     var td = el('td');
@@ -735,6 +781,13 @@ function renderDocumentos(){
     tr.appendChild(td);
     tb.appendChild(tr);
   });
+  if (!lista.length){
+    var vazio = el('tr');
+    var c = el('td', 'empty', DOCS_PESSOA ? 'Nada em nome desta pessoa.' : 'Ainda nao ha documentos.');
+    c.colSpan = 5;
+    vazio.appendChild(c);
+    tb.appendChild(vazio);
+  }
   $('badgeDocs').textContent = urgent;
 
   var ar = $('archive');
