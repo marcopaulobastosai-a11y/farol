@@ -150,14 +150,16 @@ async function carregarGestao() {
   const [people, projects, members, tasks, subjects] = await Promise.all([
     all(`SELECT id, code, name, full_name, role, kind, initials, color, can_own_tasks, active, note
            FROM people WHERE origin = 'real' ORDER BY sort, id`),
-    all(`SELECT id, name, description, area, status, to_char(started_on,'YYYY-MM-DD') AS started_on,
+    all(`SELECT id, name, description, area, context_id, depends_on_id, status,
+                to_char(started_on,'YYYY-MM-DD') AS started_on,
                 to_char(target_on,'YYYY-MM-DD') AS target_on, sort
            FROM projects WHERE origin = 'real' ORDER BY sort, id`),
     all(`SELECT pm.project_id, pm.person_id, pm.member_role
            FROM project_members pm
            JOIN projects p ON p.id = pm.project_id
           WHERE p.origin = 'real'`),
-    all(`SELECT id, title, notes, area, project_id, owner_id, status, priority,
+    all(`SELECT id, title, notes, area, context_id, project_id, owner_id, status, priority,
+                to_char(starts_on,'YYYY-MM-DD') AS starts_on,
                 to_char(due_on,'YYYY-MM-DD') AS due_on, to_char(due_time,'HH24:MI') AS due_time,
                 repeat_every, repeat_count, done
            FROM tasks WHERE origin = 'real'
@@ -249,12 +251,13 @@ app.post('/api/gestao/projetos', async (req, res) => {
   try {
     const n = (await all("SELECT count(*)::int AS n FROM projects WHERE origin = 'real'"))[0].n;
     const rows = await all(
-      `INSERT INTO projects (name, description, area, status, started_on, target_on, sort, origin, progress)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,'real',0)
-       RETURNING id, name, description, area, status,
+      `INSERT INTO projects (name, description, area, context_id, depends_on_id, status,
+                             started_on, target_on, sort, origin, progress)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'real',0)
+       RETURNING id, name, description, area, context_id, depends_on_id, status,
                  to_char(started_on,'YYYY-MM-DD') AS started_on, to_char(target_on,'YYYY-MM-DD') AS target_on`,
-      [name, limpar(b.description), limpar(b.area), b.status || 'ativo',
-       limpar(b.started_on), limpar(b.target_on), n + 1]);
+      [name, limpar(b.description), limpar(b.area), limpar(b.context_id), limpar(b.depends_on_id),
+       b.status || 'ativo', limpar(b.started_on), limpar(b.target_on), n + 1]);
     await gravarMembros(rows[0].id, b.members);
     res.status(201).json(rows[0]);
   } catch (err) {
@@ -267,7 +270,8 @@ app.patch('/api/gestao/projetos/:id', async (req, res) => {
   const id = Number(req.params.id);
   const b = req.body || {};
   const campos = [], valores = [];
-  ['name', 'description', 'area', 'status', 'started_on', 'target_on', 'closed_on'].forEach((c) => {
+  ['name', 'description', 'area', 'context_id', 'depends_on_id', 'status',
+   'started_on', 'target_on', 'closed_on'].forEach((c) => {
     if (b[c] !== undefined) { campos.push(c + ' = $' + (campos.length + 1)); valores.push(limpar(b[c])); }
   });
   try {
@@ -301,11 +305,13 @@ app.post('/api/gestao/tarefas', async (req, res) => {
   const priority = PRIOS.includes(b.priority) ? b.priority : 'normal';
   try {
     const rows = await all(
-      `INSERT INTO tasks (title, notes, area, project_id, owner_id, status, priority, due_on, due_time,
+      `INSERT INTO tasks (title, notes, area, context_id, project_id, owner_id, status, priority,
+                          starts_on, due_on, due_time,
                           repeat_every, repeat_count, done, completed_at, origin, scope)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'real',NULL)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,COALESCE($9, CURRENT_DATE),$10,$11,$12,$13,$14,$15,'real',NULL)
        RETURNING id`,
-      [title, limpar(b.notes), limpar(b.area), limpar(b.project_id), limpar(b.owner_id), status, priority,
+      [title, limpar(b.notes), limpar(b.area), limpar(b.context_id), limpar(b.project_id),
+       limpar(b.owner_id), status, priority, limpar(b.starts_on),
        limpar(b.due_on), limpar(b.due_time), limpar(b.repeat_every), b.repeat_count || 1,
        status === 'concluida', status === 'concluida' ? new Date() : null]);
     await gravarAssuntos(rows[0].id, b.subjects);
@@ -320,7 +326,8 @@ app.patch('/api/gestao/tarefas/:id', async (req, res) => {
   const id = Number(req.params.id);
   const b = req.body || {};
   const campos = [], valores = [];
-  ['title', 'notes', 'area', 'project_id', 'owner_id', 'priority', 'due_on', 'due_time', 'repeat_every']
+  ['title', 'notes', 'area', 'context_id', 'project_id', 'owner_id', 'priority',
+   'starts_on', 'due_on', 'due_time', 'repeat_every']
     .forEach((c) => {
       if (b[c] !== undefined) { campos.push(c + ' = $' + (campos.length + 1)); valores.push(limpar(b[c])); }
     });
