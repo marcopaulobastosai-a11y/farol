@@ -37,20 +37,6 @@ CREATE TABLE IF NOT EXISTS events (
 );
 CREATE INDEX IF NOT EXISTS events_day_idx ON events(day);
 
-CREATE TABLE IF NOT EXISTS event_sources (
-  id SERIAL PRIMARY KEY,
-  name TEXT NOT NULL, detail TEXT,
-  status_label TEXT, status_level TEXT, sort INT NOT NULL DEFAULT 0
-);
-
-CREATE TABLE IF NOT EXISTS attention (
-  id SERIAL PRIMARY KEY,
-  level TEXT NOT NULL,           -- crit | due | info
-  title TEXT NOT NULL, detail TEXT,
-  when_label TEXT, when_level TEXT,
-  sort INT NOT NULL DEFAULT 0
-);
-
 CREATE TABLE IF NOT EXISTS tasks (
   id SERIAL PRIMARY KEY,
   scope TEXT NOT NULL,           -- hoje | familia | projetos
@@ -61,113 +47,15 @@ CREATE TABLE IF NOT EXISTS tasks (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE TABLE IF NOT EXISTS tiles (
-  id SERIAL PRIMARY KEY,
-  label TEXT NOT NULL, value TEXT NOT NULL, note TEXT,
-  goto TEXT, sort INT NOT NULL DEFAULT 0
-);
-
-CREATE TABLE IF NOT EXISTS family_dates (
-  id SERIAL PRIMARY KEY, title TEXT NOT NULL, when_label TEXT, sort INT NOT NULL DEFAULT 0
-);
-
-CREATE TABLE IF NOT EXISTS support_routines (
-  id SERIAL PRIMARY KEY, title TEXT NOT NULL, detail TEXT,
-  status_label TEXT, status_level TEXT, sort INT NOT NULL DEFAULT 0
-);
-
-CREATE TABLE IF NOT EXISTS maintenance (
-  id SERIAL PRIMARY KEY, item TEXT NOT NULL, periodicity TEXT,
-  last_label TEXT, next_label TEXT,
-  status_label TEXT, status_level TEXT, sort INT NOT NULL DEFAULT 0
-);
-
-CREATE TABLE IF NOT EXISTS consumption (
-  id SERIAL PRIMARY KEY, utility TEXT NOT NULL, unit TEXT,
-  month_label TEXT NOT NULL, value NUMERIC NOT NULL,
-  is_current BOOLEAN NOT NULL DEFAULT FALSE,
-  delta_label TEXT, delta_level TEXT, sort INT NOT NULL DEFAULT 0
-);
-
-CREATE TABLE IF NOT EXISTS issues (
-  id SERIAL PRIMARY KEY, title TEXT NOT NULL, detail TEXT,
-  status_label TEXT, status_level TEXT, sort INT NOT NULL DEFAULT 0
-);
-
-CREATE TABLE IF NOT EXISTS assets (
-  id SERIAL PRIMARY KEY, name TEXT NOT NULL, bought_label TEXT,
-  warranty_label TEXT, warranty_level TEXT, sort INT NOT NULL DEFAULT 0
-);
-
 CREATE TABLE IF NOT EXISTS projects (
   id SERIAL PRIMARY KEY, name TEXT NOT NULL, description TEXT,
   status_label TEXT, status_level TEXT, progress INT NOT NULL DEFAULT 0,
   milestone TEXT, hours_4w NUMERIC, sort INT NOT NULL DEFAULT 0
 );
 
-CREATE TABLE IF NOT EXISTS budget_categories (
-  id SERIAL PRIMARY KEY, month_label TEXT NOT NULL, name TEXT NOT NULL,
-  spent NUMERIC NOT NULL, budget NUMERIC NOT NULL, sort INT NOT NULL DEFAULT 0
-);
-
-CREATE TABLE IF NOT EXISTS finance_summary (
-  id SERIAL PRIMARY KEY, label TEXT NOT NULL, value TEXT NOT NULL, note TEXT, sort INT NOT NULL DEFAULT 0
-);
-
-CREATE TABLE IF NOT EXISTS finance_alerts (
-  id SERIAL PRIMARY KEY, level TEXT NOT NULL, badge TEXT, title TEXT NOT NULL, detail TEXT, sort INT NOT NULL DEFAULT 0
-);
-
-CREATE TABLE IF NOT EXISTS subscriptions (
-  id SERIAL PRIMARY KEY, name TEXT NOT NULL, amount_label TEXT NOT NULL,
-  cycle TEXT, next_charge TEXT, note TEXT, note_level TEXT,
-  yearly NUMERIC, cuttable BOOLEAN NOT NULL DEFAULT FALSE, sort INT NOT NULL DEFAULT 0
-);
-
-CREATE TABLE IF NOT EXISTS credits (
-  id SERIAL PRIMARY KEY, name TEXT NOT NULL, detail TEXT,
-  amount_label TEXT, badge TEXT, badge_level TEXT, sort INT NOT NULL DEFAULT 0
-);
-
-CREATE TABLE IF NOT EXISTS reserves (
-  id SERIAL PRIMARY KEY, name TEXT NOT NULL, detail TEXT,
-  status_label TEXT, status_level TEXT, pct INT, sort INT NOT NULL DEFAULT 0
-);
-
-CREATE TABLE IF NOT EXISTS business_income (
-  id SERIAL PRIMARY KEY, name TEXT NOT NULL, detail TEXT,
-  status_label TEXT, status_level TEXT, sort INT NOT NULL DEFAULT 0
-);
-
-CREATE TABLE IF NOT EXISTS habits (
-  id SERIAL PRIMARY KEY, name TEXT NOT NULL, sort INT NOT NULL DEFAULT 0
-);
-
-CREATE TABLE IF NOT EXISTS habit_log (
-  id SERIAL PRIMARY KEY,
-  habit_id INT NOT NULL REFERENCES habits(id) ON DELETE CASCADE,
-  dow INT NOT NULL CHECK (dow BETWEEN 0 AND 6),
-  level INT NOT NULL DEFAULT 0 CHECK (level BETWEEN 0 AND 2),
-  UNIQUE (habit_id, dow)
-);
-
-CREATE TABLE IF NOT EXISTS appointments (
-  id SERIAL PRIMARY KEY, title TEXT NOT NULL, who TEXT,
-  when_label TEXT, when_level TEXT, sort INT NOT NULL DEFAULT 0
-);
-
-CREATE TABLE IF NOT EXISTS activity (
-  id SERIAL PRIMARY KEY, week_index INT NOT NULL, minutes INT NOT NULL
-);
-
 CREATE TABLE IF NOT EXISTS documents (
   id SERIAL PRIMARY KEY, name TEXT NOT NULL, entity TEXT,
   valid_until TEXT, status_label TEXT, status_level TEXT, sort INT NOT NULL DEFAULT 0
-);
-
-CREATE TABLE IF NOT EXISTS archive_sources (
-  id SERIAL PRIMARY KEY, name TEXT NOT NULL, detail TEXT,
-  status_label TEXT, status_level TEXT, sort INT NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS notes (
@@ -625,4 +513,32 @@ BEGIN
   RAISE NOTICE '[farol] aprovacao de documentos em vigor.';
 EXCEPTION WHEN OTHERS THEN
   RAISE WARNING '[farol] nao foi possivel preparar a aprovacao: %', SQLERRM;
+END $$;
+
+-- ---------------------------------------------------------------------------
+-- As vinte e uma tabelas da maqueta ficaram vazias em 19 set 2026 e nenhuma
+-- linha de codigo as volta a ler. Uma tabela vazia que ninguem le nao custa
+-- nada a correr, mas custa a quem vier a seguir: parece que alguma coisa a
+-- devia estar a encher. Saem.
+-- ---------------------------------------------------------------------------
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM settings WHERE key = 'maqueta_sem_tabelas') THEN
+    RETURN;
+  END IF;
+
+  DROP TABLE IF EXISTS
+    attention, tiles, maintenance, consumption, issues, assets,
+    budget_categories, finance_summary, finance_alerts, subscriptions,
+    credits, reserves, business_income, habit_log, habits,
+    appointments, activity, archive_sources, support_routines,
+    family_dates, event_sources;
+
+  INSERT INTO settings (key, value)
+  VALUES ('maqueta_sem_tabelas', now()::text)
+  ON CONFLICT (key) DO NOTHING;
+
+  RAISE NOTICE '[farol] tabelas da maqueta removidas.';
+EXCEPTION WHEN OTHERS THEN
+  RAISE WARNING '[farol] nao foi possivel remover as tabelas: %', SQLERRM;
 END $$;
