@@ -731,6 +731,22 @@ function pessoaDoc(id){
   return null;
 }
 
+/* Apagar o papel, nao o ficheiro: se o documento tinha vindo da caixa de
+   entrada, o ficheiro fica la, outra vez por triar. */
+function apagarDocumento(d){
+  var nome = d.name || 'este documento';
+  if (!window.confirm('Apagar \u00ab' + nome + '\u00bb\u003f\n\nSe tiver vindo da caixa de entrada, o ficheiro volta a ficar por triar.')) return;
+  apiGestao('/api/documentos/' + d.id, { method: 'DELETE' })
+    .then(function(r){
+      toast(r.caixa && r.caixa.length
+        ? 'Documento apagado. O ficheiro voltou \u00e0 caixa, por triar.'
+        : 'Documento apagado.');
+      load();
+      if (typeof ibCarregar === 'function') ibCarregar();
+    })
+    .catch(function(e){ toast(e.message || 'N\u00e3o foi poss\u00edvel apagar o documento.'); });
+}
+
 function renderDocsFiltro(){
   var box = $('docsFiltro');
   if (!box) return;
@@ -779,12 +795,20 @@ function renderDocumentos(){
     var td = el('td');
     td.appendChild(pill(d.status_label, d.status_level));
     tr.appendChild(td);
+    /* A catalogacao automatica ha-de errar um dia; sem isto o papel errado
+       ficava no ecra para sempre. */
+    var tdx = el('td');
+    var bx = el('button', 'btn danger', 'Apagar');
+    bx.type = 'button';
+    bx.addEventListener('click', function(){ apagarDocumento(d); });
+    tdx.appendChild(bx);
+    tr.appendChild(tdx);
     tb.appendChild(tr);
   });
   if (!lista.length){
     var vazio = el('tr');
     var c = el('td', 'empty', DOCS_PESSOA ? 'Nada em nome desta pessoa.' : 'Ainda nao ha documentos.');
-    c.colSpan = 5;
+    c.colSpan = 6;
     vazio.appendChild(c);
     tb.appendChild(vazio);
   }
