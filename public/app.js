@@ -1141,7 +1141,7 @@ function editarTarefa(t){
   f.owner_id.value = t.owner_id || '';
   f.due_on.value = t.due_on || '';
   f.project_id.value = t.project_id || '';
-  f.area.value = t.area || '';
+  f.context_id.value = t.context_id || '';
   f.priority.value = t.priority || 'normal';
   f.repeat_every.value = t.repeat_every || '';
   f.notes.value = t.notes || '';
@@ -1199,6 +1199,24 @@ function construirChips(id, pessoas){
 }
 
 /* ---------- painéis laterais ---------- */
+
+/* O nome da área por extenso: «Casa › Quinta do Anjo». Sem o pai, uma
+   sub-área sozinha não diz onde vive. */
+function areaNome(id){
+  if (!id || !G.contextos) return '';
+  for (var i = 0; i < G.contextos.length; i++){
+    var c = G.contextos[i];
+    if (c.id === id) return c.parent_name ? c.parent_name + ' \u203a ' + c.name : c.name;
+  }
+  return '';
+}
+
+function projetoNome(id){
+  if (!id || !G.projects) return '';
+  for (var i = 0; i < G.projects.length; i++) if (G.projects[i].id === id) return G.projects[i].name;
+  return '';
+}
+
 function renderProjetos(){
   var box = $('tProjects');
   clear(box);
@@ -1214,10 +1232,17 @@ function renderProjetos(){
       var p = pessoa(m.person_id);
       return p ? (m.member_role === 'responsavel' ? p.name + ' (resp.)' : p.name) : null;
     }).filter(Boolean).join(', ');
-    var detalhe = [pr.description, nomes].filter(Boolean).join(' · ');
+    /* Um projeto planeado nao e um projeto parado: esta a espera de outro, e
+       isso tem de ler-se sem abrir nada. */
+    var espera = pr.status === 'planeado'
+      ? 'a aguardar' + (pr.depends_on_id ? ' ' + projetoNome(pr.depends_on_id) : '')
+      : '';
+    var detalhe = [areaNome(pr.context_id), espera, pr.description, nomes]
+      .filter(Boolean).join(' · ');
     var right = el('div');
     right.style.textAlign = 'right';
-    right.appendChild(pill(abertas + (abertas === 1 ? ' tarefa' : ' tarefas'), abertas ? 'accent' : ''));
+    if (pr.status === 'planeado') right.appendChild(pill('planeado', 'warn'));
+    else right.appendChild(pill(abertas + (abertas === 1 ? ' tarefa' : ' tarefas'), abertas ? 'accent' : ''));
     if (pr.target_on){
       var d = el('div', 'mono num', dataCurta(pr.target_on));
       d.style.marginTop = '3px';
@@ -1269,8 +1294,32 @@ function encherSelects(){
   G.projects.forEach(function(p){ proj.appendChild(new Option(p.name, p.id)); });
   proj.value = atualP;
 
+  /* As areas vem da base de dados, nao de uma lista fixa no HTML. Cada area e
+     um grupo com a propria opcao la dentro, seguida das sub-areas: escolher a
+     area sozinha e legitimo, escolher a sub-area e mais preciso. Um so campo,
+     e a sub-area fica opcional por construcao. */
+  encherAreas('tArea');
+  encherAreas('pArea');
+
   construirChips('tSubjects', G.people);
   construirChips('pMembers', G.people);
+}
+
+function encherAreas(id){
+  var s = $(id);
+  if (!s || !G.contextos) return;
+  var atual = s.value;
+  clear(s);
+  s.appendChild(new Option('\u2014 escolher \u00e1rea \u2014', ''));
+  G.contextos.filter(function(c){ return !c.parent_id && c.active; }).forEach(function(area){
+    var g = document.createElement('optgroup');
+    g.label = area.name;
+    g.appendChild(new Option(area.name, area.id));
+    G.contextos.filter(function(c){ return c.parent_id === area.id && c.active; })
+      .forEach(function(sub){ g.appendChild(new Option('   ' + sub.name, sub.id)); });
+    s.appendChild(g);
+  });
+  s.value = atual;
 }
 
 function renderGestao(){
@@ -1304,13 +1353,16 @@ function ligarGestao(){
       owner_id: f.owner_id.value || null,
       due_on: f.due_on.value || null,
       project_id: f.project_id.value || null,
-      area: f.area.value || null,
+      context_id: f.context_id.value || null,
       priority: f.priority.value,
       repeat_every: f.repeat_every.value || null,
       notes: f.notes.value.trim() || null,
       subjects: chipsSelecionados('tSubjects')
     };
     if (!dados.title) return;
+    /* A area e obrigatoria: uma tarefa sem sitio e uma tarefa que ninguem
+       volta a encontrar. A sub-area continua opcional. */
+    if (!dados.context_id) { toast('Escolhe a \u00e1rea da tarefa.'); return; }
     var url = gState.editing ? '/api/gestao/tarefas/' + gState.editing : '/api/gestao/tarefas';
     apiGestao(url, {
       method: gState.editing ? 'PATCH' : 'POST',
@@ -1348,7 +1400,7 @@ function ligarGestao(){
       body: JSON.stringify({
         name: f.name.value.trim(),
         description: f.description.value.trim() || null,
-        area: f.area.value,
+        context_id: f.context_id.value || null,
         target_on: f.target_on.value || null,
         members: chipsSelecionados('pMembers').map(function(id){ return { person_id: id, member_role: 'participante' }; })
       })
