@@ -531,3 +531,8 @@ td.n{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:.75rem;
 /* Cartoes sem nada dentro */
 .vazio{color:var(--muted);font-size:.8125rem;margin:0;padding:10px 2px;}
 td.vazio{padding:12px 6px;text-align:left;}
+
+/* A segunda bolha da caixa de entrada: nao e um alerta, e uma decisao
+   a espera. Fica na cor da casa para nao gritar como os atrasos. */
+.badge.aprovar{background:var(--accent-soft);color:var(--accent-ink);}
+.nav button .badge + .badge{margin-left:4px;}
