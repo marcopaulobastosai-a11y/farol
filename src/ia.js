@@ -20,10 +20,10 @@ const MODELO = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
    Nao e falha do ficheiro nem do pedido: e so esperar. Tenta-se tres vezes,
    com pausas maiores de cada vez, e so depois se pede a outro modelo. */
 const MODELOS = [MODELO]
-  .concat((process.env.GEMINI_MODELOS || 'gemini-2.5-flash')
+  .concat((process.env.GEMINI_MODELOS || 'gemini-3.6-flash')
     .split(',').map((m) => m.trim()).filter(Boolean))
   .filter((m, i, todos) => todos.indexOf(m) === i);
-const ESPERAS = [2000, 6000, 15000];
+const ESPERAS = [3000, 12000, 25000];
 const TEMPO_MAX = 90 * 1000;
 const dormir = (ms) => new Promise((r) => setTimeout(r, ms));
 const ativa = () => Boolean(CHAVE);
@@ -177,8 +177,14 @@ async function perguntar(buffer, mime, nome, modelo) {
 
   if (!r.ok) {
     const t = await r.text().catch(() => '');
-    const e = new Error('API ' + r.status + ' ' + t.replace(/\s+/g, ' ').slice(0, 220));
-    e.transitorio = r.status === 429 || r.status >= 500;
+    const bruto = t.replace(/\s+/g, ' ').slice(0, 220);
+    /* Ha dois 429 diferentes e so um deles vale a pena insistir: o limite por
+       minuto passa, o limite do dia so passa amanha. */
+    const porDia = r.status === 429 && /per day|por dia/i.test(bruto);
+    const e = new Error(porDia
+      ? 'o plano gratuito do Gemini esgotou os pedidos de hoje'
+      : 'API ' + r.status + ' ' + bruto);
+    e.transitorio = !porDia && (r.status === 429 || r.status >= 500);
     throw e;
   }
 
