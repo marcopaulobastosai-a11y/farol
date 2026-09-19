@@ -120,6 +120,7 @@ function instalar(app) {
                 p.name AS pessoa
            FROM expenses e
            LEFT JOIN people p ON p.id = e.person_id
+          WHERE e.aprovado
           ORDER BY e.spent_on DESC, e.id DESC
           LIMIT 200`);
       res.json({ despesas: linhas });
