@@ -2,12 +2,11 @@
   "name": "farol-qa",
   "version": "1.0.0",
   "private": true,
-  "description": "Farol — painel de gestão pessoal e familiar (ambiente de qualidade, dados fictícios)",
+  "description": "Farol — painel de gestão pessoal e familiar",
   "type": "commonjs",
   "engines": { "node": ">=20" },
   "scripts": {
-    "start": "node src/server.js",
-    "seed": "node src/seed.js --force"
+    "start": "node src/server.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1131.0",
