@@ -149,10 +149,13 @@ const CRIAR = {
   async documento(d) {
     const name = String(d.name || '').trim();
     if (!name) throw new Error('O documento precisa de um nome.');
+    /* valid_until era o rotulo antigo, texto solto; fica igual ao valid_on para
+       os ecras que ainda o leem. A data do documento tem coluna propria. */
     const rows = await all(
-      `INSERT INTO documents (name, entity, valid_on, valid_until, person_id, origin)
-       VALUES ($1,$2,$3,$4,$5,'real') RETURNING id`,
-      [name, limpar(d.entity), limpar(d.valid_on), limpar(d.valid_on), limpar(d.person_id)]);
+      `INSERT INTO documents (name, entity, issued_on, valid_on, valid_until, person_id, origin)
+       VALUES ($1,$2,$3,$4,$5,$6,'real') RETURNING id`,
+      [name, limpar(d.entity), limpar(d.issued_on), limpar(d.valid_on),
+       limpar(d.valid_on), limpar(d.person_id)]);
     return rows[0].id;
   },
 
@@ -248,7 +251,9 @@ async function executarTriagem(id, destinos) {
 const CAMPOS_MINIMOS = {
   tarefa: (x) => Boolean(x.title),
   evento: (x) => Boolean(x.title && x.day),
-  documento: (x) => Boolean(x.name),
+  /* Um documento sem entidade fica por triar: quem o emitiu e metade do que
+     se procura quando se volta a ele meses depois. */
+  documento: (x) => Boolean(x.name && x.entity),
   despesa: (x) => Boolean(x.description) && x.amount !== undefined && x.amount !== null && x.amount !== ''
 };
 
