@@ -96,8 +96,95 @@ async function arrancar() {
   console.log('[farol] pessoas: ' + rows[0].n + ' na base de dados');
 }
 
+/* ------------------------------------------------------------------ *
+ * A ficha de uma pessoa
+ *
+ * O ecra da Familia mostrava oito cartoes que nao abriam para lado nenhum.
+ * Tudo o que a app sabe de alguem ja esta na base de dados - so estava
+ * espalhado por seis tabelas. Isto junta: o que tem para fazer, os papeis
+ * que sao seus, o que gastou, em que projectos anda e o que ainda esta na
+ * caixa de entrada a espera de decisao.
+ * ------------------------------------------------------------------ */
+async function ficha(id) {
+  const uma = async (sql, params) => (await pool.query(sql, params || [id])).rows;
+
+  const pessoa = (await uma('SELECT ' + COLUNAS + ' FROM people WHERE id = $1'))[0];
+  if (!pessoa) return null;
+
+  const tarefas = await uma(
+    `SELECT t.id, t.title, t.done, t.status, t.priority, t.notes,
+            to_char(t.due_on,    'YYYY-MM-DD') AS due_on,
+            to_char(t.starts_on, 'YYYY-MM-DD') AS starts_on,
+            c.name AS area, pai.name AS area_pai, pr.name AS projeto,
+            (t.owner_id = $1) AS dono
+       FROM tasks t
+       LEFT JOIN contexts c   ON c.id = t.context_id
+       LEFT JOIN contexts pai ON pai.id = c.parent_id
+       LEFT JOIN projects pr  ON pr.id = t.project_id
+      WHERE t.origin = 'real'
+        AND (t.owner_id = $1
+             OR EXISTS (SELECT 1 FROM task_subjects s
+                         WHERE s.task_id = t.id AND s.person_id = $1))
+      ORDER BY t.done, t.due_on NULLS LAST, t.id
+      LIMIT 200`);
+
+  const documentos = await uma(
+    `SELECT d.id, d.name, d.entity, d.kind, (d.read_at IS NOT NULL) AS lido,
+            to_char(d.issued_on, 'YYYY-MM-DD') AS issued_on,
+            to_char(d.valid_on,  'YYYY-MM-DD') AS valid_on,
+            c.name AS area, pai.name AS area_pai,
+            (SELECT l.inbox_id FROM inbox_links l
+              WHERE l.target_type = 'documento' AND l.target_id = d.id
+              ORDER BY l.inbox_id DESC LIMIT 1) AS inbox_id
+       FROM documents d
+       LEFT JOIN contexts c   ON c.id = d.context_id
+       LEFT JOIN contexts pai ON pai.id = c.parent_id
+      WHERE d.person_id = $1 AND d.aprovado
+      ORDER BY d.valid_on NULLS LAST, d.id DESC`);
+
+  const despesas = await uma(
+    `SELECT e.id, e.description, e.amount::float AS amount, e.merchant,
+            to_char(e.spent_on, 'YYYY-MM-DD') AS spent_on,
+            c.name AS area, pai.name AS area_pai
+       FROM expenses e
+       LEFT JOIN contexts c   ON c.id = e.context_id
+       LEFT JOIN contexts pai ON pai.id = c.parent_id
+      WHERE e.person_id = $1 AND e.aprovado
+      ORDER BY e.spent_on DESC, e.id DESC
+      LIMIT 50`);
+
+  const projetos = await uma(
+    `SELECT pr.id, pr.name, pr.status, pr.progress, m.member_role,
+            to_char(pr.target_on, 'YYYY-MM-DD') AS target_on
+       FROM project_members m
+       JOIN projects pr ON pr.id = m.project_id
+      WHERE m.person_id = $1
+      ORDER BY pr.sort, pr.id`);
+
+  const caixa = await uma(
+    `SELECT i.id, i.title, i.file_name, i.status, i.ai_status,
+            to_char(i.captured_at, 'YYYY-MM-DD') AS captured_at
+       FROM inbox_items i
+      WHERE i.person_id = $1 AND i.status <> 'descartado'
+      ORDER BY i.captured_at DESC, i.id DESC
+      LIMIT 30`);
+
+  return { pessoa, tarefas, documentos, despesas, projetos, caixa };
+}
+
 /* ---------------- ligação ao Express ---------------- */
 function instalar(app) {
+  app.get('/api/pessoas/:id/ficha', async (req, res) => {
+    try {
+      const f = await ficha(Number(req.params.id));
+      if (!f) return res.status(404).json({ error: 'Pessoa nao encontrada.' });
+      res.json(f);
+    } catch (err) {
+      console.error('[farol] ficha da pessoa:', err.message);
+      res.status(500).json({ error: 'Nao foi possivel ler a ficha.' });
+    }
+  });
+
   app.get('/api/pessoas', async (_req, res) => {
     try { await responder(res); }
     catch (err) { res.status(500).json({ error: err.message }); }
