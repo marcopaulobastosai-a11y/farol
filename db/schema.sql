@@ -597,3 +597,32 @@ BEGIN
 EXCEPTION WHEN OTHERS THEN
   RAISE WARNING '[farol] nao foi possivel remover as notas: %', SQLERRM;
 END $$;
+
+-- ---------------------------------------------------------------------------
+-- Catalogar deixou de ser o mesmo que arrumar. A leitura automatica propoe,
+-- o Marco aprova, e so entao o documento (ou a despesa) aparece nos ecras.
+-- O que ja la estava antes desta mudanca conta como aprovado: ninguem vai
+-- reaprovar o que ja tinha decidido.
+-- ---------------------------------------------------------------------------
+ALTER TABLE documents   ADD COLUMN IF NOT EXISTS aprovado BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE expenses    ADD COLUMN IF NOT EXISTS aprovado BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE inbox_items ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ;
+
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM settings WHERE key = 'aprovacao_em_vigor') THEN
+    RETURN;
+  END IF;
+
+  UPDATE inbox_items
+     SET approved_at = COALESCE(resolved_at, now())
+   WHERE status = 'catalogado' AND approved_at IS NULL;
+
+  INSERT INTO settings (key, value)
+  VALUES ('aprovacao_em_vigor', now()::text)
+  ON CONFLICT (key) DO NOTHING;
+
+  RAISE NOTICE '[farol] aprovacao de documentos em vigor.';
+EXCEPTION WHEN OTHERS THEN
+  RAISE WARNING '[farol] nao foi possivel preparar a aprovacao: %', SQLERRM;
+END $$;
