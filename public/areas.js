@@ -40,6 +40,16 @@ function arEstilo() {
   document.head.appendChild(s);
 }
 
+/* Camadas sobrepostas: uma area por cima da outra. */
+function arIcone() {
+  var caixa = document.createElement('span');
+  caixa.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none"' +
+    ' stroke="currentColor" stroke-width="1.6" stroke-linecap="round"' +
+    ' stroke-linejoin="round"><path d="M12 3.5l8.5 4.2-8.5 4.2-8.5-4.2z"/>' +
+    '<path d="M3.5 12.3l8.5 4.2 8.5-4.2"/></svg>';
+  return caixa.firstChild;
+}
+
 function arMontar() {
   if (document.getElementById('view-areas')) return;
   arEstilo();
@@ -50,6 +60,7 @@ function arMontar() {
   if (!nav) return;
   var b = el('button', null, '\u00c1reas');
   b.dataset.view = 'areas';
+  b.insertBefore(arIcone(), b.firstChild);
   /* Quem poe o cabecalho da Administracao e o primeiro modulo a chegar. Este
      espera pelo das Pessoas (ver o fim do ficheiro) e entra antes dele, ja
      debaixo do cabecalho. So o poe ele proprio se o outro faltar. */
