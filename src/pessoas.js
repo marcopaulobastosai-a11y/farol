@@ -25,13 +25,15 @@ ALTER TABLE people ADD COLUMN IF NOT EXISTS avatar_em   TIMESTAMPTZ;
 
 /* Tudo o que pode estar agarrado a uma pessoa. Se um dia houver mais uma
    tabela com person_id, acrescenta-se aqui — é esta lista que protege. */
+/* O que fica agarrado a uma pessoa e impede que ela seja removida. A tabela
+   e a coluna chegam para contar tudo de uma vez. */
 const LIGACOES = [
-  { chave: 'tarefas',    nome: 'tarefa',    plural: 'tarefas',    sql: 'SELECT count(*)::int AS n FROM tasks WHERE owner_id = $1' },
-  { chave: 'assunto',    nome: 'tarefa onde é o assunto', plural: 'tarefas onde é o assunto', sql: 'SELECT count(*)::int AS n FROM task_subjects WHERE person_id = $1' },
-  { chave: 'projetos',   nome: 'projeto',   plural: 'projetos',   sql: 'SELECT count(*)::int AS n FROM project_members WHERE person_id = $1' },
-  { chave: 'despesas',   nome: 'despesa',   plural: 'despesas',   sql: 'SELECT count(*)::int AS n FROM expenses WHERE person_id = $1' },
-  { chave: 'documentos', nome: 'documento', plural: 'documentos', sql: 'SELECT count(*)::int AS n FROM documents WHERE person_id = $1' },
-  { chave: 'inbox',      nome: 'item na caixa de entrada', plural: 'itens na caixa de entrada', sql: 'SELECT count(*)::int AS n FROM inbox_items WHERE captured_by = $1' }
+  { chave: 'tarefas',    nome: 'tarefa',    plural: 'tarefas',    tabela: 'tasks',           coluna: 'owner_id' },
+  { chave: 'assunto',    nome: 'tarefa onde é o assunto', plural: 'tarefas onde é o assunto', tabela: 'task_subjects', coluna: 'person_id' },
+  { chave: 'projetos',   nome: 'projeto',   plural: 'projetos',   tabela: 'project_members', coluna: 'person_id' },
+  { chave: 'despesas',   nome: 'despesa',   plural: 'despesas',   tabela: 'expenses',        coluna: 'person_id' },
+  { chave: 'documentos', nome: 'documento', plural: 'documentos', tabela: 'documents',       coluna: 'person_id' },
+  { chave: 'inbox',      nome: 'item na caixa de entrada', plural: 'itens na caixa de entrada', tabela: 'inbox_items', coluna: 'captured_by' }
 ];
 
 const COLUNAS = `id, code, name, full_name, role, kind, can_own_tasks, color, initials, note,
@@ -65,17 +67,32 @@ async function codigoLivre(nome) {
 }
 
 async function ligacoesDe(id) {
+  return (await ligacoesDeTodas([id]))[id] || {};
+}
+
+/* Eram seis consultas por pessoa: oito pessoas custavam quarenta e nove idas
+   a base de dados so para dizer quantas coisas tem agarradas. Agora e uma:
+   cada ligacao conta-se de uma vez, agrupada por pessoa. */
+async function ligacoesDeTodas(ids) {
   const fora = {};
-  for (const l of LIGACOES) {
-    const { rows } = await pool.query(l.sql, [id]);
-    if (rows[0].n) fora[l.chave] = rows[0].n;
-  }
+  ids.forEach((id) => { fora[id] = {}; });
+  if (!ids.length) return fora;
+
+  const partes = LIGACOES.map((l) =>
+    `SELECT '${l.chave}' AS chave, ${l.coluna} AS pid, count(*)::int AS n
+       FROM ${l.tabela} WHERE ${l.coluna} = ANY($1) GROUP BY ${l.coluna}`);
+
+  const { rows } = await pool.query(partes.join(' UNION ALL '), [ids]);
+  rows.forEach((r) => {
+    if (r.n && fora[r.pid]) fora[r.pid][r.chave] = r.n;
+  });
   return fora;
 }
 
 async function lista() {
   const { rows } = await pool.query('SELECT ' + COLUNAS + ' FROM people ORDER BY active DESC, sort, name');
-  for (const p of rows) p.ligacoes = await ligacoesDe(p.id);
+  const ligacoes = await ligacoesDeTodas(rows.map((p) => p.id));
+  rows.forEach((p) => { p.ligacoes = ligacoes[p.id] || {}; });
   return rows;
 }
 
