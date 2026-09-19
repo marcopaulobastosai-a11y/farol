@@ -461,26 +461,20 @@
 
     <!-- DOCUMENTOS -->
     <section class="view" id="view-documentos">
-      <div class="grid split">
+      <div class="stack">
         <div class="card">
-          <header><h3>Prazos e renovações</h3><span class="mono">Ordenado por urgência</span></header>
+          <header><h3>Prazos e renovações</h3><span class="mono" id="docsResumo"></span></header>
           <div class="who-filter" id="docsFiltro"></div>
           <div class="scroll">
             <table>
-              <thead><tr><th>Documento</th><th>Pessoa</th><th>Entidade</th><th>Validade</th><th>Estado</th><th></th></tr></thead>
+              <thead><tr><th>Documento</th><th>Pessoa</th><th>Entidade</th><th>Data</th><th>Válido até</th><th></th></tr></thead>
               <tbody id="documents"></tbody>
             </table>
           </div>
         </div>
-        <div class="stack">
-          <div class="card">
-            <header><h3>Arquivo</h3><span class="mono">Ligado ao Drive</span></header>
-            <div id="archive"></div>
-          </div>
-          <div class="card">
-            <header><h3>Como funcionam os avisos</h3></header>
-            <p style="font-size:.8125rem;color:var(--muted)" id="docsNote"></p>
-          </div>
+        <div class="card">
+          <header><h3>Como funcionam os avisos</h3></header>
+          <p style="font-size:.8125rem;color:var(--muted)" id="docsNote"></p>
         </div>
       </div>
     </section>
