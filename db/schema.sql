@@ -417,3 +417,42 @@ ALTER TABLE inbox_items ADD COLUMN IF NOT EXISTS ai_erro   TEXT;
 -- se o modelo costuma acertar ou se ha campos que falha sempre.
 
 CREATE INDEX IF NOT EXISTS inbox_ai_idx ON inbox_items (ai_status) WHERE ai_status = 'pendente';
+
+-- ---------------------------------------------------------------------------
+-- Limpeza unica dos dados de demonstracao
+--
+-- A app deixou de filtrar por origin: mostra o que esta mesmo na base. As
+-- linhas que sobraram da maqueta (origin = 'qualidade') sao apagadas uma vez
+-- so, pela ordem que respeita as chaves estrangeiras. Se alguma coisa real
+-- ainda depender de uma linha de demonstracao o bloco desiste sem estragar
+-- nada e a app arranca na mesma; o aviso fica no log.
+-- ---------------------------------------------------------------------------
+DO $$
+DECLARE
+  t     record;
+  ordem text[] := ARRAY['inbox_links','inbox_items','expenses','documents','events',
+                        'task_subjects','project_members','tasks','projects',
+                        'calendars','people'];
+BEGIN
+  IF EXISTS (SELECT 1 FROM settings WHERE key = 'demo_removida') THEN
+    RETURN;
+  END IF;
+
+  FOR t IN
+    SELECT c.table_name AS nome,
+           COALESCE(array_position(ordem, c.table_name), 99) AS pos
+      FROM information_schema.columns c
+     WHERE c.table_schema = 'public' AND c.column_name = 'origin'
+     ORDER BY pos
+  LOOP
+    EXECUTE format('DELETE FROM %I WHERE origin = %L', t.nome, 'qualidade');
+  END LOOP;
+
+  INSERT INTO settings (key, value)
+  VALUES ('demo_removida', now()::text)
+  ON CONFLICT (key) DO NOTHING;
+
+  RAISE NOTICE '[farol] dados de demonstracao removidos.';
+EXCEPTION WHEN OTHERS THEN
+  RAISE WARNING '[farol] nao foi possivel remover a demonstracao: %', SQLERRM;
+END $$;
