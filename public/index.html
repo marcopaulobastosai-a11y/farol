@@ -222,15 +222,7 @@
                 <label class="field"><span>Projeto</span>
                   <select name="project_id" id="tProject"></select></label>
                 <label class="field"><span>Área</span>
-                  <select name="area" id="tArea">
-                    <option value="">—</option>
-                    <option value="familia">Família</option>
-                    <option value="casa">Casa</option>
-                    <option value="projetos">Projetos</option>
-                    <option value="financas">Finanças</option>
-                    <option value="saude">Saúde</option>
-                    <option value="documentos">Documentos</option>
-                  </select></label>
+                  <select name="context_id" id="tArea" required></select></label>
               </div>
               <div class="field-row">
                 <label class="field"><span>Prioridade</span>
@@ -266,14 +258,7 @@
                 <input type="text" name="description" placeholder="Uma linha chega"></label>
               <div class="field-row">
                 <label class="field"><span>Área</span>
-                  <select name="area">
-                    <option value="casa">Casa</option>
-                    <option value="familia">Família</option>
-                    <option value="projetos">Projetos</option>
-                    <option value="financas">Finanças</option>
-                    <option value="saude">Saúde</option>
-                    <option value="documentos">Documentos</option>
-                  </select></label>
+                  <select name="context_id" id="pArea" required></select></label>
                 <label class="field"><span>Para quando</span>
                   <input type="date" name="target_on"></label>
               </div>
