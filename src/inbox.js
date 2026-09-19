@@ -324,6 +324,15 @@ function tituloDaProposta(proposta) {
 async function autoCatalogar(id, proposta) {
   if (!proposta || !Array.isArray(proposta.destinos) || !proposta.destinos.length) return null;
 
+  /* Ler outra vez um item ja catalogado serve para melhorar a proposta, nao
+     para arrumar tudo de novo: sem esta guarda nascia um documento duplicado
+     a cada leitura. */
+  const estado = await all('SELECT status FROM inbox_items WHERE id = $1', [id]);
+  if (!estado.length || estado[0].status !== 'por_triar') {
+    console.log('[farol] item', id, 'ja estava triado: a proposta fica guardada, mais nada');
+    return null;
+  }
+
   /* O nome do ficheiro em bruto deixa de ser o título, mesmo que o item fique
      por triar. Só se escreve se ninguém tiver escrito um. */
   /* De quem e o ficheiro. O modelo escreve um nome; aqui vira uma pessoa da
