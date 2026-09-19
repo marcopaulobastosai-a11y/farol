@@ -97,7 +97,7 @@ app.get('/api/bootstrap', async (_req, res) => {
                     COALESCE(d.entity, ''),
                     to_char(d.valid_on,'YYYY-MM-DD')
                FROM documents d
-              WHERE d.valid_on IS NOT NULL
+              WHERE d.aprovado AND d.valid_on IS NOT NULL
                 AND d.valid_on <= CURRENT_DATE + INTERVAL '60 days'
            ) x ORDER BY quando, title`),
       all("SELECT id, scope, title, tag, tag_level, done FROM tasks WHERE scope IS NOT NULL ORDER BY scope, sort"),
@@ -151,7 +151,9 @@ app.get('/api/bootstrap', async (_req, res) => {
                   (SELECT l.inbox_id FROM inbox_links l
                     WHERE l.target_type = 'documento' AND l.target_id = d.id
                     ORDER BY l.inbox_id DESC LIMIT 1) AS inbox_id
-             FROM documents d ORDER BY d.sort, d.id DESC`),
+             FROM documents d
+            WHERE d.aprovado
+            ORDER BY d.sort, d.id DESC`),
       all('SELECT name, detail, status_label, status_level FROM archive_sources ORDER BY sort'),
       all('SELECT slug, body FROM notes')
     ]);
