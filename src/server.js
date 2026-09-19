@@ -36,12 +36,12 @@ app.get('/api/bootstrap', async (_req, res) => {
       projects, budget, summary, alerts, subscriptions, credits, reserves,
       business, habits, habitLog, appointments, activity, documents, archive, notes
     ] = await Promise.all([
-      all("SELECT code, name, role, initials, color, note FROM people WHERE origin = 'qualidade' ORDER BY sort"),
+      all("SELECT code, name, role, initials, color, note FROM people WHERE active ORDER BY sort"),
       all('SELECT code, name, color FROM calendars ORDER BY sort'),
       all("SELECT id, to_char(day,'YYYY-MM-DD') AS day, at, title, calendar, detail FROM events ORDER BY day, at NULLS FIRST, id"),
       all('SELECT name, detail, status_label, status_level FROM event_sources ORDER BY sort'),
       all('SELECT level, title, detail, when_label, when_level FROM attention ORDER BY sort'),
-      all("SELECT id, scope, title, tag, tag_level, done FROM tasks WHERE origin = 'qualidade' AND scope IS NOT NULL ORDER BY scope, sort"),
+      all("SELECT id, scope, title, tag, tag_level, done FROM tasks WHERE scope IS NOT NULL ORDER BY scope, sort"),
       all('SELECT label, value, note, goto FROM tiles ORDER BY sort'),
       all('SELECT title, when_label FROM family_dates ORDER BY sort'),
       all('SELECT title, detail, status_label, status_level FROM support_routines ORDER BY sort'),
@@ -49,7 +49,7 @@ app.get('/api/bootstrap', async (_req, res) => {
       all('SELECT utility, unit, month_label, value::float AS value, is_current, delta_label, delta_level FROM consumption ORDER BY utility, sort'),
       all('SELECT title, detail, status_label, status_level FROM issues ORDER BY sort'),
       all('SELECT name, bought_label, warranty_label, warranty_level FROM assets ORDER BY sort'),
-      all("SELECT name, description, status_label, status_level, progress, milestone, hours_4w::float AS hours FROM projects WHERE origin = 'qualidade' ORDER BY sort"),
+      all("SELECT name, description, status_label, status_level, progress, milestone, hours_4w::float AS hours FROM projects ORDER BY sort"),
       all('SELECT name, spent::float AS spent, budget::float AS budget FROM budget_categories ORDER BY sort'),
       all('SELECT label, value, note FROM finance_summary ORDER BY sort'),
       all('SELECT level, badge, title, detail FROM finance_alerts ORDER BY sort'),
@@ -352,10 +352,8 @@ app.get('*', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'i
 (async () => {
   try {
     await ensureSchema();
-    if (await isEmpty()) {
-      console.log('[farol] base de dados vazia — a carregar os dados de qualidade.');
-      await seed();
-    }
+    /* Os dados de demonstração deixaram de entrar sozinhos: a app mostra o que
+       lá está, e o que lá está é real. Para voltar a semear, npm run seed. */
     console.log('[farol] base de dados pronta.');
   } catch (err) {
     console.error('[farol] arranque sem base de dados:', err.message);
