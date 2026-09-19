@@ -188,6 +188,34 @@ const CRIAR = {
 /* O que precisa de uma aprovacao antes de aparecer nos ecras, e onde mora. */
 const APROVAVEIS = { documento: 'documents', despesa: 'expenses' };
 
+/* O conteudo das linhas que nasceram destes ficheiros, para o cartao da caixa
+   poder mostrar - e deixar corrigir - o que esta gravado. */
+async function conteudoDosAlvos(ligacoes) {
+  const fora = { documento: {}, despesa: {} };
+  const ids = (tipo) => ligacoes.filter((l) => l.target_type === tipo).map((l) => l.target_id);
+
+  const docs = ids('documento');
+  if (docs.length) {
+    const linhas = await all(
+      `SELECT id, name, entity, kind, context_id, person_id, aprovado,
+              to_char(issued_on, 'YYYY-MM-DD') AS issued_on,
+              to_char(valid_on,  'YYYY-MM-DD') AS valid_on
+         FROM documents WHERE id = ANY($1)`, [docs]);
+    linhas.forEach((d) => { fora.documento[d.id] = d; });
+  }
+
+  const desp = ids('despesa');
+  if (desp.length) {
+    const linhas = await all(
+      `SELECT id, description, amount::float AS amount, merchant, category,
+              context_id, person_id, note, aprovado,
+              to_char(spent_on, 'YYYY-MM-DD') AS spent_on
+         FROM expenses WHERE id = ANY($1)`, [desp]);
+    linhas.forEach((e) => { fora.despesa[e.id] = e; });
+  }
+  return fora;
+}
+
 /* ------------------------------------------------------------------ *
  * Leitura
  * ------------------------------------------------------------------ */
@@ -211,9 +239,17 @@ async function carregar(estado) {
   const ligacoes = await all(
     'SELECT inbox_id, target_type, target_id FROM inbox_links WHERE inbox_id = ANY($1)',
     [itens.map((i) => i.id)]);
+  /* O cartao mostrava o que a IA tinha proposto, nao o que ficou gravado: um
+     documento com a entidade corrigida a mao continuava marcado como estando
+     sem entidade. Aqui vai o que a linha tem mesmo. */
+  const dados = await conteudoDosAlvos(ligacoes);
   itens.forEach((i) => {
     i.links = ligacoes.filter((l) => l.inbox_id === i.id)
-      .map((l) => ({ tipo: l.target_type, id: l.target_id }));
+      .map((l) => ({
+        tipo: l.target_type,
+        id: l.target_id,
+        dados: (dados[l.target_type] || {})[l.target_id] || null
+      }));
   });
   return { itens, porTriar: n, porAprovar: a };
 }
