@@ -144,11 +144,21 @@ async function perguntar(buffer, mime, nome, modelo) {
       : { type: 'image', data: buffer.toString('base64'), mime_type: mime };
 
   const casa = await nomesDaCasa();
+  /* A regra vai tambem aqui, coladinha ao ficheiro: no prompt de sistema o
+     modelo cumpre-a menos vezes do que quando a le logo antes de responder. */
   const contexto = ['Nome do ficheiro: ' + (nome || 'sem nome')]
     .concat(casa.length
       ? ['', 'Pessoas desta casa: ' + casa.join('; ') + '.',
          'Se o ficheiro for de uma delas, escreve em pessoa o nome curto tal como esta nesta lista.']
       : [])
+    .concat(['',
+      'Antes de responder, se isto for um documento, confere tres coisas:',
+      '1. entity - quem o emitiu. Esta quase sempre no topo ou no rodape, no',
+      '   cabecalho, no carimbo ou na assinatura. Procura antes de desistir.',
+      '2. issued_on - a data do proprio documento (emitido em, passado em,',
+      '   Lisboa, 12 de marco de 2026, a data ao lado da assinatura).',
+      '3. valid_on - so se o papel disser ate quando vale. Se nao disser, deixa',
+      '   de fora; nao ponhas aqui a data em que foi emitido.'])
     .join('\n');
 
   let r;
