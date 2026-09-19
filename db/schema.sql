@@ -574,3 +574,26 @@ BEGIN
 EXCEPTION WHEN OTHERS THEN
   RAISE WARNING '[farol] nao foi possivel remover a maqueta: %', SQLERRM;
 END $$;
+
+-- ---------------------------------------------------------------------------
+-- As notas que sobraram falavam de numeros que ja nao existem: o tempo por
+-- projecto, os 598 euros das subscricoes, a media de atividade, o sabado
+-- vazio. Sai o que era descricao da maqueta; fica a nota que ensina a usar
+-- a agenda, essa continua verdadeira.
+-- ---------------------------------------------------------------------------
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM settings WHERE key = 'notas_maqueta_removidas') THEN
+    RETURN;
+  END IF;
+
+  DELETE FROM notes WHERE slug IN ('projetos_tempo', 'subs_nota', 'saude_nota', 'agenda_carga');
+
+  INSERT INTO settings (key, value)
+  VALUES ('notas_maqueta_removidas', now()::text)
+  ON CONFLICT (key) DO NOTHING;
+
+  RAISE NOTICE '[farol] notas da maqueta removidas.';
+EXCEPTION WHEN OTHERS THEN
+  RAISE WARNING '[farol] nao foi possivel remover as notas: %', SQLERRM;
+END $$;
