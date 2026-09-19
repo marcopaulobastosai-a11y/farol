@@ -460,3 +460,12 @@ END $$;
 -- A caixa de entrada tambem guarda de quem e o ficheiro. A catalogacao
 -- automatica escreve aqui o que leu; o botao Pessoa, na caixa, corrige.
 ALTER TABLE inbox_items ADD COLUMN IF NOT EXISTS person_id INTEGER REFERENCES people(id) ON DELETE SET NULL;
+
+-- Um documento tem duas datas que nao se confundem: a do papel (issued_on)
+-- e aquela em que deixa de valer (valid_on). A catalogacao automatica le as
+-- duas em separado; antes metia a mesma nas duas.
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS issued_on DATE;
+
+-- Por ler ou lido. Enquanto read_at for NULL, o documento conta para o numero
+-- que aparece ao lado de Documentos no menu.
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS read_at TIMESTAMPTZ;
