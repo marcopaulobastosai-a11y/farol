@@ -40,9 +40,52 @@ app.get('/api/bootstrap', async (_req, res) => {
       all('SELECT code, name, color FROM calendars ORDER BY sort'),
       all("SELECT id, to_char(day,'YYYY-MM-DD') AS day, at, title, calendar, detail FROM events ORDER BY day, at NULLS FIRST, id"),
       all('SELECT name, detail, status_label, status_level FROM event_sources ORDER BY sort'),
-      all('SELECT level, title, detail, when_label, when_level FROM attention ORDER BY sort'),
+      /* O que precisa de ti deixou de ser texto escrito a mao: e o que tem
+         data e esta a chegar. Tarefas por fazer com prazo ate 30 dias (e as
+         atrasadas, sem limite para tras) e documentos a perder validade nos
+         proximos 60. A etiqueta e o nivel sao decididos no ecra, que sabe que
+         dia e hoje sem ter de perguntar. */
+      all(`SELECT * FROM (
+             SELECT 'tarefa' AS origem, t.id,
+                    t.title AS title,
+                    COALESCE(c.name, '') AS detail,
+                    to_char(t.due_on,'YYYY-MM-DD') AS quando
+               FROM tasks t LEFT JOIN contexts c ON c.id = t.context_id
+              WHERE t.origin = 'real' AND NOT t.done AND t.status <> 'cancelada'
+                AND t.due_on IS NOT NULL
+                AND t.due_on <= CURRENT_DATE + INTERVAL '30 days'
+             UNION ALL
+             SELECT 'documento', d.id,
+                    d.name,
+                    COALESCE(d.entity, ''),
+                    to_char(d.valid_on,'YYYY-MM-DD')
+               FROM documents d
+              WHERE d.valid_on IS NOT NULL
+                AND d.valid_on <= CURRENT_DATE + INTERVAL '60 days'
+           ) x ORDER BY quando, title`),
       all("SELECT id, scope, title, tag, tag_level, done FROM tasks WHERE scope IS NOT NULL ORDER BY scope, sort"),
-      all('SELECT label, value, note, goto FROM tiles ORDER BY sort'),
+      /* Os quatro numeros do topo, contados na hora. Antes eram do seed e
+         diziam coisas bonitas que nao correspondiam a nada. */
+      all(`SELECT 'Por fazer' AS label,
+                  (SELECT count(*) FROM tasks
+                    WHERE origin = 'real' AND NOT done AND status <> 'cancelada')::text AS value,
+                  'tarefas abertas' AS note, 'tarefas' AS goto
+           UNION ALL
+           SELECT 'Com prazo a 7 dias',
+                  (SELECT count(*) FROM tasks
+                    WHERE origin = 'real' AND NOT done AND status <> 'cancelada'
+                      AND due_on IS NOT NULL
+                      AND due_on <= CURRENT_DATE + INTERVAL '7 days')::text,
+                  'incluindo o que ja passou', 'tarefas'
+           UNION ALL
+           SELECT 'Projetos a andar',
+                  (SELECT count(*) FROM projects
+                    WHERE origin = 'real' AND status = 'ativo')::text,
+                  'sem contar os planeados', 'projetos'
+           UNION ALL
+           SELECT 'Na caixa por triar',
+                  (SELECT count(*) FROM inbox_items WHERE status = 'por_triar')::text,
+                  'ficheiros a espera de decisao', 'inbox'`),
       all('SELECT title, when_label FROM family_dates ORDER BY sort'),
       all('SELECT title, detail, status_label, status_level FROM support_routines ORDER BY sort'),
       all('SELECT item, periodicity, last_label, next_label, status_label, status_level FROM maintenance ORDER BY sort'),
@@ -63,7 +106,8 @@ app.get('/api/bootstrap', async (_req, res) => {
       all('SELECT week_index, minutes FROM activity ORDER BY week_index'),
       /* O ficheiro de onde o documento veio continua na caixa de entrada, com
          o objecto ja no bucket do arquivo: e por ai que se abre o papel. */
-      all(`SELECT d.id, d.name, d.entity, d.person_id, d.status_label, d.status_level,
+      all(`SELECT d.id, d.name, d.entity, d.person_id, d.kind, d.context_id,
+                  d.status_label, d.status_level,
                   to_char(d.issued_on, 'YYYY-MM-DD') AS issued_on,
                   to_char(d.valid_on,  'YYYY-MM-DD') AS valid_on,
                   d.valid_until, (d.read_at IS NOT NULL) AS lido,
