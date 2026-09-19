@@ -30,13 +30,15 @@ var IB_DESTINOS = [
     { k: 'entity', l: 'Entidade', tipo: 'text' },
     { k: 'issued_on', l: 'Data do documento', tipo: 'date' },
     { k: 'valid_on', l: 'Válido até', tipo: 'date' },
-    { k: 'person_id', l: 'De quem', tipo: 'pessoa' }
+    { k: 'person_id', l: 'De quem', tipo: 'pessoa' },
+    { k: 'context_id', l: 'Área', tipo: 'area' }
   ] },
   { tipo: 'despesa', nome: 'Despesa', campos: [
     { k: 'description', l: 'Descrição', tipo: 'text' },
     { k: 'amount', l: 'Valor (\u20ac)', tipo: 'number' },
     { k: 'spent_on', l: 'Data', tipo: 'date' },
-    { k: 'merchant', l: 'Onde', tipo: 'text' }
+    { k: 'merchant', l: 'Onde', tipo: 'text' },
+    { k: 'context_id', l: 'Área', tipo: 'area' }
   ] }
 ];
 
@@ -527,7 +529,21 @@ function ibCampo(tipo, c) {
   var w = el('label', 'field');
   w.appendChild(el('span', null, c.l));
   var input;
-  if (c.tipo === 'pessoa' || c.tipo === 'projeto') {
+  if (c.tipo === 'area') {
+    /* Mesma arrumacao que o resto da app: a area e o grupo, as sub-areas
+       penduradas por baixo. Duas so, nunca mais fundo. */
+    input = el('select');
+    input.appendChild(new Option('\u2014 escolher \u00e1rea \u2014', ''));
+    var ctx = (typeof G !== 'undefined' && G.contextos) ? G.contextos : [];
+    ctx.filter(function (x) { return !x.parent_id && x.active; }).forEach(function (area) {
+      var g = document.createElement('optgroup');
+      g.label = area.name;
+      g.appendChild(new Option(area.name, area.id));
+      ctx.filter(function (x) { return x.parent_id === area.id && x.active; })
+        .forEach(function (sub) { g.appendChild(new Option('   ' + sub.name, sub.id)); });
+      input.appendChild(g);
+    });
+  } else if (c.tipo === 'pessoa' || c.tipo === 'projeto') {
     input = el('select');
     input.appendChild(el('option', null, '-'));
     var fonte = c.tipo === 'pessoa'
@@ -553,6 +569,9 @@ function ibCampo(tipo, c) {
   if ((val === null || val === undefined) && dados && c.tipo === 'pessoa' && dados.pessoa) {
     val = ibPessoaPorNome(dados.pessoa);
   }
+  if ((val === null || val === undefined) && dados && c.tipo === 'area' && dados.area) {
+    val = ibContextoPorNome(dados.area);
+  }
   if (val !== null && val !== undefined && val !== '') {
     input.value = String(val);
   } else if (c.k === 'title' || c.k === 'name' || c.k === 'description') {
@@ -561,6 +580,22 @@ function ibCampo(tipo, c) {
   }
   w.appendChild(input);
   return w;
+}
+
+/* A IA escreve a area como a leu na lista: «Casa > Quinta do Anjo». Aqui
+   dentro isso e um numero. Vale o ultimo pedaco - a sub-area e mais precisa
+   que a area - e so se nao houver e que se fica pelo primeiro. */
+function ibContextoPorNome(nome) {
+  var ctx = (typeof G !== 'undefined' && G.contextos) ? G.contextos : [];
+  if (!ctx.length || !nome) return null;
+  var partes = String(nome).split('>').map(function (x) { return x.trim().toLowerCase(); })
+    .filter(Boolean);
+  for (var i = partes.length - 1; i >= 0; i--) {
+    for (var j = 0; j < ctx.length; j++) {
+      if (String(ctx[j].name).trim().toLowerCase() === partes[i]) return ctx[j].id;
+    }
+  }
+  return null;
 }
 
 // O nome cru do ficheiro nao serve como descricao: tira a extensao, troca
