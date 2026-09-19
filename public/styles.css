@@ -527,3 +527,7 @@ td.n{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:.75rem;
   .g4,.g3,.g2,.split{grid-template-columns:1fr;}
   .week{grid-template-columns:repeat(2,1fr);}
 }
+
+/* Cartoes sem nada dentro */
+.vazio{color:var(--muted);font-size:.8125rem;margin:0;padding:10px 2px;}
+td.vazio{padding:12px 6px;text-align:left;}
