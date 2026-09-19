@@ -177,7 +177,7 @@ const CRIAR = {
  * ------------------------------------------------------------------ */
 const SELECT_ITEM = `
   SELECT i.id, i.kind, i.title, i.note, i.file_name, i.mime_type, i.byte_size, i.store, i.ai_status, i.ai_json,
-         i.captured_by, to_char(i.captured_at,'YYYY-MM-DD"T"HH24:MI') AS captured_at,
+         i.person_id, i.captured_by, to_char(i.captured_at,'YYYY-MM-DD"T"HH24:MI') AS captured_at,
          i.status, to_char(i.resolved_at,'YYYY-MM-DD"T"HH24:MI') AS resolved_at
     FROM inbox_items i`;
 
@@ -252,16 +252,46 @@ const CAMPOS_MINIMOS = {
   despesa: (x) => Boolean(x.description) && x.amount !== undefined && x.amount !== null && x.amount !== ''
 };
 
+/* Acentos e maiusculas nao podem decidir de quem e um papel. */
+function semAcentos(s) {
+  return String(s || '').normalize('NFD').split('')
+    .filter((c) => { const n = c.charCodeAt(0); return n < 768 || n > 879; })
+    .join('').toLowerCase().trim();
+}
+
+/* O papel diz «Ana Lúcia Garcia»; aqui dentro a pessoa chama-se «Ana Lúcia».
+   Por isso compara-se nos dois sentidos, e ganha o encontro mais longo: assim
+   «Maria» nunca rouba o lugar a quem tenha Maria no meio do nome. */
 async function pessoaPorNome(nome) {
-  const alvo = String(nome || '').trim();
+  const alvo = semAcentos(nome);
   if (alvo.length < 3) return null;
-  const rows = await all(
-    `SELECT id FROM people
-      WHERE lower(name) = lower($1) OR lower(full_name) = lower($1)
-         OR lower(full_name) LIKE lower($2)
-      ORDER BY length(name) LIMIT 1`,
-    [alvo, '%' + alvo + '%']);
-  return rows.length ? rows[0].id : null;
+  const pessoas = await all('SELECT id, name, full_name FROM people WHERE active');
+  let melhor = null;
+  for (const p of pessoas) {
+    for (const cru of [p.name, p.full_name]) {
+      const c = semAcentos(cru);
+      if (c.length < 3) continue;
+      if (c === alvo || alvo.indexOf(c) >= 0 || c.indexOf(alvo) >= 0) {
+        if (!melhor || c.length > melhor.tamanho) melhor = { id: p.id, tamanho: c.length };
+      }
+    }
+  }
+  return melhor ? melhor.id : null;
+}
+
+async function nomeDaPessoa(pid) {
+  if (!pid) return null;
+  const rows = await all('SELECT name FROM people WHERE id = $1', [pid]);
+  return rows.length ? rows[0].name : null;
+}
+
+/* O nome de quem e faz parte do titulo: e assim que se encontra um papel seis
+   meses depois, sem abrir nada. So se junta se ainda la nao estiver. */
+function comPessoa(titulo, pessoa) {
+  const t = String(titulo || '').trim();
+  if (!t || !pessoa) return t;
+  if (semAcentos(t).indexOf(semAcentos(pessoa)) >= 0) return t;
+  return (t + ' \u2014 ' + pessoa).slice(0, 160);
 }
 
 /* O modelo devolve um nome de pessoa e notas; as tabelas querem ids e outros
@@ -291,7 +321,19 @@ async function autoCatalogar(id, proposta) {
 
   /* O nome do ficheiro em bruto deixa de ser o título, mesmo que o item fique
      por triar. Só se escreve se ninguém tiver escrito um. */
-  const titulo = tituloDaProposta(proposta);
+  /* De quem e o ficheiro. O modelo escreve um nome; aqui vira uma pessoa da
+     casa, fica agarrada ao item e entra no titulo. */
+  const nomeLido = proposta.destinos
+    .map((d) => (d && d.dados && d.dados.pessoa) || '')
+    .filter(Boolean)[0] || null;
+  const pid = await pessoaPorNome(nomeLido);
+  const pessoa = await nomeDaPessoa(pid);
+  if (pid) {
+    await query('UPDATE inbox_items SET person_id = COALESCE(person_id, $2) WHERE id = $1',
+      [id, pid]).catch(() => {});
+  }
+
+  const titulo = comPessoa(tituloDaProposta(proposta), pessoa);
   if (titulo) {
     await query("UPDATE inbox_items SET title = COALESCE(NULLIF(title, ''), $2) WHERE id = $1",
       [id, titulo]).catch(() => {});
@@ -447,6 +489,45 @@ function instalar(app) {
     } catch (err) {
       console.error('[farol] POST analisar:', err.message);
       res.status(400).json({ error: err.message || 'Não foi possível tentar outra vez.' });
+    }
+  });
+
+  /* Relacionar o ficheiro com uma pessoa a mao, quando a leitura automatica
+     nao chegou la. Arruma o item, o titulo e o que ja nasceu dele: sem esta
+     ultima parte o documento ficava orfao no ecra dos Documentos. */
+  app.patch('/api/inbox/:id/pessoa', async (req, res) => {
+    const id = Number(req.params.id);
+    const corpo = req.body || {};
+    const pid = corpo.person_id ? Number(corpo.person_id) : null;
+    try {
+      const item = await all('SELECT id, title FROM inbox_items WHERE id = $1', [id]);
+      if (!item.length) return res.status(404).json({ error: 'Item nao encontrado.' });
+      const pessoa = await nomeDaPessoa(pid);
+      if (pid && !pessoa) return res.status(404).json({ error: 'Essa pessoa nao existe.' });
+
+      await query('UPDATE inbox_items SET person_id = $2 WHERE id = $1', [id, pid]);
+      if (pessoa && item[0].title) {
+        await query('UPDATE inbox_items SET title = $2 WHERE id = $1',
+          [id, comPessoa(item[0].title, pessoa)]);
+      }
+
+      const links = await all(
+        'SELECT target_type, target_id FROM inbox_links WHERE inbox_id = $1', [id]);
+      for (const l of links) {
+        if (l.target_type === 'documento') {
+          await query('UPDATE documents SET person_id = $2 WHERE id = $1', [l.target_id, pid]);
+        } else if (l.target_type === 'despesa') {
+          await query('UPDATE expenses SET person_id = $2 WHERE id = $1', [l.target_id, pid]);
+        } else if (l.target_type === 'tarefa' && pid) {
+          await query('INSERT INTO task_subjects (task_id, person_id) VALUES ($1,$2) ON CONFLICT DO NOTHING',
+            [l.target_id, pid]);
+        }
+      }
+
+      res.json(await carregar(req.query.estado || 'por_triar'));
+    } catch (err) {
+      console.error('[farol] PATCH pessoa:', err.message);
+      res.status(400).json({ error: 'Nao foi possivel relacionar a pessoa.' });
     }
   });
 
