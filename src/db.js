@@ -33,13 +33,9 @@ async function ensureSchema() {
   await pool.query(sqlFile('schema.sql'));
 }
 
-async function isEmpty() {
-  const { rows } = await pool.query("SELECT count(*)::int AS n FROM people WHERE origin = 'qualidade'");
-  return rows[0].n === 0;
-}
+/* A maqueta foi apagada em 19 set 2026 e o seed.sql foi com ela. Ficava uma
+   arma carregada: bastava alguem correr `npm run seed` para a casa voltar a
+   encher-se de contas, habitos e avarias que nunca existiram, no meio de
+   dados reais. Os dados entram pela app. */
 
-async function seed() {
-  await pool.query(sqlFile('seed.sql'));
-}
-
-module.exports = { pool, query, ensureSchema, isEmpty, seed };
+module.exports = { pool, query, ensureSchema };
