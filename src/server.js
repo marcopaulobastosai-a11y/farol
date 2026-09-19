@@ -36,7 +36,7 @@ app.get('/api/bootstrap', async (_req, res) => {
       projects, budget, summary, alerts, subscriptions, credits, reserves,
       business, habits, habitLog, appointments, activity, documents, archive, notes
     ] = await Promise.all([
-      all("SELECT code, name, role, initials, color, note FROM people WHERE active ORDER BY sort"),
+      all("SELECT id, code, name, role, initials, color, note FROM people WHERE active ORDER BY sort"),
       all('SELECT code, name, color FROM calendars ORDER BY sort'),
       all("SELECT id, to_char(day,'YYYY-MM-DD') AS day, at, title, calendar, detail FROM events ORDER BY day, at NULLS FIRST, id"),
       all('SELECT name, detail, status_label, status_level FROM event_sources ORDER BY sort'),
@@ -61,7 +61,7 @@ app.get('/api/bootstrap', async (_req, res) => {
       all('SELECT habit_id, dow, level FROM habit_log ORDER BY habit_id, dow'),
       all('SELECT title, who, when_label, when_level FROM appointments ORDER BY sort'),
       all('SELECT week_index, minutes FROM activity ORDER BY week_index'),
-      all('SELECT name, entity, valid_until, status_label, status_level FROM documents ORDER BY sort'),
+      all('SELECT id, name, entity, valid_on, valid_until, person_id, status_label, status_level FROM documents ORDER BY sort, id DESC'),
       all('SELECT name, detail, status_label, status_level FROM archive_sources ORDER BY sort'),
       all('SELECT slug, body FROM notes')
     ]);
