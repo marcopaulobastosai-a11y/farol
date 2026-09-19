@@ -68,6 +68,32 @@ function instalar(app) {
   rotaApagar(app, '/api/documentos/:id', 'documento');
   rotaApagar(app, '/api/despesas/:id', 'despesa');
 
+  /* Corrigir um documento a mao. A leitura automatica acerta quase sempre,
+     mas quando erra o remedio nao pode ser apagar e voltar a submeter. */
+  app.patch('/api/documentos/:id', async (req, res) => {
+    const id = Number(req.params.id);
+    const b = req.body || {};
+    const campos = [], valores = [];
+    ['name', 'entity', 'kind', 'context_id', 'person_id', 'project_id',
+     'issued_on', 'valid_on'].forEach((c) => {
+      if (b[c] !== undefined) {
+        campos.push(c + ' = $' + (campos.length + 1));
+        valores.push(b[c] === '' ? null : b[c]);
+      }
+    });
+    if (!campos.length) return res.json({ ok: true, id: id });
+    try {
+      valores.push(id);
+      const r = await query(
+        'UPDATE documents SET ' + campos.join(', ') + ' WHERE id = $' + valores.length, valores);
+      if (!r.rowCount) return res.status(404).json({ error: 'Documento nao encontrado.' });
+      res.json({ ok: true, id: id });
+    } catch (err) {
+      console.error('[farol] PATCH documento:', err.message);
+      res.status(400).json({ error: 'Nao foi possivel gravar o documento.' });
+    }
+  });
+
   /* Lido ou por ler. Marca-se sozinho quando se abre o ficheiro pelo nome, e
      pode voltar atras para quem quer deixar um papel a chamar por si. */
   app.patch('/api/documentos/:id/lido', async (req, res) => {
