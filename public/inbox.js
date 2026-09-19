@@ -28,6 +28,7 @@ var IB_DESTINOS = [
   { tipo: 'documento', nome: 'Documento', campos: [
     { k: 'name', l: 'Nome', tipo: 'text' },
     { k: 'entity', l: 'Entidade', tipo: 'text' },
+    { k: 'issued_on', l: 'Data do documento', tipo: 'date' },
     { k: 'valid_on', l: 'Válido até', tipo: 'date' },
     { k: 'person_id', l: 'De quem', tipo: 'pessoa' }
   ] },
