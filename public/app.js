@@ -780,30 +780,61 @@ function renderDocumentos(){
   var tb = $('documents');
   clear(tb);
   renderDocsFiltro();
-  var urgent = 0;
-  D.documents.forEach(function(d){ if (d.status_level === 'bad') urgent++; });
+
+  var porLer = 0;
+  D.documents.forEach(function(d){ if (!d.lido) porLer++; });
+
   var lista = D.documents.filter(function(d){
     return !DOCS_PESSOA || d.person_id === DOCS_PESSOA;
   });
+
   lista.forEach(function(d){
     var tr = el('tr');
-    tr.appendChild(el('td', null, d.name));
+
+    /* O nome abre o ficheiro. Quem abre, leu: a marca desaparece sozinha. */
+    var tdn = el('td');
+    if (!d.lido){
+      var ponto = el('i');
+      ponto.title = 'Por ler';
+      ponto.style.cssText = 'display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--accent);margin-right:7px;vertical-align:middle;cursor:pointer';
+      ponto.addEventListener('click', function(){ marcarLido(d, true); });
+      tdn.appendChild(ponto);
+    }
+    if (d.inbox_id){
+      var a = el('a', null, d.name);
+      a.href = '/api/inbox/' + d.inbox_id + '/ficheiro';
+      a.target = '_blank'; a.rel = 'noopener';
+      if (!d.lido) a.style.fontWeight = '600';
+      a.addEventListener('click', function(){ if (!d.lido) marcarLido(d, true); });
+      tdn.appendChild(a);
+    } else {
+      var s = el('span', null, d.name);
+      if (!d.lido) s.style.fontWeight = '600';
+      tdn.appendChild(s);
+    }
+    if (d.lido){
+      var volta = el('button', null, 'marcar por ler');
+      volta.type = 'button';
+      volta.style.cssText = 'margin-left:.5rem;border:0;background:none;padding:0;font:inherit;font-size:.6875rem;color:var(--faint);cursor:pointer';
+      volta.addEventListener('click', function(){ marcarLido(d, false); });
+      tdn.appendChild(volta);
+    }
+    tr.appendChild(tdn);
+
     var dono = pessoaDoc(d.person_id);
     var tdp = el('td', null, dono ? dono.name : '');
     tdp.style.whiteSpace = 'nowrap';
     tr.appendChild(tdp);
+
     tr.appendChild(el('td', null, d.entity || ''));
-    tr.appendChild(el('td', 'n', d.valid_until || ''));
-    var td = el('td');
-    td.appendChild(pill(d.status_label, d.status_level));
-    tr.appendChild(td);
+    tr.appendChild(el('td', 'n', d.issued_on || ''));
+    tr.appendChild(el('td', 'n', d.valid_on || d.valid_until || ''));
+
     /* A catalogacao automatica ha-de errar um dia; sem isto o papel errado
        ficava no ecra para sempre. */
     var tdx = el('td');
     var bx = el('button', 'btn danger', 'Apagar');
     bx.type = 'button';
-    /* Accao secundaria e destrutiva: discreta, e a coluna nao rouba largura
-       ao nome do documento. */
     bx.style.padding = '.18rem .5rem';
     bx.style.fontSize = '.75rem';
     bx.addEventListener('click', function(){ apagarDocumento(d); });
@@ -811,22 +842,37 @@ function renderDocumentos(){
     tr.appendChild(tdx);
     tb.appendChild(tr);
   });
+
   if (!lista.length){
     var vazio = el('tr');
-    var c = el('td', 'empty', DOCS_PESSOA ? 'Nada em nome desta pessoa.' : 'Ainda nao ha documentos.');
+    var c = el('td', 'empty', DOCS_PESSOA ? 'Nada em nome desta pessoa.' : 'Ainda n\u00e3o h\u00e1 documentos.');
     c.colSpan = 6;
     vazio.appendChild(c);
     tb.appendChild(vazio);
   }
-  $('badgeDocs').textContent = urgent;
 
-  var ar = $('archive');
-  clear(ar);
-  D.archive.forEach(function(a){
-    ar.appendChild(row(a.name, a.detail, pill(a.status_label, a.status_level)));
-  });
-  $('docsNote').textContent = D.notes.docs_avisos || '';
+  /* O numero ao lado de Documentos e o que falta ler, nao o total. */
+  $('badgeDocs').textContent = porLer;
+  var resumo = $('docsResumo');
+  if (resumo){
+    resumo.textContent = porLer
+      ? porLer + ' por ler'
+      : (D.documents.length ? 'tudo lido' : '');
+  }
+  if ($('docsNote')) $('docsNote').textContent = D.notes.docs_avisos || '';
 }
+
+function marcarLido(d, lido){
+  apiGestao('/api/documentos/' + d.id + '/lido', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ lido: lido })
+  }).then(function(){
+    d.lido = lido;
+    renderDocumentos();
+  }).catch(function(e){ toast(e.message || 'N\u00e3o foi poss\u00edvel marcar o documento.'); });
+}
+
 
 /* ---------------- navegação ---------------- */
 function show(view){
