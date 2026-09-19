@@ -469,3 +469,62 @@ ALTER TABLE documents ADD COLUMN IF NOT EXISTS issued_on DATE;
 -- Por ler ou lido. Enquanto read_at for NULL, o documento conta para o numero
 -- que aparece ao lado de Documentos no menu.
 ALTER TABLE documents ADD COLUMN IF NOT EXISTS read_at TIMESTAMPTZ;
+
+-- ---------------------------------------------------------------------------
+-- Contextos: as areas e as sub-areas, na mesma tabela
+--
+-- Uma area e um contexto sem pai; uma sub-area e um contexto com pai. So se
+-- admitem dois niveis - a regra vive no src/contextos.js, porque uma arvore
+-- funda transforma arrumar num exercicio de adivinhacao: se ha tres sitios
+-- defensaveis para o mesmo papel, as onze da noite nao se arruma nada.
+--
+-- Os nomes reais (empresas, a casa, o carro) NAO entram aqui: este
+-- repositorio e publico. Entram pela app, como as pessoas.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS contexts (
+  id         SERIAL PRIMARY KEY,
+  slug       TEXT UNIQUE NOT NULL,
+  name       TEXT NOT NULL,
+  parent_id  INTEGER REFERENCES contexts(id) ON DELETE RESTRICT,
+  note       TEXT,
+  owner_id   INTEGER REFERENCES people(id) ON DELETE SET NULL,
+  sort       INT NOT NULL DEFAULT 0,
+  active     BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS contexts_parent_idx ON contexts (parent_id);
+
+-- Tudo o que se arruma aponta para um contexto.
+ALTER TABLE tasks     ADD COLUMN IF NOT EXISTS context_id INTEGER REFERENCES contexts(id) ON DELETE SET NULL;
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS context_id INTEGER REFERENCES contexts(id) ON DELETE SET NULL;
+ALTER TABLE expenses  ADD COLUMN IF NOT EXISTS context_id INTEGER REFERENCES contexts(id) ON DELETE SET NULL;
+ALTER TABLE projects  ADD COLUMN IF NOT EXISTS context_id INTEGER REFERENCES contexts(id) ON DELETE SET NULL;
+
+-- Uma tarefa tem inicio e tem fim. O inicio nasce igual ao dia em que se
+-- escreve a tarefa, mas muda-se: ha coisas que so comecam depois de outra.
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS starts_on DATE;
+
+-- Um projeto pode estar so planeado e a espera de outro. As obras da casa nao
+-- podem chatear ninguem antes da escritura.
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS depends_on_id INTEGER REFERENCES projects(id) ON DELETE SET NULL;
+
+-- Que tipo de papel e: cartao, contrato, apolice, declaracao, fatura. E um
+-- filtro, nao uma pasta - assim <<cartoes a expirar>> e uma pergunta.
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS kind TEXT;
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS project_id INTEGER REFERENCES projects(id) ON DELETE SET NULL;
+
+-- Documentos agarrados a uma tarefa.
+CREATE TABLE IF NOT EXISTS task_documents (
+  task_id     INTEGER NOT NULL REFERENCES tasks(id)     ON DELETE CASCADE,
+  document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+  PRIMARY KEY (task_id, document_id)
+);
+
+-- A coluna area era texto solto. Sempre que o texto bater certo com o slug de
+-- um contexto, a linha passa a apontar para ele. Corre a cada arranque, nao
+-- estraga nada e nao precisa de saber nomes nenhuns.
+UPDATE tasks t SET context_id = c.id FROM contexts c
+ WHERE t.context_id IS NULL AND lower(trim(t.area)) = c.slug;
+UPDATE projects p SET context_id = c.id FROM contexts c
+ WHERE p.context_id IS NULL AND lower(trim(p.area)) = c.slug;
