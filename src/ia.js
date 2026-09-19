@@ -66,6 +66,8 @@ const ESQUEMA = {
               issued_on: texto('Data do proprio documento - quando foi emitido, assinado ou passado. AAAA-MM-DD.'),
               valid_on: texto('Data em que o documento deixa de valer, se o disser. AAAA-MM-DD.'),
               pessoa: texto('Pessoa da casa a quem o ficheiro diz respeito, escrita tal como vem na lista de pessoas desta casa.'),
+              area: texto('Area ou sub-area onde isto se arruma, escrita tal como vem na lista de areas.'),
+              kind: texto('Que tipo de papel e: cartao, contrato, apolice, declaracao, certidao, fatura, recibo, exame.'),
               notes: texto('Qualquer coisa util que nao caiba nos outros campos.')
             }
           }
@@ -84,7 +86,7 @@ const SISTEMA = [
   'Destinos possiveis:',
   '- despesa: talao, fatura, recibo, extrato. Preenche description, amount, spent_on, merchant.',
   '- documento: contrato, apolice, cartao, certidao, exame, declaracao. Preenche',
-  '  name, entity, issued_on e, se existir, valid_on.',
+  '  name, entity, kind, issued_on e, se existir, valid_on.',
   '- evento: convocatoria, marcacao, convite com data. Preenche title, day, at.',
   '- tarefa: algo que obriga a agir, como um aviso de pagamento ou de renovacao.',
   '',
@@ -122,6 +124,21 @@ function suportado(mime) {
  * lista do que quando copia o nome tal como vem escrito no papel: no papel
  * vem Ana Lucia Garcia, aqui dentro a pessoa chama-se Ana Lucia.
  */
+/* As areas onde se arruma. Mesma logica dos nomes: escolher de uma lista
+   curta acerta muito mais do que inventar um rotulo novo de cada vez. */
+async function areasDaCasa() {
+  try {
+    const r = await query(
+      `SELECT c.name, p.name AS pai FROM contexts c
+         LEFT JOIN contexts p ON p.id = c.parent_id
+        WHERE c.active ORDER BY COALESCE(p.sort, c.sort), c.sort`);
+    return r.rows.map((c) => (c.pai ? c.pai + ' > ' + c.name : c.name));
+  } catch (err) {
+    console.warn('[farol] nao deu para ler as areas:', err.message);
+    return [];
+  }
+}
+
 async function nomesDaCasa() {
   try {
     const r = await query('SELECT name, full_name FROM people WHERE active ORDER BY sort');
@@ -144,12 +161,18 @@ async function perguntar(buffer, mime, nome, modelo) {
       : { type: 'image', data: buffer.toString('base64'), mime_type: mime };
 
   const casa = await nomesDaCasa();
+  const areas = await areasDaCasa();
   /* A regra vai tambem aqui, coladinha ao ficheiro: no prompt de sistema o
      modelo cumpre-a menos vezes do que quando a le logo antes de responder. */
   const contexto = ['Nome do ficheiro: ' + (nome || 'sem nome')]
     .concat(casa.length
       ? ['', 'Pessoas desta casa: ' + casa.join('; ') + '.',
          'Se o ficheiro for de uma delas, escreve em pessoa o nome curto tal como esta nesta lista.']
+      : [])
+    .concat(areas.length
+      ? ['', 'Areas onde isto se pode arrumar: ' + areas.join('; ') + '.',
+         'Escolhe uma e escreve-a em area tal como esta na lista. Prefere a',
+         'mais precisa: se o papel e do carro, e Patrimonio > Carro, nao Patrimonio.']
       : [])
     .concat(['',
       'Antes de responder, se isto for um documento, confere tres coisas:',
