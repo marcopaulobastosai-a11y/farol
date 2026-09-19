@@ -118,10 +118,10 @@ const CRIAR = {
     const title = String(d.title || '').trim();
     if (!title) throw new Error('A tarefa precisa de um título.');
     const rows = await all(
-      `INSERT INTO tasks (title, notes, area, project_id, owner_id, status, priority,
-                          due_on, due_time, done, origin, scope)
-       VALUES ($1,$2,$3,$4,$5,'aberta',$6,$7,$8,FALSE,'real',NULL) RETURNING id`,
-      [title, limpar(d.notes), limpar(d.area), limpar(d.project_id), limpar(d.owner_id),
+      `INSERT INTO tasks (title, notes, context_id, project_id, owner_id, status, priority,
+                          starts_on, due_on, due_time, done, origin, scope)
+       VALUES ($1,$2,$3,$4,$5,'aberta',$6,CURRENT_DATE,$7,$8,FALSE,'real',NULL) RETURNING id`,
+      [title, limpar(d.notes), limpar(d.context_id), limpar(d.project_id), limpar(d.owner_id),
        d.priority || 'normal', limpar(d.due_on), limpar(d.due_time)]);
     for (const pid of d.subjects || []) {
       await query('INSERT INTO task_subjects (task_id, person_id) VALUES ($1,$2) ON CONFLICT DO NOTHING',
@@ -152,10 +152,11 @@ const CRIAR = {
     /* valid_until era o rotulo antigo, texto solto; fica igual ao valid_on para
        os ecras que ainda o leem. A data do documento tem coluna propria. */
     const rows = await all(
-      `INSERT INTO documents (name, entity, issued_on, valid_on, valid_until, person_id, origin)
-       VALUES ($1,$2,$3,$4,$5,$6,'real') RETURNING id`,
-      [name, limpar(d.entity), limpar(d.issued_on), limpar(d.valid_on),
-       limpar(d.valid_on), limpar(d.person_id)]);
+      `INSERT INTO documents (name, entity, kind, context_id, issued_on, valid_on,
+                              valid_until, person_id, origin)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'real') RETURNING id`,
+      [name, limpar(d.entity), limpar(d.kind), limpar(d.context_id),
+       limpar(d.issued_on), limpar(d.valid_on), limpar(d.valid_on), limpar(d.person_id)]);
     return rows[0].id;
   },
 
@@ -167,10 +168,11 @@ const CRIAR = {
     }
     const rows = await all(
       `INSERT INTO expenses (description, amount, spent_on, merchant, category,
-                             person_id, project_id, note, origin)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'real') RETURNING id`,
+                             context_id, person_id, project_id, note, origin)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'real') RETURNING id`,
       [description, Number(d.amount), d.spent_on || new Date(), limpar(d.merchant),
-       limpar(d.category), limpar(d.person_id), limpar(d.project_id), limpar(d.note)]);
+       limpar(d.category), limpar(d.context_id), limpar(d.person_id),
+       limpar(d.project_id), limpar(d.note)]);
     return rows[0].id;
   }
 };
@@ -284,6 +286,24 @@ async function pessoaPorNome(nome) {
   return melhor ? melhor.id : null;
 }
 
+/* A area vem como texto, as vezes com o pai a frente («Patrimonio > Carro»).
+   Compara-se so a ultima parte, sem acentos, contra os nomes que existem. */
+async function contextoPorNome(nome) {
+  const cru = String(nome || '').split('>').pop();
+  const alvo = semAcentos(cru);
+  if (alvo.length < 3) return null;
+  const areas = await all('SELECT id, name FROM contexts WHERE active');
+  let melhor = null;
+  for (const c of areas) {
+    const n = semAcentos(c.name);
+    if (n.length < 3) continue;
+    if (n === alvo || alvo.indexOf(n) >= 0 || n.indexOf(alvo) >= 0) {
+      if (!melhor || n.length > melhor.tamanho) melhor = { id: c.id, tamanho: n.length };
+    }
+  }
+  return melhor ? melhor.id : null;
+}
+
 async function nomeDaPessoa(pid) {
   if (!pid) return null;
   const rows = await all('SELECT name FROM people WHERE id = $1', [pid]);
@@ -303,6 +323,9 @@ function comPessoa(titulo, pessoa) {
    nomes de campo. É aqui que se faz a tradução. */
 async function paraDestino(d) {
   const dados = Object.assign({}, d.dados || {});
+  const cid = await contextoPorNome(dados.area);
+  if (cid) dados.context_id = cid;
+  delete dados.area;
   const pid = await pessoaPorNome(dados.pessoa);
   if (pid) {
     if (d.tipo === 'documento' || d.tipo === 'despesa') dados.person_id = pid;
