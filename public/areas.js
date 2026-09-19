@@ -47,11 +47,18 @@ function arMontar() {
   if (window.TITLES) TITLES.areas = ['\u00c1reas', 'Onde tudo se arruma'];
 
   var nav = $('nav');
-  var alvo = nav && nav.querySelector('[data-view="pessoas"]');
   if (!nav) return;
+  /* O cabecalho da Administracao e posto por quem chegar primeiro: os modulos
+     nao sabem uns dos outros e a ordem de arranque nao e garantida. */
+  var temLabel = false;
+  var labels = nav.querySelectorAll('.nav-label');
+  for (var i = 0; i < labels.length; i++) {
+    if (/administra/i.test(labels[i].textContent)) temLabel = true;
+  }
+  if (!temLabel) nav.appendChild(el('div', 'nav-label mono', 'Administra\u00e7\u00e3o'));
   var b = el('button', null, '\u00c1reas');
   b.dataset.view = 'areas';
-  if (alvo) nav.insertBefore(b, alvo); else nav.appendChild(b);
+  nav.appendChild(b);
 
   var sec = el('section', 'view');
   sec.id = 'view-areas';
