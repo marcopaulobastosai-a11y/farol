@@ -15,6 +15,17 @@ const { query } = require('./db');
 
 const CHAVE = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '';
 const MODELO = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
+
+/* O escalao gratuito responde 503 quando o modelo esta com muita procura.
+   Nao e falha do ficheiro nem do pedido: e so esperar. Tenta-se tres vezes,
+   com pausas maiores de cada vez, e so depois se pede a outro modelo. */
+const MODELOS = [MODELO]
+  .concat((process.env.GEMINI_MODELOS || 'gemini-2.5-flash')
+    .split(',').map((m) => m.trim()).filter(Boolean))
+  .filter((m, i, todos) => todos.indexOf(m) === i);
+const ESPERAS = [2000, 6000, 15000];
+const TEMPO_MAX = 90 * 1000;
+const dormir = (ms) => new Promise((r) => setTimeout(r, ms));
 const ativa = () => Boolean(CHAVE);
 
 const IMAGENS = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/heic', 'image/heif'];
@@ -115,7 +126,7 @@ async function nomesDaCasa() {
   }
 }
 
-async function perguntar(buffer, mime, nome) {
+async function perguntar(buffer, mime, nome, modelo) {
   if (!suportado(mime)) throw new Error('tipo de ficheiro nao suportado pela analise');
 
   const parte = mime === 'application/pdf'
@@ -132,21 +143,35 @@ async function perguntar(buffer, mime, nome) {
       : [])
     .join('\n');
 
-  const r = await fetch('https://generativelanguage.googleapis.com/v1beta/interactions', {
+  let r;
+  try {
+    r = await fetch('https://generativelanguage.googleapis.com/v1beta/interactions', {
     method: 'POST',
+    signal: AbortSignal.timeout(TEMPO_MAX),
     headers: { 'content-type': 'application/json', 'x-goog-api-key': CHAVE },
     body: JSON.stringify({
-      model: MODELO,
+      model: modelo || MODELO,
       system_instruction: SISTEMA,
       store: false,
       input: [parte, { type: 'text', text: contexto }],
       response_format: { type: 'text', mime_type: 'application/json', schema: ESQUEMA }
     })
-  });
+    });
+  } catch (err) {
+    /* Tempo esgotado conta como ocupado, nao como ficheiro ilegivel. */
+    if (err && /Timeout|Abort/.test(String(err.name) + String(err.message))) {
+      const e = new Error('o modelo demorou demasiado a responder');
+      e.transitorio = true;
+      throw e;
+    }
+    throw err;
+  }
 
   if (!r.ok) {
     const t = await r.text().catch(() => '');
-    throw new Error('API ' + r.status + ' ' + t.replace(/\s+/g, ' ').slice(0, 220));
+    const e = new Error('API ' + r.status + ' ' + t.replace(/\s+/g, ' ').slice(0, 220));
+    e.transitorio = r.status === 429 || r.status >= 500;
+    throw e;
   }
 
   const j = await r.json();
@@ -167,12 +192,34 @@ async function perguntar(buffer, mime, nome) {
 
   const uso = j.usage || j.usageMetadata || {};
   return Object.assign({}, proposta, {
-    modelo: MODELO,
+    modelo: modelo || MODELO,
     tokens: {
       entrada: uso.input_tokens || uso.promptTokenCount,
       saida: uso.output_tokens || uso.candidatesTokenCount
     }
   });
+}
+
+/**
+ * Insiste. O 503 do escalao gratuito e passageiro, por isso nao pode ser
+ * tratado como ficheiro ilegivel: tres tentativas ao mesmo modelo, com
+ * pausas maiores de cada vez, e so depois o modelo seguinte da lista.
+ */
+async function insistir(buffer, mime, nome) {
+  let ultimo = new Error('nao houve resposta do modelo');
+  for (const modelo of MODELOS) {
+    for (let i = 0; i < ESPERAS.length; i++) {
+      try {
+        return await perguntar(buffer, mime, nome, modelo);
+      } catch (err) {
+        ultimo = err;
+        if (!err.transitorio) break;
+        console.warn('[farol]', modelo, 'ocupado:', err.message);
+        if (i < ESPERAS.length - 1) await dormir(ESPERAS[i]);
+      }
+    }
+  }
+  throw ultimo;
 }
 
 /**
@@ -187,7 +234,7 @@ async function analisarItem(id, buffer, mime, nome) {
     return null;
   }
   try {
-    const proposta = await perguntar(buffer, mime, nome);
+    const proposta = await insistir(buffer, mime, nome);
     await query(
       "UPDATE inbox_items SET ai_status = 'feito', ai_json = $2, ai_erro = NULL, ai_at = now() WHERE id = $1",
       [id, JSON.stringify(proposta)]);
