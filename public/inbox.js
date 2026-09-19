@@ -9,7 +9,7 @@
  * para a Caixa de entrada nao parecer colada de outro sitio.
  */
 
-var IB = { itens: [], porTriar: 0, estado: 'por_triar', triando: null, montado: false, carregado: false };
+var IB = { itens: [], porTriar: 0, porAprovar: 0, estado: 'por_triar', triando: null, montado: false, carregado: false };
 
 var IB_CSS = "#view-inbox .ib-drop{display:flex;align-items:center;gap:.75rem;padding:1.25rem;border:1px dashed var(--line);border-radius:var(--radius);background:var(--surface-2);cursor:pointer;transition:border-color .15s,background .15s}\n#view-inbox .ib-drop:hover,#view-inbox .ib-drop.is-over{border-color:var(--accent);background:var(--accent-soft)}\n#view-inbox .ib-drop input[type=file]{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}\n#view-inbox .ib-dropi{flex:0 0 auto;width:34px;height:34px;border-radius:8px;background:var(--surface);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;color:var(--accent);font-family:var(--mono);font-size:1rem}\n#view-inbox .ib-dropt{font-weight:500;color:var(--ink-2)}\n#view-inbox .ib-drops{font-size:.8125rem;color:var(--muted);margin-top:.125rem}\n#view-inbox .ib-item{display:flex;gap:.875rem;padding:.9rem 0;border-top:1px solid var(--line-soft);align-items:flex-start}\n#view-inbox .ib-item:first-child{border-top:0;padding-top:.25rem}\n#view-inbox .ib-thumb{flex:0 0 52px;width:52px;height:52px;border-radius:8px;border:1px solid var(--line);background:var(--surface-2);display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:var(--fs-mono);color:var(--faint);text-transform:uppercase;overflow:hidden}\n#view-inbox .ib-thumb img{width:100%;height:100%;object-fit:cover;display:block}\n#view-inbox .ib-body{flex:1 1 auto;min-width:0}\n#view-inbox .ib-title{font-weight:500;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\n#view-inbox .ib-meta{font-size:.8125rem;color:var(--muted);margin-top:.15rem}\n#view-inbox .ib-note{font-size:.875rem;color:var(--ink-2);margin:.4rem 0 0}\n#view-inbox .ib-acts{display:flex;gap:.375rem;flex-wrap:wrap;margin-top:.55rem}\n#view-inbox .ib-dest{border:1px solid var(--line);border-radius:var(--radius);padding:.55rem .8rem;margin-bottom:.35rem;background:var(--surface)}\n#view-inbox .ib-dest.is-on{border-color:var(--accent);background:var(--accent-soft)}\n#view-inbox .ib-desth{display:flex;align-items:center;gap:.5rem;font-weight:500;cursor:pointer;color:var(--ink)}\n#view-inbox .ib-destc{margin-top:.75rem}\n#view-inbox .ib-alvo{font-family:var(--mono);font-size:var(--fs-mono);color:var(--accent-ink);background:var(--accent-soft);border-radius:6px;padding:.3rem .5rem;display:inline-block;margin:.1rem 0 .7rem}\n#view-inbox .ib-empty{padding:2.25rem 1rem;text-align:center;color:var(--muted);font-size:.9375rem}\n#view-inbox .ib-drop{padding:1.4rem 1.25rem;border-radius:12px;border-width:1.5px;gap:1rem}\n#view-inbox .ib-dropi{width:40px;height:40px;border-radius:10px;font-size:1.35rem;line-height:1}\n#view-inbox .ib-dropt{font-size:.9375rem;color:var(--ink)}\n#view-inbox .field{gap:6px;margin:1.1rem 0 0}\n#view-inbox input[type=text],#view-inbox input[type=number],#view-inbox input[type=date],#view-inbox input[type=time],#view-inbox select{font:inherit;font-size:.875rem;color:var(--ink);background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:9px 11px;width:100%;min-width:0;transition:border-color .15s ease,box-shadow .15s ease}\n#view-inbox input::placeholder{color:var(--faint)}\n#view-inbox input:focus,#view-inbox select:focus{outline:0;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}\n#view-inbox .form-actions{display:flex;justify-content:flex-end;gap:.5rem;margin-top:1rem}\n#view-inbox .form-actions .btn{padding:8px 16px;font-size:.875rem}\n#view-inbox .tabs{margin:1.1rem 0}\n#view-inbox .ib-empty{padding:3rem 1rem}\n#view-inbox .ib-sug{display:flex;gap:.55rem;align-items:baseline;flex-wrap:wrap;border:1px solid var(--accent);background:var(--accent-soft);color:var(--ink-2);border-radius:10px;padding:.65rem .85rem;margin:.1rem 0 .9rem;font-size:.875rem}\n#view-inbox .ib-sugt{font-family:var(--mono);font-size:var(--fs-mono);letter-spacing:.07em;text-transform:uppercase;color:var(--accent-ink)}\n#view-inbox .ib-conf{margin-left:auto;font-family:var(--mono);font-size:var(--fs-mono);text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}\n#view-inbox .ib-conf.alta{color:var(--good)}\n#view-inbox .ib-ia{font-size:.8125rem;color:var(--muted);margin-top:.2rem}\n#view-inbox .ib-ia.pronta{color:var(--accent-ink)}\n#view-inbox .ib-ia.falhou{color:var(--bad)}\n#view-inbox .ib-ia .btn{margin-left:.5rem;padding:2px 9px;font-size:.75rem;vertical-align:1px}";
 
@@ -118,9 +118,16 @@ function ibMontar() {
     /* Os botoes do menu que vem do index.html trazem um icone; os que sao
        criados por um modulo tem de trazer o seu, senao ficam a flutuar. */
     b.insertBefore(ibIcone(), b.firstChild);
-    var badge = el('span', 'n');
+    /* Duas bolhas, duas perguntas diferentes: quantos papeis ninguem leu
+       ainda, e quantos ja estao lidos a espera de uma decisao. */
+    var badge = el('span', 'badge');
     badge.id = 'badgeInbox';
+    badge.title = 'Por triar';
     b.appendChild(badge);
+    var badge2 = el('span', 'badge aprovar');
+    badge2.id = 'badgeInboxAprovar';
+    badge2.title = 'Catalogados, a espera de aprovacao';
+    b.appendChild(badge2);
     var alvo = nav.querySelector('[data-view="tarefas"]');
     if (alvo && alvo.nextSibling) nav.insertBefore(b, alvo.nextSibling);
     else nav.appendChild(b);
@@ -198,14 +205,27 @@ function ibCarregar() {
   return apiGestao('/api/inbox?estado=' + IB.estado).then(function (d) {
     IB.itens = d.itens || [];
     IB.porTriar = d.porTriar || 0;
+    IB.porAprovar = d.porAprovar || 0;
     IB.carregado = true;
     ibRender();
   }).catch(function () { toast('Não foi possível ler a caixa de entrada.'); });
 }
 
-function ibRender() {
+function ibNumeros() {
   var badge = $('badgeInbox');
-  if (badge) badge.textContent = IB.porTriar || '';
+  if (badge) {
+    badge.textContent = IB.porTriar || '';
+    badge.hidden = !IB.porTriar;
+  }
+  var badge2 = $('badgeInboxAprovar');
+  if (badge2) {
+    badge2.textContent = IB.porAprovar || '';
+    badge2.hidden = !IB.porAprovar;
+  }
+}
+
+function ibRender() {
+  ibNumeros();
 
   var titulo = (IB_TABS.filter(function (t) { return t[0] === IB.estado; })[0] || ['', ''])[1];
   var cab = $('ibCount');
@@ -280,6 +300,12 @@ function ibItem(item) {
     var chips = el('div', 'chips');
     (item.links || []).forEach(function (l) { chips.appendChild(pill(l.tipo, 'good')); });
     if (item.status === 'catalogado' && item.store === 'inbox') chips.appendChild(pill('por arquivar', 'warn'));
+    if (item.status === 'catalogado') {
+      chips.appendChild(item.approved_at
+        ? pill('nos documentos', 'good')
+        : pill('por aprovar', 'warn'));
+      if (!item.approved_at && ibSemEntidade(item)) chips.appendChild(pill('sem entidade', 'warn'));
+    }
     body.appendChild(chips);
   }
 
@@ -312,6 +338,11 @@ function ibItem(item) {
     var desc = el('button', 'btn', 'Descartar');
     desc.onclick = function () { ibEstado(item.id, 'descartado'); };
     acoes.appendChild(desc);
+  } else if (item.status === 'catalogado' && !item.approved_at) {
+    var ok = el('button', 'btn primary', 'Aprovar');
+    ok.type = 'button';
+    ok.onclick = function () { ibAprovar(item.id); };
+    acoes.appendChild(ok);
   } else if (item.status === 'descartado') {
     var volta = el('button', 'btn', 'Repor');
     volta.onclick = function () { ibEstado(item.id, 'por_triar'); };
@@ -398,7 +429,7 @@ function ibGravarPessoa(id, pid, dlg) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ person_id: pid })
   }).then(function (d) {
-    IB.itens = d.itens || []; IB.porTriar = d.porTriar || 0; ibRender();
+    IB.itens = d.itens || []; IB.porTriar = d.porTriar || 0; IB.porAprovar = d.porAprovar || 0; ibRender();
     if (dlg) { dlg.close(); dlg.remove(); }
     if (typeof loadGestao === 'function') loadGestao();
     if (typeof load === 'function') load();
@@ -620,14 +651,14 @@ function ibEstado(id, status) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ status: status })
   }).then(function (d) {
-    IB.itens = d.itens || []; IB.porTriar = d.porTriar || 0; ibRender();
+    IB.itens = d.itens || []; IB.porTriar = d.porTriar || 0; IB.porAprovar = d.porAprovar || 0; ibRender();
   }).catch(function (e) { toast(e.message || 'Não foi possível gravar.'); });
 }
 
 function ibApagar(id) {
   apiGestao('/api/inbox/' + id + '?estado=' + IB.estado, { method: 'DELETE' })
     .then(function (d) {
-      IB.itens = d.itens || []; IB.porTriar = d.porTriar || 0; ibRender();
+      IB.itens = d.itens || []; IB.porTriar = d.porTriar || 0; IB.porAprovar = d.porAprovar || 0; ibRender();
     }).catch(function (e) { toast(e.message || 'Não foi possível apagar.'); });
 }
 
@@ -682,11 +713,37 @@ function ibLigar() {
    a carregar em Actualizar, espreita-se algumas vezes e pára. */
 /* O modelo enche-se a horas de ponta e devolve 503. O ficheiro continua no
    balde, por isso dar outra oportunidade n\u00e3o custa nada a quem o enviou. */
+/* A entidade nao trava a catalogacao, mas vale a pena dizer que falta antes
+   de alguem aprovar um papel sem saber quem o emitiu. */
+function ibSemEntidade(item) {
+  var j = ibProposta(item);
+  if (!j) return false;
+  return j.destinos.some(function (d) {
+    return d.tipo === 'documento' && !((d.dados || {}).entity || '').trim();
+  });
+}
+
+/* O passo que faltava: ate aqui e uma proposta da maquina, daqui para a
+   frente e um documento da casa. */
+function ibAprovar(id) {
+  apiGestao('/api/inbox/' + id + '/aprovar?estado=' + IB.estado, { method: 'POST' })
+    .then(function (d) {
+      IB.itens = d.itens || [];
+      IB.porTriar = d.porTriar || 0;
+      IB.porAprovar = d.porAprovar || 0;
+      ibRender();
+      toast('Aprovado. Ja esta nos Documentos.');
+      if (typeof load === 'function') load();
+    })
+    .catch(function (e) { toast(e.message || 'Nao foi possivel aprovar.'); });
+}
+
 function ibReanalisar(id) {
   apiGestao('/api/inbox/' + id + '/analisar?estado=' + IB.estado, { method: 'POST' })
     .then(function (d) {
       IB.itens = d.itens || [];
       IB.porTriar = d.porTriar || 0;
+      IB.porAprovar = d.porAprovar || 0;
       ibRender();
       toast('A ler outra vez\u2026');
       ibAcompanhar();
@@ -694,11 +751,18 @@ function ibReanalisar(id) {
     .catch(function (e) { toast(e.message || 'N\u00e3o foi poss\u00edvel tentar outra vez.'); });
 }
 
+/* A leitura pode levar mais de um minuto: o modelo engasga-se, tenta outra
+   vez, e ha esperas de 3, 12 e 25 segundos pelo meio. Espreitar oito vezes
+   dava trinta segundos - o cartao acabava de ser lido depois de o ecra ter
+   desistido, e ficava a dizer «a ler o ficheiro» para sempre. Agora espreita
+   ate aos tres minutos, e quando desiste le a caixa uma ultima vez para nao
+   deixar o ecra a mentir. */
 function ibAcompanhar(tentativa) {
   var n = tentativa || 0;
   var antes = (IB.itens || []).filter(function (x) { return x.ai_status === 'pendente'; })
     .map(function (x) { return x.id; });
-  if (!antes.length || n > 7) return;
+  if (!antes.length) return;
+  if (n > 40) { ibCarregar(); return; }
 
   setTimeout(function () {
     ibCarregar().then(function () {
@@ -725,8 +789,8 @@ document.addEventListener('click', function (e) {
     ibMontar();
     apiGestao('/api/inbox?estado=por_triar').then(function (d) {
       IB.porTriar = d.porTriar || 0;
-      var badge = $('badgeInbox');
-      if (badge) badge.textContent = IB.porTriar || '';
+      IB.porAprovar = d.porAprovar || 0;
+      ibNumeros();
     }).catch(function () { /* sem sessao ainda */ });
     return;
   }
