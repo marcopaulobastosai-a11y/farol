@@ -147,7 +147,7 @@ async function codigoLivre(base) {
 }
 
 async function carregarGestao() {
-  const [people, projects, members, tasks, subjects, contextos] = await Promise.all([
+  const [people, projects, members, tasks, subjects, anexos, contextos] = await Promise.all([
     all(`SELECT id, code, name, full_name, role, kind, initials, color, can_own_tasks, active, note
            FROM people WHERE origin = 'real' ORDER BY sort, id`),
     all(`SELECT id, name, description, area, context_id, depends_on_id, status,
@@ -166,6 +166,8 @@ async function carregarGestao() {
           ORDER BY (due_on IS NULL), due_on, priority DESC, id`),
     all(`SELECT ts.task_id, ts.person_id FROM task_subjects ts
            JOIN tasks t ON t.id = ts.task_id WHERE t.origin = 'real'`),
+    all(`SELECT td.task_id, td.document_id FROM task_documents td
+           JOIN tasks t ON t.id = td.task_id WHERE t.origin = 'real'`),
     /* As areas vao junto: e delas que os ecras de gestao precisam para
        mostrar onde cada coisa vive, e poupa-se um pedido. */
     all(`SELECT c.id, c.slug, c.name, c.parent_id, c.active, p.name AS parent_name
@@ -174,6 +176,7 @@ async function carregarGestao() {
   ]);
   tasks.forEach((t) => {
     t.subjects = subjects.filter((s) => s.task_id === t.id).map((s) => s.person_id);
+    t.documents = anexos.filter((a) => a.task_id === t.id).map((a) => a.document_id);
   });
   projects.forEach((p) => {
     p.members = members.filter((m) => m.project_id === p.id)
@@ -302,6 +305,17 @@ async function gravarAssuntos(taskId, subjects) {
   }
 }
 
+/* Os papeis que a tarefa precisa a mao: a escritura precisa da caderneta, o
+   pedido de credito precisa da declaracao. Sem isto o documento esta no
+   Farol e mesmo assim ha que o procurar. */
+async function gravarDocumentos(taskId, documents) {
+  await query('DELETE FROM task_documents WHERE task_id = $1', [taskId]);
+  for (const did of documents || []) {
+    await query('INSERT INTO task_documents (task_id, document_id) VALUES ($1,$2) ON CONFLICT DO NOTHING',
+      [taskId, Number(did)]);
+  }
+}
+
 app.post('/api/gestao/tarefas', async (req, res) => {
   const b = req.body || {};
   const title = String(b.title || '').trim();
@@ -320,6 +334,7 @@ app.post('/api/gestao/tarefas', async (req, res) => {
        limpar(b.due_on), limpar(b.due_time), limpar(b.repeat_every), b.repeat_count || 1,
        status === 'concluida', status === 'concluida' ? new Date() : null]);
     await gravarAssuntos(rows[0].id, b.subjects);
+    await gravarDocumentos(rows[0].id, b.documents);
     res.status(201).json(await carregarGestao());
   } catch (err) {
     console.error('[farol] POST tarefa:', err.message);
@@ -348,6 +363,7 @@ app.patch('/api/gestao/tarefas/:id', async (req, res) => {
       `UPDATE tasks SET ${campos.join(', ')} WHERE id = $${valores.length} AND origin = 'real' RETURNING id`, valores);
     if (!rows.length) return res.status(404).json({ error: 'Tarefa não encontrada.' });
     if (Array.isArray(b.subjects)) await gravarAssuntos(id, b.subjects);
+    if (Array.isArray(b.documents)) await gravarDocumentos(id, b.documents);
     res.json(await carregarGestao());
   } catch (err) {
     console.error('[farol] PATCH tarefa:', err.message);
