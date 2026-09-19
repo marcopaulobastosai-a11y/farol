@@ -741,10 +741,14 @@ function apagarDocumento(d){
       toast(r.caixa && r.caixa.length
         ? 'Documento apagado. O ficheiro voltou \u00e0 caixa, por triar.'
         : 'Documento apagado.');
+    })
+    .catch(function(e){ toast(e.message || 'N\u00e3o foi poss\u00edvel apagar o documento.'); })
+    /* Correndo bem ou mal, o ecra volta a ser o que a base de dados diz. Uma
+       linha que ja nao existe nao pode ficar a espera de um refresh a mao. */
+    .then(function(){
       load();
       if (typeof ibCarregar === 'function') ibCarregar();
-    })
-    .catch(function(e){ toast(e.message || 'N\u00e3o foi poss\u00edvel apagar o documento.'); });
+    });
 }
 
 function renderDocsFiltro(){
@@ -870,7 +874,10 @@ function marcarLido(d, lido){
   }).then(function(){
     d.lido = lido;
     renderDocumentos();
-  }).catch(function(e){ toast(e.message || 'N\u00e3o foi poss\u00edvel marcar o documento.'); });
+  }).catch(function(e){
+    toast(e.message || 'N\u00e3o foi poss\u00edvel marcar o documento.');
+    load();
+  });
 }
 
 
