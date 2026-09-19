@@ -722,6 +722,12 @@ function renderSaude(){
 
   var box = $('activity');
   clear(box);
+  /* Sem historico de atividade nao ha linha para desenhar. */
+  if (!D.activity.length) {
+    $('activityLabel').textContent = '';
+    $('activityNote').textContent = D.notes.saude_nota || '';
+    return;
+  }
   var ns = 'http://www.w3.org/2000/svg';
   var svg = document.createElementNS(ns, 'svg');
   svg.setAttribute('viewBox', '0 0 300 70');
