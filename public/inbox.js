@@ -95,6 +95,16 @@ function ibCabecalho(pai, titulo, direita) {
   pai.appendChild(h);
 }
 
+/* Um tabuleiro de entrada. 16x16, traco de 1.6, como os outros do menu. */
+function ibIcone() {
+  var caixa = document.createElement('span');
+  caixa.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none"' +
+    ' stroke="currentColor" stroke-width="1.6" stroke-linecap="round"' +
+    ' stroke-linejoin="round"><path d="M4 13l2.2-7.4A1 1 0 0 1 7.2 5h9.6a1 1 0 0 1 1 .6L20 13"/>' +
+    '<path d="M4 13h4.5l1.2 2h4.6l1.2-2H20v4.5a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 17.5z"/></svg>';
+  return caixa.firstChild;
+}
+
 function ibMontar() {
   if (IB.montado) return;
   ibEstilo();
@@ -105,6 +115,9 @@ function ibMontar() {
   if (nav && !nav.querySelector('[data-view="inbox"]')) {
     var b = el('button', null, 'Caixa de entrada');
     b.dataset.view = 'inbox';
+    /* Os botoes do menu que vem do index.html trazem um icone; os que sao
+       criados por um modulo tem de trazer o seu, senao ficam a flutuar. */
+    b.insertBefore(ibIcone(), b.firstChild);
     var badge = el('span', 'n');
     badge.id = 'badgeInbox';
     b.appendChild(badge);
