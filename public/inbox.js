@@ -59,11 +59,27 @@ function ibQuando(s) {
 }
 
 /* ---------------- montagem ---------------- */
+/* A pessoa do ficheiro: uma linha no cartao e a janela de escolha. */
+var IB_CSS_PESSOA = 
+  '#view-inbox .ib-dono{display:inline-flex;align-items:center;gap:.4rem;margin-top:.35rem;font-size:.8125rem;color:var(--ink)}' +
+  '#view-inbox .ib-dono .ib-av{width:20px;height:20px;font-size:.625rem}' +
+  '.ib-av{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:50%;color:#fff;font-size:.75rem;font-weight:600;letter-spacing:.02em;flex:none}' +
+  '.ib-dlg{border:none;border-radius:14px;padding:0;max-width:26rem;width:calc(100% - 2rem);box-shadow:0 18px 48px rgba(15,23,32,.22)}' +
+  '.ib-dlg::backdrop{background:rgba(15,23,32,.38)}' +
+  '.ib-dlgc{background:var(--surface);padding:1.25rem;border-radius:14px}' +
+  '.ib-dlgc h3{margin:0 0 .25rem;font-size:1.0625rem}' +
+  '.ib-dlgc p{margin:0 0 .9rem;font-size:.8125rem;color:var(--muted)}' +
+  '.ib-pessoas{display:grid;grid-template-columns:1fr 1fr;gap:.5rem}' +
+  '.ib-pessoa{display:flex;align-items:center;gap:.55rem;padding:.5rem .6rem;border:1px solid var(--line);border-radius:10px;background:var(--ground);cursor:pointer;font:inherit;font-size:.875rem;text-align:left}' +
+  '.ib-pessoa:hover{border-color:var(--accent)}' +
+  '.ib-pessoa.on{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}' +
+  '.ib-dlga{display:flex;justify-content:flex-end;gap:.5rem;margin-top:1rem}';
+
 function ibEstilo() {
   if (document.getElementById('ibCss')) return;
   var s = document.createElement('style');
   s.id = 'ibCss';
-  s.textContent = IB_CSS;
+  s.textContent = IB_CSS + IB_CSS_PESSOA;
   document.head.appendChild(s);
 }
 
@@ -248,6 +264,16 @@ function ibItem(item) {
     body.appendChild(chips);
   }
 
+  /* De quem e o papel. E a primeira coisa que se procura num ficheiro velho,
+     por isso aparece no cartao e nao so na janela. */
+  var dono = ibPessoaPorId(item.person_id);
+  if (dono) {
+    var ld = el('div', 'ib-dono');
+    ld.appendChild(ibAvatar(dono));
+    ld.appendChild(el('span', null, dono.name));
+    body.appendChild(ld);
+  }
+
   var acoes = el('div', 'ib-acts');
   if (item.file_name) {
     var ver = el('a', 'btn', 'Abrir');
@@ -255,6 +281,11 @@ function ibItem(item) {
     ver.target = '_blank'; ver.rel = 'noopener';
     acoes.appendChild(ver);
   }
+  /* Quando a leitura automatica nao acerta na pessoa, corrige-se aqui. */
+  var quem = el('button', 'btn', dono ? 'Pessoa: ' + dono.name : 'Pessoa');
+  quem.type = 'button';
+  quem.onclick = function () { ibEscolherPessoa(item); };
+  acoes.appendChild(quem);
   if (item.status === 'por_triar') {
     var triar = el('button', 'btn primary', 'Catalogar');
     triar.onclick = function () { ibAbrirTriagem(item); };
@@ -295,6 +326,63 @@ function ibPorTipo(item) {
   var mapa = {};
   if (j) j.destinos.forEach(function (x) { if (x && x.tipo && !mapa[x.tipo]) mapa[x.tipo] = x; });
   return mapa;
+}
+
+function ibPessoaPorId(id) {
+  if (!id || typeof G === 'undefined' || !G.people) return null;
+  for (var i = 0; i < G.people.length; i++) if (G.people[i].id === id) return G.people[i];
+  return null;
+}
+
+function ibAvatar(p) {
+  var a = el('span', 'ib-av', p.initials || String(p.name || '?').slice(0, 1));
+  a.style.background = p.color || 'var(--c1)';
+  return a;
+}
+
+/* A janela de escolher de quem e o ficheiro. Oito pessoas cabem num relance:
+   nao vale a pena uma lista pendente para isto. */
+function ibEscolherPessoa(item) {
+  var dlg = el('dialog', 'ib-dlg');
+  var cx = el('div', 'ib-dlgc');
+  cx.appendChild(el('h3', null, 'De quem \u00e9 este ficheiro' + String.fromCharCode(63)));
+  cx.appendChild(el('p', null, 'Fica no t\u00edtulo e arruma tamb\u00e9m o que j\u00e1 nasceu deste ficheiro.'));
+  var lista = el('div', 'ib-pessoas');
+  ((typeof G !== 'undefined' && G.people) || []).forEach(function (p) {
+    var b = el('button', 'ib-pessoa' + (item.person_id === p.id ? ' on' : ''));
+    b.type = 'button';
+    b.appendChild(ibAvatar(p));
+    b.appendChild(el('span', null, p.name));
+    b.onclick = function () { ibGravarPessoa(item.id, p.id, dlg); };
+    lista.appendChild(b);
+  });
+  cx.appendChild(lista);
+  var pe = el('div', 'ib-dlga');
+  var nada = el('button', 'btn', 'Ningu\u00e9m');
+  nada.type = 'button';
+  nada.onclick = function () { ibGravarPessoa(item.id, null, dlg); };
+  var fecha = el('button', 'btn', 'Fechar');
+  fecha.type = 'button';
+  fecha.onclick = function () { dlg.close(); dlg.remove(); };
+  pe.appendChild(nada); pe.appendChild(fecha);
+  cx.appendChild(pe);
+  dlg.appendChild(cx);
+  dlg.addEventListener('close', function () { dlg.remove(); });
+  document.body.appendChild(dlg);
+  dlg.showModal();
+}
+
+function ibGravarPessoa(id, pid, dlg) {
+  apiGestao('/api/inbox/' + id + '/pessoa?estado=' + IB.estado, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ person_id: pid })
+  }).then(function (d) {
+    IB.itens = d.itens || []; IB.porTriar = d.porTriar || 0; ibRender();
+    if (dlg) { dlg.close(); }
+    if (typeof loadGestao === 'function') loadGestao();
+    if (typeof load === 'function') load();
+  }).catch(function (e) { toast(e.message || 'N\u00e3o foi poss\u00edvel gravar.'); });
 }
 
 /* O modelo devolve um nome; aqui procura-se a pessoa correspondente. */
