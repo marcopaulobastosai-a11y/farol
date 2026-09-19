@@ -248,7 +248,12 @@ function ibItem(item) {
       jx ? 'sugest\u00e3o pronta: ' + jx.destinos.map(function (x) { return x.tipo; }).join(', ')
          : 'sem sugest\u00e3o'));
   } else if (item.ai_status === 'falhou') {
-    var linha = el('div', 'ib-ia falhou', 'n\u00e3o consegui ler o ficheiro');
+    /* Dizer o que correu mal e melhor do que um «nao consegui»: o limite do
+       dia do plano gratuito nao se resolve carregando outra vez. */
+    var razao = item.ai_erro && item.ai_erro.indexOf('API ') !== 0
+      ? item.ai_erro
+      : 'n\u00e3o consegui ler o ficheiro';
+    var linha = el('div', 'ib-ia falhou', razao);
     var outra = el('button', 'btn', 'Tentar outra vez');
     outra.type = 'button';
     outra.onclick = function () { ibReanalisar(item.id); };
