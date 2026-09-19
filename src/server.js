@@ -147,7 +147,7 @@ async function codigoLivre(base) {
 }
 
 async function carregarGestao() {
-  const [people, projects, members, tasks, subjects] = await Promise.all([
+  const [people, projects, members, tasks, subjects, contextos] = await Promise.all([
     all(`SELECT id, code, name, full_name, role, kind, initials, color, can_own_tasks, active, note
            FROM people WHERE origin = 'real' ORDER BY sort, id`),
     all(`SELECT id, name, description, area, context_id, depends_on_id, status,
@@ -165,7 +165,12 @@ async function carregarGestao() {
            FROM tasks WHERE origin = 'real'
           ORDER BY (due_on IS NULL), due_on, priority DESC, id`),
     all(`SELECT ts.task_id, ts.person_id FROM task_subjects ts
-           JOIN tasks t ON t.id = ts.task_id WHERE t.origin = 'real'`)
+           JOIN tasks t ON t.id = ts.task_id WHERE t.origin = 'real'`),
+    /* As areas vao junto: e delas que os ecras de gestao precisam para
+       mostrar onde cada coisa vive, e poupa-se um pedido. */
+    all(`SELECT c.id, c.slug, c.name, c.parent_id, c.active, p.name AS parent_name
+           FROM contexts c LEFT JOIN contexts p ON p.id = c.parent_id
+          ORDER BY COALESCE(p.sort, c.sort), COALESCE(p.id, c.id), c.parent_id NULLS FIRST, c.sort, c.id`)
   ]);
   tasks.forEach((t) => {
     t.subjects = subjects.filter((s) => s.task_id === t.id).map((s) => s.person_id);
@@ -174,7 +179,7 @@ async function carregarGestao() {
     p.members = members.filter((m) => m.project_id === p.id)
       .map((m) => ({ person_id: m.person_id, member_role: m.member_role }));
   });
-  return { people, projects, tasks };
+  return { people, projects, tasks, contextos };
 }
 
 app.get('/api/gestao', async (_req, res) => {
