@@ -49,6 +49,33 @@ async function apagar(tipo, id) {
   return caixa;
 }
 
+/* Uma so escrita, com lista de campos permitidos: o que nao estiver na lista
+   nao entra na base de dados, venha de onde vier. */
+function rotaCorrigir(app, caminho, tabela, rotulo, permitidos) {
+  app.patch(caminho, async (req, res) => {
+    const id = Number(req.params.id);
+    const b = req.body || {};
+    const campos = [], valores = [];
+    permitidos.forEach((c) => {
+      if (b[c] !== undefined) {
+        campos.push(c + ' = $' + (campos.length + 1));
+        valores.push(b[c] === '' ? null : b[c]);
+      }
+    });
+    if (!campos.length) return res.json({ ok: true, id: id });
+    try {
+      valores.push(id);
+      const r = await query(
+        'UPDATE ' + tabela + ' SET ' + campos.join(', ') + ' WHERE id = $' + valores.length, valores);
+      if (!r.rowCount) return res.status(404).json({ error: 'Ja nao existe.' });
+      res.json({ ok: true, id: id });
+    } catch (err) {
+      console.error('[farol] PATCH ' + rotulo + ':', err.message);
+      res.status(400).json({ error: 'Nao foi possivel gravar ' + (rotulo === 'documento' ? 'o documento.' : 'a despesa.') });
+    }
+  });
+}
+
 function rotaApagar(app, caminho, tipo) {
   app.delete(caminho, async (req, res) => {
     const id = Number(req.params.id);
@@ -68,58 +95,15 @@ function instalar(app) {
   rotaApagar(app, '/api/documentos/:id', 'documento');
   rotaApagar(app, '/api/despesas/:id', 'despesa');
 
-  /* Corrigir um documento a mao. A leitura automatica acerta quase sempre,
-     mas quando erra o remedio nao pode ser apagar e voltar a submeter. */
-  app.patch('/api/documentos/:id', async (req, res) => {
-    const id = Number(req.params.id);
-    const b = req.body || {};
-    const campos = [], valores = [];
+  /* Corrigir a mao o que a leitura automatica errou. Documento e despesa
+     pedem exactamente a mesma coisa - uma lista de campos permitidos e um
+     UPDATE - por isso ha uma rota so, feita duas vezes. */
+  rotaCorrigir(app, '/api/documentos/:id', 'documents', 'documento',
     ['name', 'entity', 'kind', 'context_id', 'person_id', 'project_id',
-     'issued_on', 'valid_on'].forEach((c) => {
-      if (b[c] !== undefined) {
-        campos.push(c + ' = $' + (campos.length + 1));
-        valores.push(b[c] === '' ? null : b[c]);
-      }
-    });
-    if (!campos.length) return res.json({ ok: true, id: id });
-    try {
-      valores.push(id);
-      const r = await query(
-        'UPDATE documents SET ' + campos.join(', ') + ' WHERE id = $' + valores.length, valores);
-      if (!r.rowCount) return res.status(404).json({ error: 'Documento nao encontrado.' });
-      res.json({ ok: true, id: id });
-    } catch (err) {
-      console.error('[farol] PATCH documento:', err.message);
-      res.status(400).json({ error: 'Nao foi possivel gravar o documento.' });
-    }
-  });
-
-  /* A despesa tinha o mesmo problema do documento: dava para apagar, nao para
-     corrigir. Agora que espera por uma aprovacao, corrigir antes de aprovar e
-     o caminho normal. */
-  app.patch('/api/despesas/:id', async (req, res) => {
-    const id = Number(req.params.id);
-    const b = req.body || {};
-    const campos = [], valores = [];
+     'issued_on', 'valid_on']);
+  rotaCorrigir(app, '/api/despesas/:id', 'expenses', 'despesa',
     ['description', 'amount', 'spent_on', 'merchant', 'category',
-     'context_id', 'person_id', 'project_id', 'note'].forEach((c) => {
-      if (b[c] !== undefined) {
-        campos.push(c + ' = $' + (campos.length + 1));
-        valores.push(b[c] === '' ? null : b[c]);
-      }
-    });
-    if (!campos.length) return res.json({ ok: true, id: id });
-    try {
-      valores.push(id);
-      const r = await query(
-        'UPDATE expenses SET ' + campos.join(', ') + ' WHERE id = $' + valores.length, valores);
-      if (!r.rowCount) return res.status(404).json({ error: 'Despesa nao encontrada.' });
-      res.json({ ok: true, id: id });
-    } catch (err) {
-      console.error('[farol] PATCH despesa:', err.message);
-      res.status(400).json({ error: 'Nao foi possivel gravar a despesa.' });
-    }
-  });
+     'context_id', 'person_id', 'project_id', 'note']);
 
   /* Lido ou por ler. Marca-se sozinho quando se abre o ficheiro pelo nome, e
      pode voltar atras para quem quer deixar um papel a chamar por si. */
