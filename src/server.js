@@ -62,6 +62,30 @@ app.get('/api/health', async (_req, res) => {
   }
 });
 
+function aniversarios(pessoas) {
+  const hoje = new Date();
+  const fora = [];
+  pessoas.forEach((p) => {
+    const [a, m, d] = p.birth_on.split('-').map(Number);
+    [hoje.getFullYear(), hoje.getFullYear() + 1].forEach((ano) => {
+      /* Quem nasceu a 29 de fevereiro faz anos a 28 nos anos comuns. */
+      const bissexto = (ano % 4 === 0 && ano % 100 !== 0) || ano % 400 === 0;
+      const dia = (m === 2 && d === 29 && !bissexto) ? 28 : d;
+      const idade = ano - a;
+      if (idade < 1) return;
+      fora.push({
+        id: 'nasc-' + p.id + '-' + ano,
+        day: ano + '-' + String(m).padStart(2, '0') + '-' + String(dia).padStart(2, '0'),
+        at: null,
+        title: 'Aniversário · ' + p.name,
+        calendar: 'aniversarios',
+        detail: 'faz ' + idade + (idade === 1 ? ' ano' : ' anos')
+      });
+    });
+  });
+  return fora;
+}
+
 app.get('/api/bootstrap', async (_req, res) => {
   try {
     const settingsRows = await all('SELECT key, value FROM settings');
@@ -70,7 +94,7 @@ app.get('/api/bootstrap', async (_req, res) => {
     /* O arranque lia vinte e nove tabelas; vinte e uma delas eram da maqueta e
        vinham sempre vazias - o ecra pagava-as a cada carregamento. Ficam as
        que tem dados a serio, mais as duas que sao contas feitas na hora. */
-    const [people, calendars, events, attention, tiles, documents, notes] =
+    const [people, calendars, events, attention, tiles, documents, notes, nascimentos] =
       await Promise.all([
       all(`SELECT id, code, name, role, initials, color, note,
                   (avatar IS NOT NULL) AS tem_avatar
@@ -86,6 +110,15 @@ app.get('/api/bootstrap', async (_req, res) => {
               WHERE t.origin = 'real' AND NOT t.done AND t.status <> 'cancelada'
                 AND t.due_on IS NOT NULL
                 AND t.due_on <= CURRENT_DATE + INTERVAL '30 days'
+             UNION ALL
+             SELECT 'pessoa', p.id,
+                    CASE p.id_doc_tipo WHEN 'tr' THEN 'Título de residência'
+                                       ELSE 'Cartão de Cidadão' END || ' · ' || p.name,
+                    'documento de identificação',
+                    to_char(p.id_doc_validade,'YYYY-MM-DD')
+               FROM people p
+              WHERE p.active AND p.id_doc_validade IS NOT NULL
+                AND p.id_doc_validade <= CURRENT_DATE + INTERVAL '60 days'
              UNION ALL
              SELECT 'documento', d.id,
                     d.name,
@@ -126,8 +159,19 @@ app.get('/api/bootstrap', async (_req, res) => {
              FROM documents d
             WHERE d.aprovado
             ORDER BY d.sort, d.id DESC`),
-      all('SELECT slug, body FROM notes')
+      all('SELECT slug, body FROM notes'),
+      all(`SELECT id, name, to_char(birth_on,'YYYY-MM-DD') AS birth_on
+             FROM people WHERE active AND birth_on IS NOT NULL`)
     ]);
+
+    /* Os aniversarios nao se escrevem na Agenda: saem da data de nascimento,
+       este ano e o proximo, para a Agenda de dezembro ja ver janeiro. */
+    const anos = aniversarios(nascimentos);
+    if (anos.length) {
+      calendars.push({ code: 'aniversarios', name: 'Aniversários', color: 'var(--c4)' });
+      events.push(...anos);
+      events.sort((a, b) => (a.day < b.day ? -1 : a.day > b.day ? 1 : 0));
+    }
 
     res.json({
       meta: { env: APP_ENV, ...settings, ...hojeMeta() },
