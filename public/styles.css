@@ -250,9 +250,30 @@ main{min-width:0;padding:0 clamp(16px,3vw,34px) 60px;}
   position:relative;overflow:hidden;
 }
 .attn article::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--faint);}
-.attn article.crit::before{background:var(--bad);}
-.attn article.due::before{background:var(--warn);}
-.attn article.info::before{background:var(--accent);}
+.attn article.bad::before{background:var(--bad);}
+.attn article.warn::before{background:var(--warn);}
+
+/* O que ja passou nao desaparece, mas tambem nao afoga o ecra: fica num
+   bloco fechado, com a contagem a vista, que se abre quando se quiser. */
+.attn details.atraso{
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
+  box-shadow:var(--shadow);overflow:hidden;
+}
+.attn details.atraso > summary{
+  display:flex;align-items:baseline;gap:8px;cursor:pointer;
+  padding:12px 15px;list-style:none;
+}
+.attn details.atraso > summary::-webkit-details-marker{display:none;}
+.attn details.atraso > summary::after{
+  content:"mostrar";margin-left:auto;flex:none;
+  font-family:var(--mono);font-size:.75rem;color:var(--muted);
+}
+.attn details.atraso[open] > summary::after{content:"esconder";}
+.attn details.atraso > summary b{
+  font-family:var(--sans);font-size:.9375rem;font-weight:600;color:var(--bad);
+}
+.attn details.atraso > summary span{color:var(--muted);font-size:.8125rem;}
+.attn details.atraso > .attn{padding:0 12px 12px;}
 .attn h4{font-family:var(--sans);font-size:.9375rem;font-weight:600;margin-bottom:2px;}
 .attn p{color:var(--muted);font-size:.8125rem;}
 .attn .when{margin-left:auto;text-align:right;flex:none;}
