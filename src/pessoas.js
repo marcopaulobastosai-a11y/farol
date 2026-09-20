@@ -39,7 +39,115 @@ const LIGACOES = [
 
 const COLUNAS = `id, code, name, full_name, role, kind, can_own_tasks, color, initials, note,
                  in_household, active, sort, origin,
-                 (avatar IS NOT NULL) AS tem_avatar, avatar_em`;
+                 (avatar IS NOT NULL) AS tem_avatar, avatar_em,
+                 to_char(birth_on, 'YYYY-MM-DD') AS birth_on, phone, email, address,
+                 nif, sns, id_doc_tipo, id_doc_numero,
+                 to_char(id_doc_validade, 'YYYY-MM-DD') AS id_doc_validade,
+                 emerg_nome, emerg_tel, conta_email, responsavel_id, detalhes`;
+
+/* ------------------------------------------------------------------ *
+ * Os dados de cada pessoa
+ *
+ * Os comuns sao colunas. Os que dependem do tipo vivem em `detalhes`, e so
+ * entram as chaves do tipo da pessoa: mudar uma crianca para adulto deixa
+ * cair a escola em vez de a guardar escondida.
+ * ------------------------------------------------------------------ */
+const DETALHES = {
+  adulto:   ['empregador'],
+  crianca:  ['escola', 'ano_turma', 'escola_contacto'],
+  familiar: [],
+  animal:   ['raca', 'microchip', 'veterinario', 'seguro']
+};
+const DOCS_ID = ['cc', 'tr'];               // cartao de cidadao, titulo de residencia
+const HUMANOS = ['adulto', 'crianca', 'familiar'];
+
+/* O NIF portugues traz um digito de controlo: apanha o numero mal copiado
+   antes de ele ir parar a uma fatura. */
+function nifValido(n) {
+  if (!/^\d{9}$/.test(n)) return false;
+  let soma = 0;
+  for (let i = 0; i < 8; i++) soma += Number(n[i]) * (9 - i);
+  const r = soma % 11;
+  return Number(n[8]) === (r < 2 ? 0 : 11 - r);
+}
+
+const soDigitos = (v) => String(v || '').replace(/\s+/g, '');
+
+function dataOuNada(v, nome) {
+  const t = limpar(v);
+  if (!t) return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(t) || isNaN(Date.parse(t))) {
+    throw new Error(nome + ': a data não está bem escrita.');
+  }
+  return t;
+}
+
+/* Le do corpo do pedido os dados novos, valida-os e devolve pares
+   coluna/valor. Um erro aqui e uma frase para mostrar a quem escreveu. */
+async function dadosDoCorpo(id, c, kind) {
+  const fora = [];
+  const por = (coluna, valor) => fora.push([coluna, valor]);
+  const texto = (k, coluna) => { if (c[k] !== undefined) por(coluna || k, limpar(c[k]) || null); };
+
+  if (c.birth_on !== undefined) {
+    const d = dataOuNada(c.birth_on, 'Data de nascimento');
+    if (d && d > new Date().toISOString().slice(0, 10)) throw new Error('A data de nascimento está no futuro.');
+    por('birth_on', d);
+  }
+  texto('phone'); texto('address'); texto('emerg_nome'); texto('emerg_tel');
+
+  if (c.email !== undefined) {
+    const e = limpar(c.email) ? limpar(c.email).toLowerCase() : null;
+    if (e && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) throw new Error('O email não parece um email.');
+    por('email', e);
+  }
+  if (c.nif !== undefined) {
+    const n = soDigitos(c.nif) || null;
+    if (n && !nifValido(n)) throw new Error('Esse NIF não é válido — confirma os nove algarismos.');
+    por('nif', n);
+  }
+  if (c.sns !== undefined) {
+    const n = soDigitos(c.sns) || null;
+    if (n && !/^\d{9}$/.test(n)) throw new Error('O número de utente tem nove algarismos.');
+    por('sns', n);
+  }
+  if (c.id_doc_tipo !== undefined) {
+    const t = limpar(c.id_doc_tipo) || null;
+    if (t && DOCS_ID.indexOf(t) < 0) throw new Error('Tipo de documento desconhecido.');
+    por('id_doc_tipo', t);
+  }
+  if (c.id_doc_numero !== undefined) por('id_doc_numero', limpar(c.id_doc_numero) ? limpar(c.id_doc_numero).toUpperCase() : null);
+  if (c.id_doc_validade !== undefined) por('id_doc_validade', dataOuNada(c.id_doc_validade, 'Validade do documento'));
+
+  if (c.conta_email !== undefined) {
+    const e = limpar(c.conta_email) ? limpar(c.conta_email).toLowerCase() : null;
+    if (e) {
+      const { rows } = await pool.query('SELECT 1 FROM access_emails WHERE email = $1', [e]);
+      if (!rows.length) throw new Error('Essa conta não está na lista de Acessos.');
+      const outra = await pool.query('SELECT name FROM people WHERE conta_email = $1 AND id <> $2', [e, id || 0]);
+      if (outra.rows.length) throw new Error('Essa conta já é de ' + outra.rows[0].name + '.');
+    }
+    por('conta_email', e);
+  }
+  if (c.responsavel_id !== undefined) {
+    const r = c.responsavel_id ? Number(c.responsavel_id) : null;
+    if (r && r === Number(id)) throw new Error('Uma pessoa não pode ser responsável por si própria.');
+    if (r) {
+      const { rows } = await pool.query('SELECT 1 FROM people WHERE id = $1', [r]);
+      if (!rows.length) throw new Error('Essa pessoa não existe.');
+    }
+    por('responsavel_id', r);
+  }
+  if (c.detalhes !== undefined) {
+    const d = {};
+    (DETALHES[kind] || []).forEach((k) => {
+      const v = c.detalhes && limpar(c.detalhes[k]);
+      if (v) d[k] = String(v).slice(0, 300);
+    });
+    por('detalhes', JSON.stringify(d));
+  }
+  return fora;
+}
 
 function limpar(v) { return typeof v === 'string' ? v.trim() : v; }
 
@@ -129,6 +237,20 @@ async function ficha(id) {
   const pessoa = (await uma('SELECT ' + COLUNAS + ' FROM people WHERE id = $1'))[0];
   if (!pessoa) return null;
 
+  /* De quem esta pessoa trata, e quem trata dela. */
+  const dependentes = await uma(
+    `SELECT id, name, kind FROM people WHERE responsavel_id = $1 AND active ORDER BY sort, name`);
+  if (pessoa.responsavel_id) {
+    const r = await uma('SELECT id, name FROM people WHERE id = $1', [pessoa.responsavel_id]);
+    pessoa.responsavel = r[0] || null;
+  }
+  /* As contas de Acessos que ainda nao sao de ninguem (mais a desta pessoa),
+     para a janela de edicao poder oferecer so as que fazem sentido. */
+  const contas = (await uma(
+    `SELECT a.email, a.nome FROM access_emails a
+      WHERE NOT EXISTS (SELECT 1 FROM people p WHERE p.conta_email = a.email AND p.id <> $1)
+      ORDER BY a.protegido DESC, a.email`)).map((r) => r.email);
+
   const tarefas = await uma(
     `SELECT t.id, t.title, t.done, t.status, t.priority, t.notes,
             to_char(t.due_on,    'YYYY-MM-DD') AS due_on,
@@ -189,15 +311,22 @@ async function ficha(id) {
 
   /* Os compromissos: o que esta na Agenda com o nome desta pessoa, de hoje
      para a frente. Os que ja passaram so interessam como contagem. */
+  /* Entram tambem os compromissos de quem esta pessoa acompanha: a consulta
+     do avo e da agenda de quem o leva. `de` diz de quem e, quando nao e seu. */
   const compromissos = await uma(
     `SELECT e.id, e.title, e.at, e.detail, e.calendar,
             to_char(e.day, 'YYYY-MM-DD') AS day,
             (SELECT string_agg(o.name, ', ' ORDER BY o.sort, o.name)
                FROM event_people x JOIN people o ON o.id = x.person_id
-              WHERE x.event_id = e.id AND x.person_id <> $1) AS com
+              WHERE x.event_id = e.id AND x.person_id <> $1) AS com,
+            NOT EXISTS (SELECT 1 FROM event_people s
+                         WHERE s.event_id = e.id AND s.person_id = $1) AS de_outro
        FROM events e
-       JOIN event_people ep ON ep.event_id = e.id AND ep.person_id = $1
       WHERE e.day >= CURRENT_DATE
+        AND EXISTS (SELECT 1 FROM event_people ep
+                     WHERE ep.event_id = e.id
+                       AND (ep.person_id = $1
+                            OR ep.person_id IN (SELECT id FROM people WHERE responsavel_id = $1)))
       ORDER BY e.day, e.at NULLS FIRST, e.id
       LIMIT 50`);
 
@@ -206,7 +335,8 @@ async function ficha(id) {
        FROM event_people ep JOIN events e ON e.id = ep.event_id
       WHERE ep.person_id = $1 AND e.day < CURRENT_DATE`);
 
-  return { pessoa, tarefas, documentos, despesas, projetos, caixa, compromissos, compromissosPassados };
+  return { pessoa, tarefas, documentos, despesas, projetos, caixa, compromissos, compromissosPassados,
+           dependentes, contas };
 }
 
 /* ---------------- ligação ao Express ---------------- */
@@ -233,6 +363,8 @@ function instalar(app) {
     if (!nome) return res.status(400).json({ error: 'Falta o nome.' });
     const kind = TIPOS.indexOf(c.kind) >= 0 ? c.kind : 'adulto';
     try {
+      /* Valida antes de criar: um NIF errado nao deixa uma pessoa a meio. */
+      const dados = await dadosDoCorpo(null, c, kind);
       const code = await codigoLivre(nome);
       const { rows } = await pool.query(
         `INSERT INTO people (code, name, full_name, role, kind, can_own_tasks, color, initials,
@@ -245,6 +377,10 @@ function instalar(app) {
          limpar(c.initials) || iniciais(nome), c.active !== false]
       );
       const id = rows[0].id;
+      if (dados.length) {
+        await pool.query('UPDATE people SET ' + dados.map((d, i) => d[0] + ' = $' + (i + 2)).join(', ') +
+          ' WHERE id = $1', [id].concat(dados.map((d) => d[1])));
+      }
       if (c.avatar) {
         const a = lerDataUrl(c.avatar);
         await pool.query('UPDATE people SET avatar = $2, avatar_mime = $3, avatar_em = now() WHERE id = $1',
@@ -276,9 +412,26 @@ function instalar(app) {
     if (c.color !== undefined) por('color', limpar(c.color) || 'var(--c1)');
     if (c.initials !== undefined) por('initials', limpar(c.initials) || null);
     if (c.note !== undefined) por('note', limpar(c.note) || null);
-    if (!campos.length) return res.status(400).json({ error: 'Nada para mudar.' });
 
     try {
+      /* O tipo manda nos detalhes: vale o novo se vier no pedido. */
+      let kind = c.kind;
+      if (kind === undefined) {
+        const { rows } = await pool.query('SELECT kind FROM people WHERE id = $1', [req.params.id]);
+        kind = rows.length ? rows[0].kind : 'adulto';
+      }
+      /* Mudou o tipo sem trazer detalhes (a pagina de Pessoas faz isso): os
+         que ja existiam passam pelo filtro do tipo novo. */
+      if (c.kind !== undefined && c.detalhes === undefined) {
+        const { rows } = await pool.query('SELECT detalhes FROM people WHERE id = $1', [req.params.id]);
+        if (rows.length) c.detalhes = rows[0].detalhes || {};
+      }
+      let dados;
+      try { dados = await dadosDoCorpo(Number(req.params.id), c, kind); }
+      catch (e) { return res.status(400).json({ error: e.message }); }
+      dados.forEach((d) => por(d[0], d[1]));
+      if (!campos.length) return res.status(400).json({ error: 'Nada para mudar.' });
+
       const { rowCount } = await pool.query(
         'UPDATE people SET ' + campos.join(', ') + ' WHERE id = $1', vals);
       if (!rowCount) return res.status(404).json({ error: 'Pessoa não encontrada.' });
@@ -341,4 +494,4 @@ function instalar(app) {
   });
 }
 
-module.exports = { arrancar, instalar, iniciais };
+module.exports = { arrancar, instalar, iniciais, nifValido, HUMANOS };
