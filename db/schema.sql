@@ -580,3 +580,36 @@ BEGIN
 EXCEPTION WHEN OTHERS THEN
   RAISE WARNING '[farol] nao foi possivel ligar eventos a pessoas: %', SQLERRM;
 END $$;
+
+-- ---------------------------------------------------------------------------
+-- Dados de cada pessoa
+--
+-- Ate aqui uma pessoa era um nome, uma cor e uma fotografia. Passa a guardar o
+-- que a casa precisa de ter a mao: quando faz anos, como se fala com ela, os
+-- numeros que se pedem em qualquer balcao (NIF, utente, documento de
+-- identificacao) e a quem ligar numa aflicao.
+--
+-- O que so faz sentido para um tipo de pessoa (escola, microchip...) vive em
+-- `detalhes`; o servidor so aceita as chaves do tipo dela.
+-- `responsavel_id` e o encarregado de educacao de uma crianca ou quem
+-- acompanha um familiar - a mesma relacao, com nomes diferentes.
+-- ---------------------------------------------------------------------------
+ALTER TABLE people ADD COLUMN IF NOT EXISTS birth_on        DATE;
+ALTER TABLE people ADD COLUMN IF NOT EXISTS phone           TEXT;
+ALTER TABLE people ADD COLUMN IF NOT EXISTS email           TEXT;
+ALTER TABLE people ADD COLUMN IF NOT EXISTS address         TEXT;
+ALTER TABLE people ADD COLUMN IF NOT EXISTS nif             TEXT;
+ALTER TABLE people ADD COLUMN IF NOT EXISTS sns             TEXT;
+ALTER TABLE people ADD COLUMN IF NOT EXISTS id_doc_tipo     TEXT;
+ALTER TABLE people ADD COLUMN IF NOT EXISTS id_doc_numero   TEXT;
+ALTER TABLE people ADD COLUMN IF NOT EXISTS id_doc_validade DATE;
+ALTER TABLE people ADD COLUMN IF NOT EXISTS emerg_nome      TEXT;
+ALTER TABLE people ADD COLUMN IF NOT EXISTS emerg_tel       TEXT;
+ALTER TABLE people ADD COLUMN IF NOT EXISTS conta_email     TEXT;
+ALTER TABLE people ADD COLUMN IF NOT EXISTS responsavel_id  INTEGER REFERENCES people(id) ON DELETE SET NULL;
+ALTER TABLE people ADD COLUMN IF NOT EXISTS detalhes        JSONB NOT NULL DEFAULT '{}'::jsonb;
+
+-- Uma conta de acesso pertence a uma pessoa so.
+CREATE UNIQUE INDEX IF NOT EXISTS people_conta_email_uidx ON people (conta_email)
+  WHERE conta_email IS NOT NULL;
+CREATE INDEX IF NOT EXISTS people_responsavel_idx ON people (responsavel_id);
