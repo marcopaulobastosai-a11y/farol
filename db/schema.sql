@@ -693,3 +693,26 @@ UPDATE tasks SET repeat_rule = CASE repeat_every
 -- ---------------------------------------------------------------------------
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS tipo TEXT NOT NULL DEFAULT 'tarefa';
 CREATE INDEX IF NOT EXISTS tasks_tipo_idx ON tasks (tipo) WHERE tipo <> 'tarefa';
+
+-- ---------------------------------------------------------------------------
+-- Pagamentos: a tarefa que mexe em dinheiro
+--
+-- Um pagamento e uma tarefa com mais tres perguntas - quanto, a quem e com que
+-- referencia - e com uma prova no fim: o comprovativo de quem pagou e o recibo
+-- de quem recebeu. Pode ser pontual ou rotina (a renda, as mensalidades), pode
+-- nascer de um documento que chega a caixa de entrada, e quando fica pago
+-- escreve-se uma vez so: a despesa sai dali.
+-- ---------------------------------------------------------------------------
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS amount         NUMERIC(10,2);
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS payee          TEXT;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS payment_ref    TEXT;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS payment_method TEXT;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS paid_on        DATE;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS paid_amount    NUMERIC(10,2);
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS expense_id     INTEGER REFERENCES expenses(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS tasks_pagamentos_idx ON tasks (due_on) WHERE tipo = 'pagamento';
+
+-- Um papel nao e uma pasta: a mesma tarefa pode levar a fatura, o comprovativo
+-- e o recibo, e so quem os ve sabe qual e qual.
+ALTER TABLE task_documents ADD COLUMN IF NOT EXISTS papel TEXT NOT NULL DEFAULT 'anexo';
+-- papel: 'anexo' | 'fatura' | 'comprovativo' | 'recibo'
