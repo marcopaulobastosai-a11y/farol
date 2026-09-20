@@ -542,3 +542,41 @@ BEGIN
 EXCEPTION WHEN OTHERS THEN
   RAISE WARNING '[farol] nao foi possivel remover as tabelas: %', SQLERRM;
 END $$;
+
+-- ---------------------------------------------------------------------------
+-- Compromissos de cada pessoa
+--
+-- Um evento nao dizia de quem era: o calendario 'farol' e um so para a casa
+-- inteira. Para a ficha de uma pessoa poder mostrar os seus compromissos, o
+-- evento passa a apontar para as pessoas envolvidas - pode ser mais do que
+-- uma (a consulta do pai e tambem a boleia de quem o leva).
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS event_people (
+  event_id  INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+  person_id INTEGER NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+  PRIMARY KEY (event_id, person_id)
+);
+CREATE INDEX IF NOT EXISTS event_people_person_idx ON event_people (person_id);
+
+-- Os eventos que ja nasceram da caixa de entrada herdam a pessoa do ficheiro
+-- de onde vieram. Corre uma vez: depois disso, quem manda e a triagem.
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM settings WHERE key = 'eventos_com_pessoa') THEN
+    RETURN;
+  END IF;
+
+  INSERT INTO event_people (event_id, person_id)
+  SELECT l.target_id, i.person_id
+    FROM inbox_links l
+    JOIN inbox_items i ON i.id = l.inbox_id
+    JOIN events e      ON e.id = l.target_id
+   WHERE l.target_type = 'evento' AND i.person_id IS NOT NULL
+  ON CONFLICT DO NOTHING;
+
+  INSERT INTO settings (key, value)
+  VALUES ('eventos_com_pessoa', now()::text)
+  ON CONFLICT (key) DO NOTHING;
+EXCEPTION WHEN OTHERS THEN
+  RAISE WARNING '[farol] nao foi possivel ligar eventos a pessoas: %', SQLERRM;
+END $$;
