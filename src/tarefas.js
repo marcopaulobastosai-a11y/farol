@@ -17,7 +17,8 @@ const all = async (sql, params) => (await query(sql, params)).rows;
 const limpar = (v) => (v === undefined || v === '' ? null : v);
 
 const STATUS = ['aberta', 'em_curso', 'a_espera', 'concluida', 'cancelada'];
-const TIPOS = ['tarefa', 'lembrete', 'nota'];
+const TIPOS = ['tarefa', 'lembrete', 'nota', 'pagamento'];
+const METODOS = ['transferência', 'débito direto', 'multibanco', 'mb way', 'cartão', 'numerário', 'cheque', 'outro'];
 const PRIOS = ['baixa', 'normal', 'media', 'alta'];
 const FECHADAS = ['concluida', 'cancelada'];
 
@@ -125,14 +126,16 @@ const CAMPOS = `t.id, t.title, t.notes, t.area, t.context_id, t.project_id, t.ow
   to_char(t.due_on,'YYYY-MM-DD') AS due_on, to_char(t.due_time,'HH24:MI') AS due_time,
   t.repeat_every, t.repeat_rule, t.repeat_from, to_char(t.repeat_until,'YYYY-MM-DD') AS repeat_until,
   t.reminders, t.tags, t.section, t.sort_order, t.parent_id, t.series_id, t.done,
-  t.completed_at, t.created_at`;
+  t.completed_at, t.created_at,
+  t.amount, t.payee, t.payment_ref, t.payment_method, t.paid_amount, t.expense_id,
+  to_char(t.paid_on,'YYYY-MM-DD') AS paid_on`;
 
 async function completar(tasks) {
   if (!tasks.length) return tasks;
   const ids = tasks.map((t) => t.id);
   const [subjects, anexos, itens, coms] = await Promise.all([
     all('SELECT task_id, person_id FROM task_subjects WHERE task_id = ANY($1::int[])', [ids]),
-    all('SELECT task_id, document_id FROM task_documents WHERE task_id = ANY($1::int[])', [ids]),
+    all('SELECT task_id, document_id, papel FROM task_documents WHERE task_id = ANY($1::int[])', [ids]),
     all('SELECT id, task_id, title, done, sort FROM task_items WHERE task_id = ANY($1::int[]) ORDER BY sort, id', [ids]),
     all('SELECT task_id, count(*)::int AS n FROM task_comments WHERE task_id = ANY($1::int[]) GROUP BY task_id', [ids])
   ]);
@@ -141,11 +144,14 @@ async function completar(tasks) {
     lista.forEach((x) => { if (!m.has(x.task_id)) m.set(x.task_id, []); m.get(x.task_id).push(campo ? x[campo] : x); });
     return m;
   };
-  const S = por(subjects, 'person_id'), A = por(anexos, 'document_id'), I = por(itens);
+  const S = por(subjects, 'person_id'), A = por(anexos), I = por(itens);
   const C = new Map(coms.map((c) => [c.task_id, c.n]));
   tasks.forEach((t) => {
     t.subjects = S.get(t.id) || [];
-    t.documents = A.get(t.id) || [];
+    /* documents guarda so os ids (e o que os ecras antigos esperam); papeis
+       diz qual deles e a fatura, o comprovativo e o recibo. */
+    t.papeis = (A.get(t.id) || []).map((x) => ({ id: x.document_id, papel: x.papel || 'anexo' }));
+    t.documents = t.papeis.map((x) => x.id);
     t.items = (I.get(t.id) || []).map((i) => ({ id: i.id, title: i.title, done: i.done, sort: i.sort }));
     t.comments = C.get(t.id) || 0;
     t.repeat_label = descreverRegra(t.repeat_rule);
@@ -180,11 +186,28 @@ async function gravarAssuntos(taskId, subjects) {
     await query('INSERT INTO task_subjects (task_id, person_id) VALUES ($1,$2) ON CONFLICT DO NOTHING', [taskId, Number(pid)]);
   }
 }
+/* Um documento agarrado a uma tarefa tem um papel: e a fatura que se vai
+   pagar, o comprovativo de quem pagou, o recibo de quem recebeu, ou so um
+   papel que a tarefa precisa de ter a mao. */
+function umDocumento(d) {
+  const id = Number(d && d.id !== undefined ? d.id : d);
+  if (!Number.isInteger(id)) return null;
+  return { id, papel: (d && d.papel) || 'anexo' };
+}
+
+async function juntarDocumentos(taskId, documents) {
+  for (const x of documents || []) {
+    const d = umDocumento(x);
+    if (!d) continue;
+    await query(`INSERT INTO task_documents (task_id, document_id, papel) VALUES ($1,$2,$3)
+                 ON CONFLICT (task_id, document_id) DO UPDATE SET papel = EXCLUDED.papel`,
+    [taskId, d.id, d.papel]);
+  }
+}
+
 async function gravarDocumentos(taskId, documents) {
   await query('DELETE FROM task_documents WHERE task_id = $1', [taskId]);
-  for (const did of documents || []) {
-    await query('INSERT INTO task_documents (task_id, document_id) VALUES ($1,$2) ON CONFLICT DO NOTHING', [taskId, Number(did)]);
-  }
+  await juntarDocumentos(taskId, documents);
 }
 async function gravarItens(taskId, itens) {
   await query('DELETE FROM task_items WHERE task_id = $1', [taskId]);
@@ -197,6 +220,14 @@ async function gravarItens(taskId, itens) {
       'INSERT INTO task_items (task_id, title, done, sort, completed_at) VALUES ($1,$2,$3,$4,$5)',
       [taskId, titulo, Boolean(it.done), it.sort != null ? Number(it.sort) : n, it.done ? (it.completed_at || new Date()) : null]);
   }
+}
+
+/* O valor chega da app com virgula ou com ponto, e as vezes com o euro
+   colado. Aqui vira numero ou nada. */
+function valor(v) {
+  if (v === undefined || v === null || v === '') return null;
+  const n = Number(String(v).replace(/[^0-9,.-]/g, '').replace(/\.(?=\d{3}\b)/g, '').replace(',', '.'));
+  return Number.isFinite(n) ? n : null;
 }
 
 function lembretes(v) {
@@ -229,15 +260,25 @@ async function fechar(id, estado) {
   }
 
   const copia = (await all(
-    `INSERT INTO tasks (title, notes, area, context_id, project_id, owner_id, status, priority,
+    `INSERT INTO tasks (tipo, title, notes, area, context_id, project_id, owner_id, status, priority,
                         starts_on, due_on, due_time, tags, section, sort_order, series_id,
+                        amount, payee, payment_ref, payment_method, paid_on, paid_amount, expense_id,
                         done, completed_at, origin, scope)
-     SELECT title, notes, area, context_id, project_id, owner_id, $2, priority,
+     SELECT tipo, title, notes, area, context_id, project_id, owner_id, $2, priority,
             starts_on, due_on, due_time, tags, section, sort_order, id,
+            amount, payee, payment_ref, payment_method, paid_on, paid_amount, expense_id,
             ($2 = 'concluida'), now(), 'real', NULL
        FROM tasks WHERE id = $1
      RETURNING id`, [id, estado]))[0];
   await query('INSERT INTO task_subjects (task_id, person_id) SELECT $2, person_id FROM task_subjects WHERE task_id = $1', [id, copia.id]);
+  /* A prova do pagamento fica com a vez que foi paga, nao com a rotina: o
+     comprovativo de setembro nao serve para outubro. A fatura de origem, essa,
+     fica nos dois. */
+  await query(
+    `INSERT INTO task_documents (task_id, document_id, papel)
+     SELECT $2, document_id, papel FROM task_documents WHERE task_id = $1`, [id, copia.id]);
+  await query(
+    "DELETE FROM task_documents WHERE task_id = $1 AND papel IN ('comprovativo','recibo')", [id]);
   await query(
     `INSERT INTO task_items (task_id, title, done, sort, completed_at)
      SELECT $2, title, done, sort, completed_at FROM task_items WHERE task_id = $1`, [id, copia.id]);
@@ -248,7 +289,8 @@ async function fechar(id, estado) {
   }
   await query(
     `UPDATE tasks SET due_on = $2, starts_on = COALESCE($3::date, starts_on), status = 'aberta', done = FALSE,
-            completed_at = NULL, updated_at = now() WHERE id = $1`, [id, prox, novoInicio]);
+            completed_at = NULL, paid_on = NULL, paid_amount = NULL, payment_method = NULL,
+            expense_id = NULL, updated_at = now() WHERE id = $1`, [id, prox, novoInicio]);
   await query('UPDATE task_items SET done = FALSE, completed_at = NULL WHERE task_id = $1', [id]);
   return true;
 }
@@ -264,17 +306,18 @@ async function criar(b) {
     `INSERT INTO tasks (tipo, title, notes, area, context_id, project_id, owner_id, status, priority,
                         starts_on, due_on, due_time, repeat_every, repeat_rule, repeat_from, repeat_until,
                         reminders, tags, section, sort_order, parent_id,
-                        repeat_count, done, completed_at, origin, scope)
+                        repeat_count, done, completed_at, amount, payee, payment_ref, origin, scope)
      VALUES ($23,$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,
              COALESCE($16::jsonb,'[]'::jsonb), COALESCE($17::text[],'{}'), $18,
              COALESCE($19, (SELECT COALESCE(min(sort_order),0) - 1 FROM tasks)), $20,
-             1, $21, $22, 'real', NULL)
+             1, $21, $22, $24, $25, $26, 'real', NULL)
      RETURNING id`,
     [title, limpar(b.notes), limpar(b.area), limpar(b.context_id), limpar(b.project_id),
      limpar(b.owner_id), status, priority, limpar(b.starts_on), limpar(b.due_on), limpar(b.due_time),
      limpar(b.repeat_every), regra, b.repeat_from === 'conclusao' ? 'conclusao' : 'prazo', limpar(b.repeat_until),
      lembretes(b.reminders), etiquetas(b.tags), limpar(b.section), b.sort_order != null ? Number(b.sort_order) : null,
-     limpar(b.parent_id), status === 'concluida', FECHADAS.includes(status) ? new Date() : null, tipo]);
+     limpar(b.parent_id), status === 'concluida', FECHADAS.includes(status) ? new Date() : null, tipo,
+     valor(b.amount), limpar(b.payee), limpar(b.payment_ref)]);
   const id = rows[0].id;
   await gravarAssuntos(id, b.subjects);
   await gravarDocumentos(id, b.documents);
@@ -289,6 +332,8 @@ async function alterar(id, b) {
    'repeat_until', 'section', 'parent_id'].forEach((c) => { if (b[c] !== undefined) por(c, limpar(b[c])); });
   if (b.priority !== undefined && PRIOS.includes(b.priority)) por('priority', b.priority);
   if (b.tipo !== undefined && TIPOS.includes(b.tipo)) por('tipo', b.tipo);
+  ['payee', 'payment_ref'].forEach(function (c) { if (b[c] !== undefined) por(c, limpar(b[c])); });
+  if (b.amount !== undefined) por('amount', valor(b.amount));
   if (b.repeat_rule !== undefined || b.repeat_every !== undefined) {
     por('repeat_rule', normalizarRegra(b.repeat_rule !== undefined ? b.repeat_rule : b.repeat_every));
   }
@@ -446,6 +491,48 @@ function instalar(app, { carregarGestao, quem, ehAdmin }) {
     } catch (err) { falha(res, err, 'DELETE tarefa'); }
   });
 
+  /* Pagar e fechar com prova: fica a data, o valor e o metodo, juntam-se o
+     comprovativo e o recibo, e a despesa escreve-se sozinha nas Financas. Se
+     faltar a prova o pagamento fica pago na mesma, marcado como «falta
+     comprovativo» - a vida real nao espera pelo PDF. */
+  app.post('/api/tarefas/:id(\\d+)/pagar', async (req, res) => {
+    const id = Number(req.params.id);
+    const b = req.body || {};
+    try {
+      const t = (await all(
+        `SELECT id, tipo, title, amount, payee, context_id, project_id, owner_id, repeat_rule
+           FROM tasks WHERE id = $1 AND origin = 'real'`, [id]))[0];
+      if (!t) return res.status(404).json({ error: 'Pagamento não encontrado.' });
+
+      const pago = valor(b.paid_amount) !== null ? valor(b.paid_amount) : (t.amount !== null ? Number(t.amount) : null);
+      const quando = limpar(b.paid_on) || hojeLisboa();
+      const metodo = METODOS.includes(String(b.payment_method || '').toLowerCase())
+        ? String(b.payment_method).toLowerCase() : limpar(b.payment_method);
+
+      let despesaId = null;
+      if (b.criar_despesa !== false && pago !== null) {
+        const pessoa = limpar(b.person_id) || t.owner_id;
+        const linhas = await all(
+          `INSERT INTO expenses (description, amount, spent_on, merchant, category, person_id,
+                                 project_id, context_id, note, origin, aprovado)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'real',TRUE) RETURNING id`,
+          [t.title, pago, quando, limpar(t.payee), limpar(b.category), pessoa,
+           t.project_id, t.context_id, limpar(b.note)]);
+        despesaId = linhas[0].id;
+      }
+
+      await query(
+        `UPDATE tasks SET paid_on = $2, paid_amount = $3, payment_method = COALESCE($4, payment_method),
+                expense_id = COALESCE($5, expense_id), updated_at = now()
+          WHERE id = $1`, [id, quando, pago, metodo, despesaId]);
+      await juntarDocumentos(id, b.documentos);
+
+      const ok = await fechar(id, 'concluida');
+      if (!ok) return res.status(404).json({ error: 'Pagamento não encontrado.' });
+      res.json(await carregarGestao());
+    } catch (err) { falha(res, err, 'POST pagar'); }
+  });
+
   app.get('/api/tarefas/:id(\\d+)', async (req, res) => {
     try {
       const t = await umaTarefa(Number(req.params.id));
@@ -457,6 +544,21 @@ function instalar(app, { carregarGestao, quem, ehAdmin }) {
            FROM tasks WHERE series_id = $1 ORDER BY completed_at DESC NULLS LAST LIMIT 24`, [t.id]);
       res.json(t);
     } catch (err) { falha(res, err, 'GET tarefa'); }
+  });
+
+  /* Pagos sem prova: pagou-se, mas nao ha comprovativo nem recibo agarrado.
+     E a lista que evita a caca ao PDF em janeiro. */
+  app.get('/api/tarefas/pagamentos/sem-prova', async (_req, res) => {
+    try {
+      const rows = await all(
+        `SELECT ${CAMPOS} FROM tasks t
+          WHERE t.origin = 'real' AND t.tipo = 'pagamento' AND t.paid_on IS NOT NULL
+            AND t.paid_on >= CURRENT_DATE - INTERVAL '18 months'
+            AND NOT EXISTS (SELECT 1 FROM task_documents d
+                             WHERE d.task_id = t.id AND d.papel IN ('comprovativo','recibo'))
+          ORDER BY t.paid_on DESC, t.id DESC LIMIT 200`);
+      res.json(await completar(rows));
+    } catch (err) { falha(res, err, 'GET sem-prova'); }
   });
 
   /* O historico completo: concluidas e «nao farei», mais recentes primeiro. */

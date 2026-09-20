@@ -151,6 +151,23 @@ app.get('/api/bootstrap', async (_req, res) => {
                       AND due_on <= CURRENT_DATE + INTERVAL '7 days')::text,
                   'incluindo o que ja passou', 'tarefas'
            UNION ALL
+           /* O dinheiro que ainda tem de sair este mes: e a pergunta que se
+              faz ao pequeno-almoco, e nao estava em lado nenhum. */
+           SELECT 'A pagar este mês',
+                  (SELECT count(*) FROM tasks
+                    WHERE origin = 'real' AND NOT done AND status <> 'cancelada'
+                      AND tipo = 'pagamento'
+                      AND due_on IS NOT NULL
+                      AND due_on < date_trunc('month', CURRENT_DATE) + INTERVAL '1 month')::text,
+                  /* O separador decimal do Postgres nao sabe portugues: o
+                     ponto passa a virgula a mao. */
+                  COALESCE((SELECT replace(to_char(sum(amount), 'FM999999990.00'), '.', ',') || ' €' FROM tasks
+                             WHERE origin = 'real' AND NOT done AND status <> 'cancelada'
+                               AND tipo = 'pagamento' AND amount IS NOT NULL
+                               AND due_on IS NOT NULL
+                               AND due_on < date_trunc('month', CURRENT_DATE) + INTERVAL '1 month'),
+                           'incluindo o que ja passou'), 'tarefas'
+           UNION ALL
            SELECT 'Projetos a andar',
                   (SELECT count(*) FROM projects
                     WHERE origin = 'real' AND status = 'ativo')::text,

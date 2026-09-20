@@ -27,7 +27,7 @@ const limpar = (v) => (v === undefined || v === '' ? null : v);
 const MAX_BYTES = 25 * 1024 * 1024;
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_BYTES } });
 
-const TIPOS = ['tarefa', 'evento', 'documento', 'despesa'];
+const TIPOS = ['tarefa', 'pagamento', 'evento', 'documento', 'despesa'];
 
 /* ------------------------------------------------------------------ *
  * Buckets
@@ -132,6 +132,27 @@ const CRIAR = {
        VALUES ($1,$2,$3,$4,$5,'aberta',$6,CURRENT_DATE,$7,$8,FALSE,'real',NULL) RETURNING id`,
       [title, limpar(d.notes), limpar(d.context_id), limpar(d.project_id), limpar(d.owner_id),
        d.priority || 'normal', limpar(d.due_on), limpar(d.due_time)]);
+    for (const pid of d.subjects || []) {
+      await query('INSERT INTO task_subjects (task_id, person_id) VALUES ($1,$2) ON CONFLICT DO NOTHING',
+        [rows[0].id, Number(pid)]);
+    }
+    return rows[0].id;
+  },
+
+  /* Uma fatura por pagar nao e so uma despesa: e dinheiro que ainda tem de
+     sair, com prazo e com prova no fim. Nasce aqui como pagamento, e o
+     documento que lhe deu origem fica agarrado como fatura. */
+  async pagamento(d) {
+    const title = String(d.title || d.description || '').trim();
+    if (!title) throw new Error('O pagamento precisa de um título.');
+    const rows = await all(
+      `INSERT INTO tasks (tipo, title, notes, context_id, project_id, owner_id, status, priority,
+                          starts_on, due_on, amount, payee, payment_ref, done, origin, scope)
+       VALUES ('pagamento',$1,$2,$3,$4,$5,'aberta','normal',CURRENT_DATE,$6,$7,$8,$9,FALSE,'real',NULL)
+       RETURNING id`,
+      [title, limpar(d.notes), limpar(d.context_id), limpar(d.project_id), limpar(d.owner_id),
+       limpar(soData(d.due_on)), d.amount === undefined || d.amount === null || d.amount === '' ? null : Number(d.amount),
+       limpar(d.payee || d.merchant || d.entity), limpar(d.payment_ref)]);
     for (const pid of d.subjects || []) {
       await query('INSERT INTO task_subjects (task_id, person_id) VALUES ($1,$2) ON CONFLICT DO NOTHING',
         [rows[0].id, Number(pid)]);
@@ -302,6 +323,18 @@ async function executarTriagem(id, destinos) {
          ON CONFLICT DO NOTHING`, [id, d.tipo, novoId]);
       criados.push({ tipo: d.tipo, id: novoId });
     }
+    /* Se o mesmo ficheiro deu um pagamento e um documento, o documento e a
+       fatura desse pagamento: fica agarrado, sem ninguem ter de o ir buscar. */
+    const pag = criados.filter((c) => c.tipo === 'pagamento');
+    const doc = criados.filter((c) => c.tipo === 'documento');
+    for (const p of pag) {
+      for (const dc of doc) {
+        await query(
+          `INSERT INTO task_documents (task_id, document_id, papel) VALUES ($1,$2,'fatura')
+           ON CONFLICT (task_id, document_id) DO UPDATE SET papel = 'fatura'`, [p.id, dc.id]);
+      }
+    }
+
     await query("UPDATE inbox_items SET status = 'catalogado', resolved_at = now() WHERE id = $1", [id]);
     /* So documentos e despesas esperam por uma aprovacao. Uma tarefa ou um
        evento sao para agir agora: ficam aprovados a nascenca, senao o numero
@@ -334,6 +367,8 @@ async function executarTriagem(id, destinos) {
    silêncio. */
 const CAMPOS_MINIMOS = {
   tarefa: (x) => Boolean(x.title),
+  /* Um pagamento sem valor e sem prazo nao serve para nada: fica por triar. */
+  pagamento: (x) => Boolean(x.title || x.description) && x.amount !== undefined && x.amount !== null && x.amount !== '',
   evento: (x) => Boolean(x.title && x.day),
   /* A entidade continua a ser metade do que se procura num papel velho, mas
      deixou de travar a catalogacao: agora ha um passo de aprovacao, e um
@@ -413,6 +448,7 @@ async function paraDestino(d) {
   const pid = await pessoaPorNome(dados.pessoa);
   if (pid) {
     if (d.tipo === 'documento' || d.tipo === 'despesa' || d.tipo === 'evento') dados.person_id = pid;
+    if (d.tipo === 'pagamento') dados.subjects = [pid];
     if (d.tipo === 'tarefa') dados.subjects = [pid];
   }
   if (d.tipo === 'despesa' && dados.notes && !dados.note) dados.note = dados.notes;
