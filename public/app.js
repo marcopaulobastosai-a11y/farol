@@ -561,17 +561,32 @@ function renderDocumentos(){
       ponto.addEventListener('click', function(){ marcarLido(d, true); });
       tdn.appendChild(ponto);
     }
-    if (d.inbox_id){
+    /* Cada documento tem o seu ficheiro; alguns tem mais do que um (frente e
+       verso, recibo e comprovativo). O nome abre o primeiro, os outros vao
+       numerados ao lado. Sem ficheiro nenhum, diz-se e oferece-se o botao. */
+    var fich = (d.ficheiros && d.ficheiros.length) ? d.ficheiros : (d.inbox_id ? [d.inbox_id] : []);
+    if (fich.length){
       var a = el('a', null, d.name);
-      a.href = '/api/inbox/' + d.inbox_id + '/ficheiro';
+      a.href = '/api/inbox/' + fich[0] + '/ficheiro';
       a.target = '_blank'; a.rel = 'noopener';
       if (!d.lido) a.style.fontWeight = '600';
       a.addEventListener('click', function(){ if (!d.lido) marcarLido(d, true); });
       tdn.appendChild(a);
+      fich.slice(1).forEach(function(fid, i){
+        var mais = el('a', null, String(i + 2));
+        mais.href = '/api/inbox/' + fid + '/ficheiro';
+        mais.target = '_blank'; mais.rel = 'noopener';
+        mais.title = 'Ficheiro ' + (i + 2) + ' de ' + fich.length;
+        mais.style.cssText = 'margin-left:.4rem;font-size:.75rem';
+        tdn.appendChild(mais);
+      });
     } else {
       var s = el('span', null, d.name);
       if (!d.lido) s.style.fontWeight = '600';
       tdn.appendChild(s);
+      var sem = el('span', null, 'sem ficheiro');
+      sem.style.cssText = 'margin-left:.5rem;font-size:.6875rem;color:var(--warn, #9a6700)';
+      tdn.appendChild(sem);
     }
     if (d.lido){
       var volta = el('button', null, 'marcar por ler');
@@ -602,6 +617,15 @@ function renderDocumentos(){
     /* A catalogacao automatica ha-de errar um dia; sem isto o papel errado
        ficava no ecra para sempre. */
     var tdx = el('td');
+    tdx.style.whiteSpace = 'nowrap';
+    var ba = el('button', 'btn', (d.ficheiros && d.ficheiros.length) || d.inbox_id ? '+ Ficheiro' : 'Anexar');
+    ba.type = 'button';
+    ba.title = 'Pendurar um ficheiro neste documento';
+    ba.style.padding = '.18rem .5rem';
+    ba.style.fontSize = '.75rem';
+    ba.style.marginRight = '.35rem';
+    ba.addEventListener('click', function(){ anexarDocumento(d); });
+    tdx.appendChild(ba);
     var be = el('button', 'btn', 'Editar');
     be.type = 'button';
     be.style.padding = '.18rem .5rem';
@@ -635,6 +659,27 @@ function renderDocumentos(){
       ? porLer + ' por ler'
       : (D.documents.length ? 'tudo lido' : '');
   }
+}
+
+/* Escolher um ficheiro e pendura-lo no documento, sem passar pela caixa:
+   o documento ja esta decidido, falta-lhe so o papel. */
+function anexarDocumento(d){
+  var inp = document.createElement('input');
+  inp.type = 'file';
+  inp.accept = 'application/pdf,image/*,.doc,.docx,.xls,.xlsx,.txt';
+  inp.addEventListener('change', function(){
+    var f = inp.files && inp.files[0];
+    if (!f) return;
+    var fd = new FormData();
+    fd.append('ficheiro', f);
+    toast('A guardar o ficheiro\u2026');
+    fetch('/api/documentos/' + d.id + '/ficheiro', { method: 'POST', body: fd, credentials: 'same-origin' })
+      .then(function(r){ return r.json().then(function(j){ if (!r.ok) throw new Error(j.error || 'Falhou.'); return j; }); })
+      .then(function(){ toast('Ficheiro guardado em \u00ab' + d.name + '\u00bb.'); })
+      .catch(function(e){ toast(e.message || 'N\u00e3o foi poss\u00edvel guardar o ficheiro.'); })
+      .then(function(){ load(); });
+  });
+  inp.click();
 }
 
 function marcarLido(d, lido){
