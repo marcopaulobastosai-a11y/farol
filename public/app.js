@@ -1022,7 +1022,11 @@ function renderGestao(){
   renderProjetos();
   encherAreas('pArea');
   construirChips('pMembers', G.people);
-  var abertas = G.tasks.filter(function(t){ return t.status !== 'concluida' && t.status !== 'cancelada'; }).length;
+  /* O numero ao lado de Tarefas conta tarefas: lembretes e notas nao sao
+     trabalho por fazer. */
+  var abertas = G.tasks.filter(function(t){
+    return t.status !== 'concluida' && t.status !== 'cancelada' && (t.tipo || 'tarefa') === 'tarefa';
+  }).length;
   $('badgeTarefas').textContent = abertas || '';
   if (typeof tfRender === 'function') tfRender();
 }

@@ -13,6 +13,7 @@
  */
 
 var TF = {
+  tipo: 'tarefa',         // tarefa | lembrete | nota
   vista: 'hoje',          // hoje | amanha | semana | atrasadas | todas | semdata | espera | concluidas | naofarei | p:<id> | proj:<id> | tag:<nome>
   aberta: null,           // id da tarefa no detalhe
   detalhe: null,          // a tarefa completa (com comentarios e historico)
@@ -25,6 +26,15 @@ var TF_PRIO = [['alta', 'Alta'], ['media', 'Média'], ['normal', 'Nenhuma'], ['b
 var TF_PRIO_ORD = { alta: 0, media: 1, normal: 2, baixa: 3 };
 /* Os cinco estados de uma tarefa. Os tres primeiros sao o caminho normal; os
    dois ultimos fecham-na. A cruz na caixinha e o atalho para «Concluída». */
+/* Tres coisas diferentes viviam na mesma lista: o que pede accao, o que so
+   precisa de aparecer no dia e o que e memoria. Cada uma tem o seu separador. */
+var TF_TIPOS = [
+  ['tarefa', 'Tarefas', 'Pede uma acção tua'],
+  ['lembrete', 'Lembretes', 'Só precisa de aparecer no dia'],
+  ['nota', 'Notas', 'Memória — sem ciclo de vida']
+];
+function tfTipo(t){ return (t && t.tipo) || 'tarefa'; }
+
 var TF_ESTADOS = [['aberta', 'Por iniciar', ''], ['em_curso', 'Em execução', 'accent'], ['a_espera', 'À espera', 'warn']];
 var TF_ESTADOS_FIM = [['concluida', 'Concluída', 'good'], ['cancelada', 'Não farei', '']];
 function tfEstado(v){
@@ -52,6 +62,10 @@ var TF_CSS = [
   ".tf-main > header{display:flex;align-items:baseline;gap:10px;margin-bottom:10px}",
   ".tf-main > header h3{font-size:1.1rem}",
   ".tf-main > header .mono{margin-left:auto}",
+  ".tf-tipos{display:flex;gap:2px;background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:3px;width:fit-content;margin-bottom:12px}",
+  ".tf-tipos button{padding:5px 12px;border-radius:6px;font-size:.8125rem;color:var(--muted);border:0;background:none;cursor:pointer;display:flex;gap:6px;align-items:center}",
+  ".tf-tipos button.on{background:var(--surface);color:var(--ink);box-shadow:var(--shadow);font-weight:500}",
+  ".tf-tipos button .n{font-family:var(--mono);font-size:.625rem;color:var(--faint)}",
   ".tf-add{position:relative;margin-bottom:12px}",
   ".tf-add input{width:100%;font:inherit;font-size:.875rem;color:var(--ink);background:var(--surface-2);border:1px solid var(--line);border-radius:9px;padding:10px 12px 10px 34px}",
   ".tf-add input:focus{outline:0;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft);background:var(--surface)}",
@@ -226,7 +240,7 @@ function tfProximoDiaSemana(n){
 }
 
 function tfPerceber(texto){
-  var r = { title: texto, due_on: null, due_time: null, priority: null, owner_id: null, subjects: [],
+  var r = { title: texto, tipo: null, due_on: null, due_time: null, priority: null, owner_id: null, subjects: [],
             context_id: null, project_id: null, tags: [], repeat_rule: null, sinais: [] };
   var s = ' ' + texto + ' ';
   function tira(re, fn){
@@ -234,6 +248,10 @@ function tfPerceber(texto){
   }
   var h = tfHoje();
 
+  tira(/\s!(lembrete|nota|tarefa)(?=\s)/i, function(_, p){
+    r.tipo = tfNorm(p);
+    r.sinais.push([r.tipo === 'nota' ? 'lista' : (r.tipo === 'lembrete' ? 'sino' : 'todas'), r.tipo]);
+  });
   tira(/\s!(alta|m[eé]dia|baixa|[123])(?=\s)/i, function(_, p){
     p = tfNorm(p); r.priority = { alta: 'alta', media: 'media', baixa: 'baixa', '1': 'alta', '2': 'media', '3': 'baixa' }[p];
     r.sinais.push(['bandeira', 'prioridade ' + p]);
@@ -329,6 +347,7 @@ function tfCriarRapido(input){
   }
   if (v.indexOf('tag:') === 0) r.tags.push(v.slice(4));
   var dados = {
+    tipo: r.tipo || TF.tipo,
     title: r.title,
     due_on: r.due_on || base.due_on || null,
     due_time: r.due_time,
@@ -370,7 +389,9 @@ function tfPrevisao(txt){
  * listas
  * ------------------------------------------------------------------ */
 
-function tfAbertas(){ return (G.tasks || []).filter(function(t){ return !tfFechada(t); }); }
+function tfAbertas(){
+  return (G.tasks || []).filter(function(t){ return !tfFechada(t) && tfTipo(t) === TF.tipo; });
+}
 
 function tfFiltro(v){
   var h = tfISO(tfHoje()), am = tfISO(tfMais(tfHoje(), 1)), sem = tfISO(tfMais(tfHoje(), 7));
@@ -381,6 +402,7 @@ function tfFiltro(v){
   if (v === 'semdata') return function(t){ return !t.due_on; };
   if (v === 'espera') return function(t){ return t.status === 'a_espera'; };
   if (v === 'execucao') return function(t){ return t.status === 'em_curso'; };
+  if (v === 'rever') return function(t){ return t.due_on && t.due_on <= h; };
   if (v.indexOf('p:') === 0){
     var id = Number(v.slice(2));
     return function(t){ return t.owner_id === id || (t.subjects || []).indexOf(id) >= 0; };
@@ -393,7 +415,17 @@ function tfFiltro(v){
 function tfTituloVista(v){
   var M = { hoje: 'Hoje', amanha: 'Amanhã', semana: 'Próximos 7 dias', atrasadas: 'Atrasadas', todas: 'Por fazer',
             execucao: 'Em execução', semdata: 'Sem data', espera: 'À espera',
-            concluidas: 'Concluídas', naofarei: 'Não farei' };
+            concluidas: 'Concluídas', naofarei: 'Não farei', rever: 'Para rever' };
+  if (TF.tipo === 'lembrete'){
+    if (v === 'todas') return 'Lembretes';
+    if (v === 'concluidas') return 'Já vistos';
+  }
+  if (TF.tipo === 'nota'){
+    if (v === 'todas') return 'Notas';
+    if (v === 'rever') return 'Para rever';
+    if (v === 'semdata') return 'Sem data de revisão';
+    if (v === 'concluidas') return 'Arquivadas';
+  }
   if (M[v]) return M[v];
   if (v.indexOf('p:') === 0){ var p = pessoa(Number(v.slice(2))); return p ? p.name : 'Pessoa'; }
   if (v.indexOf('proj:') === 0){ var pr = projeto(Number(v.slice(5))); return pr ? pr.name : 'Projeto'; }
@@ -422,6 +454,11 @@ function tfBalde(t){
 }
 var TF_BALDES = [['atrasadas', 'Atrasadas'], ['hoje', 'Hoje'], ['amanha', 'Amanhã'], ['semana', 'Próximos 7 dias'],
                  ['depois', 'Mais tarde'], ['semdata', 'Sem data']];
+var TF_BALDES_LEMBRETE = [['atrasadas', 'Já passaram'], ['hoje', 'Hoje'], ['amanha', 'Amanhã'],
+                          ['semana', 'Próximos 7 dias'], ['depois', 'Mais tarde'], ['semdata', 'Sem data']];
+var TF_BALDES_NOTA = [['atrasadas', 'Para rever'], ['hoje', 'Para rever hoje'], ['amanha', 'Amanhã'],
+                      ['semana', 'A rever nos próximos 7 dias'], ['depois', 'A rever mais tarde'],
+                      ['semdata', 'Sem data de revisão']];
 
 function tfGrupos(lista, v){
   if (v.indexOf('proj:') === 0){
@@ -434,7 +471,8 @@ function tfGrupos(lista, v){
     ordem.sort(function(a, b){ return a === 'Sem secção' ? 1 : (b === 'Sem secção' ? -1 : a.localeCompare(b, 'pt')); });
     return ordem.map(function(s){ return [s, s, secs[s]]; });
   }
-  return TF_BALDES.map(function(b){
+  var baldes = TF.tipo === 'nota' ? TF_BALDES_NOTA : (TF.tipo === 'lembrete' ? TF_BALDES_LEMBRETE : TF_BALDES);
+  return baldes.map(function(b){
     return [b[0], b[1], lista.filter(function(t){ return tfBalde(t) === b[0]; })];
   }).filter(function(g){ return g[2].length; });
 }
@@ -459,6 +497,9 @@ function tfMontar(){
   var n = el('span', 'mono'); n.id = 'tfConta';
   head.appendChild(h3); head.appendChild(n);
   main.appendChild(head);
+
+  var tipos = el('div', 'tf-tipos'); tipos.id = 'tfTipos';
+  main.appendChild(tipos);
 
   var add = el('div', 'tf-add');
   add.innerHTML = tfSvg(TF_I.mais, 15);
@@ -502,21 +543,62 @@ function tfSideBtn(box, chave, icone, texto, n, extra){
   box.appendChild(b);
 }
 
+function tfRenderTipos(){
+  var box = $('tfTipos');
+  if (!box) return;
+  clear(box);
+  var abertas = (G.tasks || []).filter(function(t){ return !tfFechada(t) && !t.parent_id; });
+  TF_TIPOS.forEach(function(tp){
+    var b = el('button', TF.tipo === tp[0] ? 'on' : '');
+    b.type = 'button';
+    b.title = tp[2];
+    b.appendChild(document.createTextNode(tp[1]));
+    var n = abertas.filter(function(t){ return tfTipo(t) === tp[0]; }).length;
+    if (n) b.appendChild(el('span', 'n', String(n)));
+    b.addEventListener('click', function(){
+      if (TF.tipo === tp[0]) return;
+      TF.tipo = tp[0];
+      TF.aberta = null; TF.detalhe = null;
+      var d = $('tfDet'); if (d){ d.hidden = true; clear(d); }
+      $('tf').classList.add('sem-detalhe');
+      /* Cada tipo tem a sua lista de entrada: as tarefas comecam no Hoje, os
+         lembretes e as notas nao fazem sentido filtrados por atraso. */
+      TF.vista = tp[0] === 'tarefa' ? 'hoje' : 'todas';
+      tfIr(TF.vista);
+    });
+    box.appendChild(b);
+  });
+}
+
 function tfRenderSide(){
   var box = $('tfSide');
   clear(box);
   var ab = tfAbertas();
   var conta = function(v){ var f = tfFiltro(v); return ab.filter(function(t){ return !t.parent_id && f(t); }).length; };
-  tfSideBtn(box, 'hoje', 'sol', 'Hoje', conta('hoje'));
-  tfSideBtn(box, 'amanha', 'amanha', 'Amanhã', conta('amanha'));
-  tfSideBtn(box, 'semana', 'semana', 'Próximos 7 dias', conta('semana'));
-  tfSideBtn(box, 'atrasadas', 'atraso', 'Atrasadas', conta('atrasadas'));
-  tfSideBtn(box, 'todas', 'todas', 'Por fazer', conta('todas'));
-  tfSideBtn(box, 'execucao', 'curso', 'Em execução', conta('execucao'));
-  tfSideBtn(box, 'semdata', 'semdata', 'Sem data', conta('semdata'));
-  tfSideBtn(box, 'espera', 'espera', 'À espera', conta('espera'));
-  tfSideBtn(box, 'concluidas', 'feito', 'Concluídas', null);
-  tfSideBtn(box, 'naofarei', 'nao', 'Não farei', null);
+  if (TF.tipo === 'tarefa'){
+    tfSideBtn(box, 'hoje', 'sol', 'Hoje', conta('hoje'));
+    tfSideBtn(box, 'amanha', 'amanha', 'Amanhã', conta('amanha'));
+    tfSideBtn(box, 'semana', 'semana', 'Próximos 7 dias', conta('semana'));
+    tfSideBtn(box, 'atrasadas', 'atraso', 'Atrasadas', conta('atrasadas'));
+    tfSideBtn(box, 'todas', 'todas', 'Por fazer', conta('todas'));
+    tfSideBtn(box, 'execucao', 'curso', 'Em execução', conta('execucao'));
+    tfSideBtn(box, 'semdata', 'semdata', 'Sem data', conta('semdata'));
+    tfSideBtn(box, 'espera', 'espera', 'À espera', conta('espera'));
+    tfSideBtn(box, 'concluidas', 'feito', 'Concluídas', null);
+    tfSideBtn(box, 'naofarei', 'nao', 'Não farei', null);
+  } else if (TF.tipo === 'lembrete'){
+    /* Um lembrete nao se atrasa: ou ja passou ou ainda vem. */
+    tfSideBtn(box, 'todas', 'sino', 'Todos', conta('todas'));
+    tfSideBtn(box, 'hoje', 'sol', 'Hoje', conta('hoje'));
+    tfSideBtn(box, 'semana', 'semana', 'Próximos 7 dias', conta('semana'));
+    tfSideBtn(box, 'semdata', 'semdata', 'Sem data', conta('semdata'));
+    tfSideBtn(box, 'concluidas', 'feito', 'Já vistos', null);
+  } else {
+    tfSideBtn(box, 'todas', 'lista', 'Todas', conta('todas'));
+    tfSideBtn(box, 'rever', 'atraso', 'Para rever', conta('rever'));
+    tfSideBtn(box, 'semdata', 'semdata', 'Sem revisão', conta('semdata'));
+    tfSideBtn(box, 'concluidas', 'feito', 'Arquivadas', null);
+  }
 
   box.appendChild(el('div', 'tf-lbl', 'Pessoas'));
   (G.people || []).filter(function(p){ return p.active !== false; }).forEach(function(p){
@@ -549,7 +631,8 @@ function tfIr(v){
 
 function tfCarregarHistorico(){
   var ultimo = TF.historico[TF.historico.length - 1];
-  var url = '/api/tarefas/historico?limite=60&estado=' + (TF.vista === 'naofarei' ? 'cancelada' : 'concluida') +
+  var url = '/api/tarefas/historico?limite=60&tipo=' + TF.tipo +
+    '&estado=' + (TF.vista === 'naofarei' ? 'cancelada' : 'concluida') +
     (ultimo && ultimo.completed_at ? '&antes=' + encodeURIComponent(ultimo.completed_at) : '');
   var pedido = TF.vista;
   return apiGestao(url).then(function(rows){
@@ -563,6 +646,7 @@ function tfCarregarHistorico(){
 function tfRender(){
   if (!$('tf')) return;
   tfMontar();
+  tfRenderTipos();
   tfRenderSide();
   tfRenderLista();
   if (TF.aberta){
@@ -586,6 +670,11 @@ function tfRenderLista(){
   $('tfTitulo').textContent = tfTituloVista(v);
   var hist = v === 'concluidas' || v === 'naofarei';
   $('tfNova').parentNode.hidden = hist;
+  $('tfNova').placeholder = TF.tipo === 'nota'
+    ? 'Guardar nota — ex.: horário da escola #família'
+    : (TF.tipo === 'lembrete'
+        ? 'Novo lembrete — ex.: anos da Olga 15/10 todos os anos'
+        : 'Adicionar tarefa — ex.: pagar IMI amanhã 15h !alta #casa @Ana');
 
   var lista;
   if (hist) lista = TF.historico.slice();
@@ -593,7 +682,8 @@ function tfRenderLista(){
     var f = tfFiltro(v);
     lista = tfAbertas().filter(f).sort(tfOrdenar);
   }
-  $('tfConta').textContent = lista.length + (hist && !TF.histFim ? '+' : '') + (lista.length === 1 ? ' tarefa' : ' tarefas');
+  var nome = TF.tipo === 'nota' ? ['nota', 'notas'] : (TF.tipo === 'lembrete' ? ['lembrete', 'lembretes'] : ['tarefa', 'tarefas']);
+  $('tfConta').textContent = lista.length + (hist && !TF.histFim ? '+' : '') + ' ' + (lista.length === 1 ? nome[0] : nome[1]);
 
   if (!lista.length){
     box.appendChild(el('div', 'tf-vazio', hist ? 'Nada por aqui.' : (v === 'hoje' ? 'Nada para hoje. Bom trabalho.' : 'Nada por fazer nesta lista.')));
@@ -622,7 +712,7 @@ function tfRenderLista(){
 
   tfGrupos(raizes, v).forEach(function(gr){
     var chave = v + '|' + gr[0];
-    var grp = el('div', 'tf-grp' + (gr[0] === 'atrasadas' ? ' late' : '') + (TF.fechados[chave] ? ' fechado' : ''));
+    var grp = el('div', 'tf-grp' + (gr[0] === 'atrasadas' && TF.tipo === 'tarefa' ? ' late' : '') + (TF.fechados[chave] ? ' fechado' : ''));
     var h = el('h4');
     h.appendChild(tfIcone('seta', 12));
     h.appendChild(document.createTextNode(gr[1]));
@@ -668,7 +758,15 @@ function tfEtiquetaEstado(t){
 
 function tfLinha(t, sub){
   var li = el('div', 'tf-row' + (sub ? ' sub' : '') + (tfFechada(t) ? ' done' : '') + (TF.aberta === t.id ? ' sel' : ''));
-  li.appendChild(tfCaixa(t, function(){ tfAlternar(t); }));
+  var nota = tfTipo(t) === 'nota';
+  if (nota){
+    /* Uma nota nao se conclui: arquiva-se quando deixar de interessar. */
+    var ponto = el('span'); ponto.innerHTML = tfSvg(TF_I.lista, 14);
+    ponto.style.cssText = 'flex:none;color:var(--faint);padding-top:2px';
+    li.appendChild(ponto);
+  } else {
+    li.appendChild(tfCaixa(t, function(){ tfAlternar(t); }));
+  }
   var corpo = el('div', 'tf-body');
   corpo.appendChild(el('span', 'tf-t', t.title));
   var m = el('div', 'tf-m');
@@ -678,7 +776,8 @@ function tfLinha(t, sub){
     d.appendChild(dot); d.appendChild(document.createTextNode(dono.name)); m.appendChild(d);
   }
   (t.subjects || []).forEach(function(pid){ var p = pessoa(pid); if (p) m.appendChild(el('span', null, '→ ' + p.name)); });
-  m.appendChild(tfEtiquetaEstado(t));
+  /* Um lembrete nao tem ciclo de vida: ou ja apareceu ou ainda vem. */
+  if (tfTipo(t) === 'tarefa') m.appendChild(tfEtiquetaEstado(t));
   var pr = projeto(t.project_id);
   if (pr && TF.vista !== 'proj:' + pr.id) m.appendChild(el('span', null, pr.name));
   if ((t.items || []).length){
@@ -696,7 +795,8 @@ function tfLinha(t, sub){
     var cd = new Date(t.completed_at);
     dir = el('div', 'tf-r', cd.getDate() + ' ' + MESES[cd.getMonth()].slice(0, 3) + (cd.getFullYear() !== new Date().getFullYear() ? ' ' + cd.getFullYear() : ''));
   } else {
-    dir = el('div', 'tf-r ' + tfNivelData(t), tfDataTxt(t.due_on, t.due_time));
+    dir = el('div', 'tf-r ' + (nota ? '' : tfNivelData(t)),
+      (nota && t.due_on ? 'rever ' : '') + tfDataTxt(t.due_on, t.due_time));
   }
   li.appendChild(dir);
   li.addEventListener('click', function(){ tfAbrir(t.id); });
@@ -811,12 +911,15 @@ function tfRenderDetalhe(base){
   var fechada = tfFechada(t);
 
   // barra de cima: concluir, data, prioridade, menu
+  var ehNota = tfTipo(t) === 'nota';
   var top = el('div', 'tf-top');
-  top.appendChild(tfCaixa(t, function(){ tfAlternar(t); }));
+  if (!ehNota) top.appendChild(tfCaixa(t, function(){ tfAlternar(t); }));
   var bData = el('button', 'tf-chipbtn ' + tfNivelData(t).replace('acc', ''));
   bData.type = 'button'; bData.dataset.tfpop = '1';
   bData.appendChild(tfIcone('semana', 13));
-  bData.appendChild(document.createTextNode(t.due_on ? tfDataTxt(t.due_on, t.due_time) : 'Data'));
+  bData.appendChild(document.createTextNode(t.due_on
+    ? (ehNota ? 'rever ' : '') + tfDataTxt(t.due_on, t.due_time)
+    : (ehNota ? 'Data de revisão' : 'Data')));
   if (t.repeat_rule){ bData.appendChild(tfIcone('rep', 12)); }
   bData.addEventListener('click', function(e){ e.stopPropagation(); tfPopData(t, bData); });
   top.appendChild(bData);
@@ -834,7 +937,8 @@ function tfRenderDetalhe(base){
   bMais.addEventListener('click', function(e){
     e.stopPropagation();
     var ops = [];
-    if (!fechada) ops.push(['Não farei', function(){ tfFechar(t, 'cancelada'); }]);
+    if (!fechada && ehNota) ops.push(['Arquivar', function(){ tfGravar(t.id, { status: 'concluida' }, 'Nota arquivada.'); }]);
+    if (!fechada && !ehNota) ops.push(['Não farei', function(){ tfFechar(t, 'cancelada'); }]);
     ops.push(['Duplicar', function(){ tfDuplicar(t); }]);
     if (!t.parent_id) ops.push(['Adicionar subtarefa', function(){ var i = document.querySelector('[data-tfk=novasub]'); if (i) i.focus(); }]);
     ops.push(['Apagar', function(){ tfApagar(t); }, 'danger']);
@@ -922,7 +1026,19 @@ function tfRenderDetalhe(base){
   var grid = el('div', 'tf-grid');
   function campo(rotulo, no){ grid.appendChild(el('span', null, rotulo)); grid.appendChild(no); }
 
-  if (!fechada){
+  var sTipo = el('select');
+  TF_TIPOS.forEach(function(tp){ sTipo.appendChild(new Option(tp[1].replace(/s$/, ''), tp[0])); });
+  sTipo.value = tfTipo(t);
+  sTipo.title = 'Tarefa pede acção · Lembrete só precisa de aparecer no dia · Nota é memória';
+  sTipo.addEventListener('change', function(){
+    var novo = sTipo.value;
+    tfGravar(t.id, { tipo: novo }).then(function(){
+      if (novo !== TF.tipo){ TF.tipo = novo; TF.vista = novo === 'tarefa' ? 'hoje' : 'todas'; tfRender(); }
+    });
+  });
+  campo('Tipo', sTipo);
+
+  if (!fechada && tfTipo(t) === 'tarefa'){
     var sEst = el('select');
     TF_ESTADOS.forEach(function(e){ sEst.appendChild(new Option(e[1], e[0])); });
     sEst.value = t.status;
@@ -1170,7 +1286,7 @@ function tfPopData(t, ancora){
   });
   p.appendChild(rap);
 
-  p.appendChild(el('label', null, 'Prazo'));
+  p.appendChild(el('label', null, tfTipo(t) === 'nota' ? 'Rever em' : (tfTipo(t) === 'lembrete' ? 'Aparece a' : 'Prazo')));
   var l1 = el('div', 'tf-linha');
   var iD = el('input'); iD.type = 'date'; iD.value = st.due_on;
   var iH = el('input'); iH.type = 'time'; iH.value = st.due_time; iH.style.maxWidth = '110px';
