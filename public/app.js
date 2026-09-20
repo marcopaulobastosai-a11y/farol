@@ -85,7 +85,7 @@ function diasAte(iso){
    de tarefa e urgente a dois dias, um cartao avisa-se com um mes. */
 function urgencia(n, origem){
   if (n === null) return { texto: '', nivel: '' };
-  var perto = origem === 'documento' ? 30 : 7;
+  var perto = origem === 'tarefa' ? 7 : 30;
   var texto = n < 0 ? (n === -1 ? 'ontem' : 'h\u00e1 ' + (-n) + ' dias')
     : n === 0 ? 'hoje'
     : n === 1 ? 'amanh\u00e3'
@@ -107,7 +107,7 @@ function renderHoje(){
     var art = el('article', x.u.nivel);
     var g = el('div', 'grow');
     g.appendChild(el('h4', null, a.title));
-    var abaixo = [a.origem === 'documento' ? 'validade' : 'prazo', a.detail]
+    var abaixo = [a.origem === 'tarefa' ? 'prazo' : 'validade', a.detail]
       .filter(Boolean).join(' · ');
     g.appendChild(el('p', null, abaixo));
     art.appendChild(g);
@@ -119,6 +119,7 @@ function renderHoje(){
     /* Clicar leva ao sitio onde se resolve, nao a lado nenhum. */
     art.style.cursor = 'pointer';
     art.addEventListener('click', function(){
+      if (a.origem === 'pessoa' && typeof fiAbrir === 'function') { fiAbrir(a.id); return; }
       show(a.origem === 'documento' ? 'documentos' : 'tarefas');
     });
     list.appendChild(art);
