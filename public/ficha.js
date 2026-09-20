@@ -56,7 +56,23 @@ var FI_CSS = [
   '#view-pessoa .fi-num-id{font-family:var(--mono);letter-spacing:.02em}',
   '#view-pessoa .fi-dados a{color:var(--accent);text-underline-offset:2px}',
   '#view-pessoa .fi-ver{border:0;background:none;color:var(--accent);font:inherit;font-size:.75rem;cursor:pointer;padding:0}',
-  '#view-pessoa .fi-link{color:var(--accent);cursor:pointer;text-decoration:underline;text-underline-offset:2px}'
+  '#view-pessoa .fi-link{color:var(--accent);cursor:pointer;text-decoration:underline;text-underline-offset:2px}',
+  '#view-pessoa .fi-acc > header{cursor:pointer;user-select:none;align-items:center}',
+  '#view-pessoa .fi-acc > header h3{flex:1 1 auto;margin:0}',
+  '#view-pessoa .fi-acc > header .mono{margin-left:0}',
+  '#view-pessoa .fi-acc > header:focus-visible{outline:2px solid var(--accent);outline-offset:4px;border-radius:4px}',
+  '#view-pessoa .fi-chev{flex:0 0 auto;color:var(--muted);transition:transform .15s ease;display:inline-flex}',
+  '#view-pessoa .fi-acc.fechado .fi-chev{transform:rotate(-90deg)}',
+  '#view-pessoa .fi-acc.fechado > header{margin-bottom:0}',
+  '#view-pessoa .fi-acc.fechado > .fi-corpo{display:none}',
+  '#view-pessoa .fi-col-t{font-family:var(--mono);font-size:.6875rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0 0 -.25rem 2px}',
+  '.pe-dlg:has(.fi-tabs){max-width:37rem}',
+  '.pe-dlgc .fi-tabs{display:flex;flex-wrap:wrap;gap:2px;border-bottom:1px solid var(--line);margin:0 0 1rem}',
+  '.pe-dlgc .fi-tab{border:0;background:none;font:inherit;font-size:.8125rem;color:var(--muted);padding:8px 10px 9px;',
+  'border-bottom:2px solid transparent;margin-bottom:-1px;cursor:pointer;white-space:nowrap}',
+  '.pe-dlgc .fi-tab:hover{color:var(--ink)}',
+  '.pe-dlgc .fi-tab.on{color:var(--ink);border-bottom-color:var(--accent);font-weight:500}',
+  '.pe-dlgc .fi-painel{min-height:16rem}'
 ].join('');
 
 function fiEstilo() {
@@ -82,14 +98,38 @@ function fiAvatar(p) {
   return a;
 }
 
+/* Cada bloco da ficha e um acordeao: abre sempre aberto e fecha com um
+   clique no titulo. Devolve o corpo, que e onde o conteudo entra. */
 function fiCartao(pai, titulo, direita) {
-  var c = el('div', 'card');
+  var c = el('div', 'card fi-acc');
   var h = document.createElement('header');
+  h.tabIndex = 0;
+  h.setAttribute('role', 'button');
+  h.setAttribute('aria-expanded', 'true');
   h.appendChild(el('h3', null, titulo));
   if (direita) h.appendChild(el('span', 'mono', direita));
+  var chev = el('span', 'fi-chev');
+  chev.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"' +
+    ' stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>';
+  h.appendChild(chev);
+  var corpo = el('div', 'fi-corpo');
+  var alternar = function () {
+    var fechado = c.classList.toggle('fechado');
+    h.setAttribute('aria-expanded', fechado ? 'false' : 'true');
+  };
+  h.addEventListener('click', function (e) {
+    if (e.target.closest('button, a, .fi-link')) return;
+    alternar();
+  });
+  h.addEventListener('keydown', function (e) {
+    if (e.target !== h) return;
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); alternar(); }
+  });
   c.appendChild(h);
+  c.appendChild(corpo);
+  corpo.cabecalho = h;
   pai.appendChild(c);
-  return c;
+  return corpo;
 }
 
 function fiVazio(c, texto) {
@@ -271,10 +311,13 @@ function fiDesenhar() {
   grelha.appendChild(esq);
   grelha.appendChild(dir);
 
-  fiTarefas(esq, d.tarefas);
-  fiDocumentos(esq, d.documentos);
-  fiDados(dir, p, d.dependentes || []);
+  /* A esquerda quem a pessoa e; a direita o que ela tem em curso. */
+  esq.appendChild(el('div', 'fi-col-t', 'Quem é'));
+  dir.appendChild(el('div', 'fi-col-t', 'Em curso'));
+  fiDados(esq, p, d.dependentes || []);
   fiCompromissos(dir, compromissos, d.compromissosPassados || 0);
+  fiTarefas(dir, d.tarefas);
+  fiDocumentos(dir, d.documentos);
   fiProjetos(dir, d.projetos);
   fiDespesas(dir, d.despesas);
   fiCaixa(dir, d.caixa);
@@ -322,26 +365,13 @@ function fiDocumentos(pai, docs) {
 
 /* ---------------- os dados da pessoa ---------------- */
 function fiDados(pai, p, dependentes) {
-  var c = fiCartao(pai, 'Dados');
-  var dl = el('dl', 'fi-dados');
-  var mascarados = [];
-  var n = 0;
+  var feitos = 0;
 
-  function grupo(t) { dl.appendChild(el('div', 'fi-grupo', t)); }
-  function linha(rotulo, valor) {
-    if (valor === null || valor === undefined || valor === '') return false;
-    dl.appendChild(el('dt', null, rotulo));
-    var dd = el('dd');
-    if (valor.nodeType) dd.appendChild(valor); else dd.appendChild(document.createTextNode(valor));
-    dl.appendChild(dd);
-    n++;
-    return true;
-  }
-  function numero(v) {
+  function numero(v, lista) {
     if (!v) return null;
     var s = el('span', 'fi-num-id', fiMascara(v));
     s.dataset.inteiro = v;
-    mascarados.push(s);
+    lista.push(s);
     return s;
   }
   function ligacao(href, texto) {
@@ -354,19 +384,38 @@ function fiDados(pai, p, dependentes) {
     a.dataset.ficha = x.id;
     return a;
   }
-  /* Os grupos so aparecem quando tem alguma coisa. */
-  function bloco(titulo, linhas) {
-    var antes = dl.childNodes.length;
-    grupo(titulo);
-    var algum = false;
-    linhas.forEach(function (l) { if (linha(l[0], l[1])) algum = true; });
-    if (!algum) while (dl.childNodes.length > antes) dl.removeChild(dl.lastChild);
+  /* Um bloco so vira widget quando tem pelo menos uma linha preenchida. */
+  function bloco(titulo, linhas, mascarados) {
+    linhas = linhas.filter(function (l) { return l[1] !== null && l[1] !== undefined && l[1] !== ''; });
+    if (!linhas.length) return;
+    var c = fiCartao(pai, titulo);
+    var dl = el('dl', 'fi-dados');
+    linhas.forEach(function (l) {
+      dl.appendChild(el('dt', null, l[0]));
+      var dd = el('dd');
+      if (l[1].nodeType) dd.appendChild(l[1]); else dd.appendChild(document.createTextNode(l[1]));
+      dl.appendChild(dd);
+    });
+    c.appendChild(dl);
+    feitos++;
+    /* Os numeros veem-se tapados; mostram-se a pedido, so neste bloco. */
+    if (mascarados && mascarados.length) {
+      var ver = el('button', 'fi-ver', 'mostrar');
+      ver.type = 'button';
+      var aberto = false;
+      ver.onclick = function () {
+        aberto = !aberto;
+        mascarados.forEach(function (s) { s.textContent = aberto ? s.dataset.inteiro : fiMascara(s.dataset.inteiro); });
+        ver.textContent = aberto ? 'esconder' : 'mostrar';
+      };
+      c.cabecalho.insertBefore(ver, c.cabecalho.querySelector('.fi-chev'));
+    }
   }
 
   var humano = FI_HUMANO[p.kind];
   var idade = fiIdade(p.birth_on);
-  bloco('Quem é', [
-    [p.kind === 'animal' ? 'Nasceu' : 'Nascimento',
+  bloco('Nascimento', [
+    [p.kind === 'animal' ? 'Nasceu' : 'Data',
      p.birth_on ? fiData(p.birth_on) + (idade !== null ? '  ·  ' + idade + (idade === 1 ? ' ano' : ' anos') : '') : null]
   ]);
 
@@ -377,6 +426,7 @@ function fiDados(pai, p, dependentes) {
       ['Morada', p.address]
     ]);
 
+    var tapados = [];
     var validade = null;
     if (p.id_doc_validade) {
       validade = el('span');
@@ -384,25 +434,24 @@ function fiDados(pai, p, dependentes) {
       if (pz) validade.appendChild(pz);
     }
     bloco('Identificação', [
-      ['NIF', numero(p.nif)],
-      ['Utente SNS', numero(p.sns)],
-      [FI_DOCS[p.id_doc_tipo] || 'Documento', numero(p.id_doc_numero)],
+      ['NIF', numero(p.nif, tapados)],
+      ['Utente SNS', numero(p.sns, tapados)],
+      [FI_DOCS[p.id_doc_tipo] || 'Documento', numero(p.id_doc_numero, tapados)],
       ['Válido até', validade]
-    ]);
+    ], tapados);
   }
 
   var det = p.detalhes || {};
-  var titulos = { adulto: 'Trabalho', crianca: 'Escola', animal: 'Cuidados' };
+  var titulos = { adulto: 'Trabalho', crianca: 'Escola', animal: 'Cuidados', familiar: 'Apoio' };
+  var chip = [];
   var linhasDet = (FI_DETALHES[p.kind] || []).map(function (f) {
-    return [f[1], f[0] === 'microchip' ? numero(det[f[0]]) : det[f[0]]];
+    return [f[1], f[0] === 'microchip' ? numero(det[f[0]], chip) : det[f[0]]];
   });
   if (FI_RESPONSAVEL[p.kind]) linhasDet.push([FI_RESPONSAVEL[p.kind], p.responsavel ? pessoaLink(p.responsavel) : null]);
-  if (linhasDet.length) bloco(titulos[p.kind] || 'Apoio', linhasDet);
+  if (linhasDet.length) bloco(titulos[p.kind] || 'Apoio', linhasDet, chip);
 
   /* Do outro lado da mesma relacao: de quem esta pessoa trata. */
   if (dependentes.length) {
-    var educa = dependentes.filter(function (x) { return x.kind === 'crianca'; });
-    var acomp = dependentes.filter(function (x) { return x.kind !== 'crianca'; });
     var lista = function (xs) {
       if (!xs.length) return null;
       var sp = el('span');
@@ -412,7 +461,10 @@ function fiDados(pai, p, dependentes) {
       });
       return sp;
     };
-    bloco('Responsável por', [['Encarregado de', lista(educa)], ['Acompanha', lista(acomp)]]);
+    bloco('Responsável por', [
+      ['Encarregado de', lista(dependentes.filter(function (x) { return x.kind === 'crianca'; }))],
+      ['Acompanha', lista(dependentes.filter(function (x) { return x.kind !== 'crianca'; }))]
+    ]);
   }
 
   if (humano) {
@@ -423,23 +475,7 @@ function fiDados(pai, p, dependentes) {
     bloco('Na app', [['Conta de acesso', p.conta_email]]);
   }
 
-  if (!n) {
-    fiVazio(c, 'Ainda sem dados. Carrega em Editar para os pôr.');
-    return;
-  }
-  c.appendChild(dl);
-
-  if (mascarados.length) {
-    var ver = el('button', 'fi-ver', 'mostrar números');
-    ver.type = 'button';
-    var aberto = false;
-    ver.onclick = function () {
-      aberto = !aberto;
-      mascarados.forEach(function (s) { s.textContent = aberto ? s.dataset.inteiro : fiMascara(s.dataset.inteiro); });
-      ver.textContent = aberto ? 'esconder números' : 'mostrar números';
-    };
-    c.querySelector('header').appendChild(ver);
-  }
+  if (!feitos) fiVazio(fiCartao(pai, 'Dados'), 'Ainda sem dados. Carrega em Editar para os pôr.');
 }
 
 /* O que esta na Agenda com o nome desta pessoa, de hoje em diante. */
@@ -518,40 +554,55 @@ function fiEditar(p) {
   cx.appendChild(el('h3', null, 'Editar ' + p.name));
   cx.appendChild(el('p', 'pe-dlgs', 'Muda o que estiver errado. O resto da app passa a ver a pessoa assim.'));
 
+  /* Um separador por bloco, como na ficha. O Geral nao muda; os outros
+     dependem do tipo e redesenham-se quando ele muda, sem perder o que ja
+     se escreveu nos campos que continuam a fazer sentido. */
+  var tabs = el('div', 'fi-tabs');
+  tabs.setAttribute('role', 'tablist');
+  cx.appendChild(tabs);
+  var paineis = el('div');
+  cx.appendChild(paineis);
+
+  var geral = el('div', 'fi-painel');
+  geral.dataset.tab = 'Geral';
   var par1 = el('div', 'fi-par');
   par1.appendChild(peCampo('Como lhe chamas', peTexto('fiENome', p.name)));
   par1.appendChild(peCampo('Nome completo', peTexto('fiECompleto', p.full_name, 'Como está nos documentos')));
-  cx.appendChild(par1);
+  geral.appendChild(par1);
   var par2 = el('div', 'fi-par');
   par2.appendChild(peCampo('Quem é', peTexto('fiEPapel', p.role, 'Ex.: Filha')));
   par2.appendChild(peCampo('Tipo', peSelectTipo('fiETipo', p.kind)));
-  cx.appendChild(par2);
+  geral.appendChild(par2);
+  fiPar(geral, peCampo('Data de nascimento', fiInput('fiDNasc', 'date', p.birth_on)));
 
   var nota = el('textarea');
   nota.id = 'fiENota';
   nota.value = p.note || '';
   nota.placeholder = 'Uma linha que aparece no cartão da Família';
-  cx.appendChild(peCampo('Nota', nota));
+  geral.appendChild(peCampo('Nota', nota));
 
-  cx.appendChild(peBloco('Cor', peCores('fiECor', p.color)));
-  cx.appendChild(peBloco('Fotografia', peFoto('fiECor', p)));
+  geral.appendChild(peBloco('Cor', peCores('fiECor', p.color)));
+  geral.appendChild(peBloco('Fotografia', peFoto('fiECor', p)));
 
   var checks = el('div', 'fi-checks');
   checks.appendChild(peCheck('fiETarefas', 'Pode ter tarefas atribuídas', p.can_own_tasks));
   checks.appendChild(peCheck('fiEActiva', 'Activa', p.active));
-  cx.appendChild(checks);
+  geral.appendChild(checks);
+  paineis.appendChild(geral);
 
-  /* Os dados mudam com o tipo: uma crianca tem escola, o Brownie tem
-     microchip. Trocar o tipo redesenha esta parte sem perder o que ja se
-     escreveu nos campos que continuam a fazer sentido. */
   var dados = el('div');
   dados.id = 'fiEDados';
-  cx.appendChild(dados);
+  paineis.appendChild(dados);
   var v = fiValoresDe(p);
-  fiCamposDados(dados, p, p.kind, v);
+  var ativo = 'Geral';
+  var redesenhar = function (kind) {
+    fiCamposDados(dados, p, kind, v);
+    fiSeparadores(tabs, paineis, ativo, function (t) { ativo = t; });
+  };
+  redesenhar(p.kind);
   $('fiETipo').onchange = function () {
     v = Object.assign(v, fiLerDados());
-    fiCamposDados(dados, p, $('fiETipo').value, v);
+    redesenhar($('fiETipo').value);
   };
 
   var acts = el('div', 'pe-acoes');
@@ -604,35 +655,65 @@ function fiPar(pai, a, b) {
   pai.appendChild(d);
 }
 
+/* A barra de separadores sai dos paineis que existem nesse momento. */
+function fiSeparadores(tabs, paineis, ativo, mudou) {
+  clear(tabs);
+  var todos = paineis.querySelectorAll('.fi-painel');
+  var nomes = [];
+  for (var i = 0; i < todos.length; i++) nomes.push(todos[i].dataset.tab);
+  if (nomes.indexOf(ativo) < 0) ativo = 'Geral';
+  var abrir = function (nome) {
+    for (var k = 0; k < todos.length; k++) todos[k].hidden = todos[k].dataset.tab !== nome;
+    var bs = tabs.querySelectorAll('.fi-tab');
+    for (var m = 0; m < bs.length; m++) {
+      var on = bs[m].dataset.tab === nome;
+      bs[m].classList.toggle('on', on);
+      bs[m].setAttribute('aria-selected', on ? 'true' : 'false');
+    }
+    mudou(nome);
+  };
+  nomes.forEach(function (nome) {
+    var b = el('button', 'fi-tab', nome);
+    b.type = 'button';
+    b.dataset.tab = nome;
+    b.setAttribute('role', 'tab');
+    b.onclick = function () { abrir(nome); };
+    tabs.appendChild(b);
+  });
+  abrir(ativo);
+}
+
 function fiCamposDados(box, p, kind, v) {
   clear(box);
   var humano = FI_HUMANO[kind];
-  var sec = function (t) { box.appendChild(el('div', 'fi-sec', t)); };
-
-  sec('Nascimento');
-  fiPar(box, peCampo('Data', fiInput('fiDNasc', 'date', v.birth_on)));
+  var painel = function (nome) {
+    var d = el('div', 'fi-painel');
+    d.dataset.tab = nome;
+    box.appendChild(d);
+    return d;
+  };
 
   if (humano) {
-    sec('Contactos');
-    fiPar(box, peCampo('Telemóvel', fiInput('fiDTel', 'tel', v.phone, '9xx xxx xxx')),
-               peCampo('Email', fiInput('fiDEmail', 'email', v.email)));
-    box.appendChild(peCampo('Morada', fiInput('fiDMorada', 'text', v.address)));
-    box.appendChild(el('p', 'fi-dica', 'Só se não viver na casa.'));
+    var ct = painel('Contactos');
+    fiPar(ct, peCampo('Telemóvel', fiInput('fiDTel', 'tel', v.phone, '9xx xxx xxx')),
+              peCampo('Email', fiInput('fiDEmail', 'email', v.email)));
+    ct.appendChild(peCampo('Morada', fiInput('fiDMorada', 'text', v.address)));
+    ct.appendChild(el('p', 'fi-dica', 'Só se não viver na casa.'));
 
-    sec('Identificação');
-    fiPar(box, peCampo('NIF', fiInput('fiDNif', 'text', v.nif, '9 algarismos')),
-               peCampo('N.º de utente SNS', fiInput('fiDSns', 'text', v.sns, '9 algarismos')));
-    fiPar(box, peCampo('Documento', fiSelect('fiDDocTipo',
-                 [['', '—'], ['cc', 'Cartão de Cidadão'], ['tr', 'Título de residência']], v.id_doc_tipo)),
-               peCampo('Número', fiInput('fiDDocNum', 'text', v.id_doc_numero)));
-    fiPar(box, peCampo('Válido até', fiInput('fiDDocVal', 'date', v.id_doc_validade)));
-    box.appendChild(el('p', 'fi-dica', 'A validade avisa no Hoje dois meses antes.'));
+    var id = painel('Identificação');
+    fiPar(id, peCampo('NIF', fiInput('fiDNif', 'text', v.nif, '9 algarismos')),
+              peCampo('N.º de utente SNS', fiInput('fiDSns', 'text', v.sns, '9 algarismos')));
+    fiPar(id, peCampo('Documento', fiSelect('fiDDocTipo',
+                [['', '—'], ['cc', 'Cartão de Cidadão'], ['tr', 'Título de residência']], v.id_doc_tipo)),
+              peCampo('Número', fiInput('fiDDocNum', 'text', v.id_doc_numero)));
+    fiPar(id, peCampo('Válido até', fiInput('fiDDocVal', 'date', v.id_doc_validade)));
+    id.appendChild(el('p', 'fi-dica', 'A validade avisa no Hoje dois meses antes.'));
   }
 
   var campos = FI_DETALHES[kind] || [];
   var resp = FI_RESPONSAVEL[kind];
   if (campos.length || resp) {
-    sec({ adulto: 'Trabalho', crianca: 'Escola', animal: 'Cuidados' }[kind] || 'Apoio');
+    var tp = painel({ adulto: 'Trabalho', crianca: 'Escola', animal: 'Cuidados' }[kind] || 'Apoio');
     var pares = campos.map(function (f) {
       return peCampo(f[1], fiInput('fiDet_' + f[0], 'text', v['det_' + f[0]], f[2]));
     });
@@ -642,20 +723,20 @@ function fiCamposDados(box, p, kind, v) {
       pares.push(peCampo(resp, fiSelect('fiDResp',
         [['', '—']].concat(gente.map(function (x) { return [String(x.id), x.name]; })), v.responsavel_id)));
     }
-    for (var i = 0; i < pares.length; i += 2) fiPar(box, pares[i], pares[i + 1]);
+    for (var i = 0; i < pares.length; i += 2) fiPar(tp, pares[i], pares[i + 1]);
   }
 
   if (humano) {
-    sec('Em caso de emergência');
-    fiPar(box, peCampo('Ligar a', fiInput('fiDEmNome', 'text', v.emerg_nome, 'Nome')),
-               peCampo('Telefone', fiInput('fiDEmTel', 'tel', v.emerg_tel)));
+    var em = painel('Emergência');
+    fiPar(em, peCampo('Ligar a', fiInput('fiDEmNome', 'text', v.emerg_nome, 'Nome')),
+              peCampo('Telefone', fiInput('fiDEmTel', 'tel', v.emerg_tel)));
 
-    sec('Na app');
+    var ap = painel('Na app');
     var contas = (FI.dados && FI.dados.contas) || [];
     if (v.conta_email && contas.indexOf(v.conta_email) < 0) contas = contas.concat([v.conta_email]);
-    box.appendChild(peCampo('Conta de acesso', fiSelect('fiDConta',
+    ap.appendChild(peCampo('Conta de acesso', fiSelect('fiDConta',
       [['', '— sem conta —']].concat(contas.map(function (e) { return [e, e]; })), v.conta_email)));
-    box.appendChild(el('p', 'fi-dica', 'O email com que entra no Farol. Só aparecem as contas da página Acessos.'));
+    ap.appendChild(el('p', 'fi-dica', 'O email com que entra no Farol. Só aparecem as contas da página Acessos.'));
   }
 }
 
@@ -674,6 +755,21 @@ function fiLerDados() {
   return v;
 }
 
+/* Quando o servidor recusa, abre o separador onde esta o campo em causa:
+   um NIF errado num separador escondido e um erro que ninguem encontra. */
+function fiIrParaErro(msg) {
+  var alvo = /NIF|utente|documento/i.test(msg) ? 'Identificação'
+    : /conta/i.test(msg) ? 'Na app'
+    : /nascimento|nome/i.test(msg) ? 'Geral'
+    : /email/i.test(msg) ? 'Contactos'
+    : /respons/i.test(msg) ? null : null;
+  var bs = document.querySelectorAll('#peDlgC .fi-tab');
+  for (var i = 0; i < bs.length; i++) {
+    if ((alvo && bs[i].dataset.tab === alvo) ||
+        (!alvo && /respons/i.test(msg) && ['Escola', 'Apoio'].indexOf(bs[i].dataset.tab) >= 0)) { bs[i].click(); return; }
+  }
+}
+
 function fiGravar(p, botao) {
   var corpo = {
     name: ($('fiENome').value || '').trim(),
@@ -685,7 +781,7 @@ function fiGravar(p, botao) {
     can_own_tasks: $('fiETarefas').checked,
     active: $('fiEActiva').checked
   };
-  if (!corpo.name) { toast('A pessoa tem de ter um nome.'); return; }
+  if (!corpo.name) { toast('A pessoa tem de ter um nome.'); fiIrParaErro('nome'); return; }
 
   /* Os dados vao todos; o que nao se aplica ao tipo vai vazio, para nao
      ficar guardado escondido um NIF do Brownie ou uma escola de um adulto. */
@@ -700,7 +796,11 @@ function fiGravar(p, botao) {
   (FI_DETALHES[corpo.kind] || []).forEach(function (f) {
     if (lidos['det_' + f[0]]) corpo.detalhes[f[0]] = lidos['det_' + f[0]];
   });
-  if (corpo.id_doc_numero && !corpo.id_doc_tipo) { toast('Diz que documento é: Cartão de Cidadão ou Título de residência.'); return; }
+  if (corpo.id_doc_numero && !corpo.id_doc_tipo) {
+    toast('Diz que documento é: Cartão de Cidadão ou Título de residência.');
+    fiIrParaErro('documento');
+    return;
+  }
 
   var foto = PE.fotoNova, fora = PE.fotoFora;
   botao.disabled = true;
@@ -745,6 +845,7 @@ function fiGravar(p, botao) {
       }).catch(function () { /* a ficha antiga fica */ });
   }).catch(function (e) {
     toast(e.message || 'Não foi possível guardar.');
+    fiIrParaErro(e.message || '');
   }).then(function () { botao.disabled = false; });
 }
 
