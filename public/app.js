@@ -246,6 +246,17 @@ function renderAgendaShell(){
     g.appendChild(el('span', 't', a.title));
     if (a.detail) g.appendChild(el('span', 's', a.detail));
     r.appendChild(g);
+    /* A mesma linha que o Hoje mostra abre a mesma janela: a lista chama-se
+       «a precisar de decisao» e agora deixa mesmo decidir sem sair daqui. */
+    if (typeof avAbrir === 'function'){
+      r.style.cursor = 'pointer';
+      r.tabIndex = 0;
+      r.setAttribute('role', 'button');
+      r.addEventListener('click', function(){ avAbrir(a); });
+      r.addEventListener('keydown', function(e){
+        if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); avAbrir(a); }
+      });
+    }
     dec.appendChild(r);
   });
   if (!decide.length){
