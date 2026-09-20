@@ -110,9 +110,12 @@ function attnCard(x){
   p.insertBefore(el('i', 'dot'), p.firstChild);
   w.appendChild(p);
   art.appendChild(w);
-  /* Clicar leva ao sitio onde se resolve, nao a lado nenhum. */
+  /* Clicar resolve aqui mesmo: o aviso abre numa janela por cima do Hoje, com
+     os campos que se mexem para o despachar (aviso.js). O salto para o ecra
+     inteiro fica la dentro, num botao, para quem precisar dele. */
   art.style.cursor = 'pointer';
   art.addEventListener('click', function(){
+    if (typeof avAbrir === 'function') { avAbrir(a); return; }
     if (a.origem === 'pessoa' && typeof fiAbrir === 'function') { fiAbrir(a.id); return; }
     show(a.origem === 'documento' ? 'documentos' : 'tarefas');
   });
@@ -451,10 +454,23 @@ var DOC_TIPOS = ['cart\u00e3o', 'contrato', 'ap\u00f3lice', 'declara\u00e7\u00e3
 
 /* Corrigir um documento a mao. A leitura automatica erra de vez em quando, e
    o remedio nao pode ser apagar e voltar a submeter o ficheiro. */
-function editarDocumento(d){
+/* Vindo de um aviso do Hoje (aviso.js) traz `aviso`: o cartao que se clicou.
+   Ai o cabecalho diz de que documento se trata e quando expira, e aparece a
+   porta para o ecra dos Documentos - a mesma janela, mais contexto. */
+function editarDocumento(d, aviso){
   var dlg = el('dialog', 'ar-dlg');
   var cx = el('div', 'ar-dlgc');
-  cx.appendChild(el('h3', null, 'Documento'));
+  if (aviso){
+    var topo = el('div', 'av-top');
+    var gt = el('div', 'grow');
+    gt.appendChild(el('h3', null, d.name || 'Documento'));
+    gt.appendChild(el('p', 'av-sub', 'Documento' + (d.entity ? ' \u00b7 ' + d.entity : ' \u00b7 sem entidade')));
+    topo.appendChild(gt);
+    if (typeof avPrazoPill === 'function') topo.appendChild(avPrazoPill(aviso));
+    cx.appendChild(topo);
+  } else {
+    cx.appendChild(el('h3', null, 'Documento'));
+  }
 
   function campo(rotulo, elemento){
     var w = el('div');
@@ -502,7 +518,14 @@ function editarDocumento(d){
   campo('V\u00e1lido at\u00e9', iVal);
 
   var pe = el('div', 'ar-dlga');
-  var cancelar = el('button', 'btn', 'Cancelar');
+  if (aviso){
+    pe.classList.add('av-acoes');
+    var ir = el('button', 'btn esq', 'Abrir nos Documentos');
+    ir.type = 'button';
+    ir.addEventListener('click', function(){ dlg.close(); dlg.remove(); show('documentos'); });
+    pe.appendChild(ir);
+  }
+  var cancelar = el('button', 'btn', aviso ? 'Fechar' : 'Cancelar');
   cancelar.type = 'button';
   cancelar.addEventListener('click', function(){ dlg.close(); dlg.remove(); });
   var gravar = el('button', 'btn primary', 'Gravar');
