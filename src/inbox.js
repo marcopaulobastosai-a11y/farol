@@ -19,6 +19,7 @@ const multer = require('multer');
 const { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } = require('@aws-sdk/client-s3');
 const { query } = require('./db');
 const ia = require('./ia');
+const pdf = require('./pdf');
 
 const all = async (sql, params) => (await query(sql, params)).rows;
 const limpar = (v) => (v === undefined || v === '' ? null : v);
@@ -698,6 +699,101 @@ function instalar(app) {
       console.error('[farol] DELETE /api/inbox:', err.message);
       res.status(500).json({ error: 'Não foi possível apagar.' });
     }
+  });
+
+  /* ---------------------------------------------------------------- *
+   * O ficheiro de um documento que ja existe
+   *
+   * Regra: cada documento tem um anexo digital. Os que nasceram da caixa ja
+   * o traziam; os que vieram das notas do TickTick nasceram sem papel. Estas
+   * rotas pendurem-lhe um ficheiro sem passar pela triagem: o item nasce ja
+   * catalogado, aprovado e no arquivo, porque o documento ja foi decidido.
+   * ---------------------------------------------------------------- */
+  async function anexarAoDocumento(docId, buffer, nome, mime) {
+    const doc = await all('SELECT id, name FROM documents WHERE id = $1', [docId]);
+    if (!doc.length) { const e = new Error('Documento não encontrado.'); e.status = 404; throw e; }
+
+    const checksum = crypto.createHash('sha256').update(buffer).digest('hex');
+    const igual = await all(
+      "SELECT id FROM inbox_items WHERE checksum = $1 AND status <> 'descartado' ORDER BY id LIMIT 1", [checksum]);
+    let itemId;
+    if (igual.length) {
+      itemId = igual[0].id;              // o mesmo papel duas vezes: liga-se, nao se duplica
+    } else {
+      const store = pronto('arquivo') ? 'arquivo' : 'inbox';
+      const chave = caminho(nome);
+      await guardar(store, chave, buffer, mime);
+      itemId = (await all(
+        `INSERT INTO inbox_items (kind, title, file_path, file_name, mime_type, byte_size, checksum,
+                                  store, status, resolved_at, approved_at, ai_status)
+         VALUES ('ficheiro',$1,$2,$3,$4,$5,$6,$7,'catalogado',now(),now(),'nenhum') RETURNING id`,
+        [doc[0].name, chave, nome, mime || 'application/octet-stream', buffer.length, checksum, store]))[0].id;
+    }
+    await query(
+      `INSERT INTO inbox_links (inbox_id, target_type, target_id) VALUES ($1,'documento',$2)
+       ON CONFLICT DO NOTHING`, [itemId, docId]);
+    return { ok: true, documento: docId, inbox_id: itemId, repetido: igual.length > 0 };
+  }
+
+  const falhaDoc = (res, err, onde) => {
+    if (err.status) return res.status(err.status).json({ error: err.message });
+    console.error('[farol] ' + onde + ':', err.message);
+    res.status(500).json({ error: 'Não foi possível guardar o ficheiro.' });
+  };
+
+  /* Os documentos que ainda nao tem papel - com a nota, para quem os vai
+     completar saber de que se trata. */
+  app.get('/api/documentos/sem-ficheiro', async (req, res) => {
+    try {
+      res.json({ documentos: await all(
+        `SELECT d.id, d.name, d.kind, d.entity, d.note, d.external_id, d.person_id,
+                to_char(d.issued_on,'YYYY-MM-DD') AS issued_on, to_char(d.valid_on,'YYYY-MM-DD') AS valid_on
+           FROM documents d
+          WHERE NOT EXISTS (SELECT 1 FROM inbox_links l
+                             WHERE l.target_type = 'documento' AND l.target_id = d.id)
+          ORDER BY d.id`) });
+    } catch (err) { falhaDoc(res, err, 'GET sem-ficheiro'); }
+  });
+
+  app.post('/api/documentos/:id/ficheiro', upload.single('ficheiro'), async (req, res) => {
+    const f = req.file;
+    if (!f) return res.status(400).json({ error: 'Escolhe um ficheiro.' });
+    if (!bucketPronto()) return res.status(503).json({ error: 'O armazenamento de ficheiros ainda não está configurado.' });
+    try {
+      res.status(201).json(await anexarAoDocumento(Number(req.params.id), f.buffer, f.originalname, f.mimetype));
+    } catch (err) { falhaDoc(res, err, 'POST ficheiro do documento'); }
+  });
+
+  /* Quando o documento e so texto (um numero, uma morada, uma apolice
+     anotada), o ficheiro e a propria nota, em PDF. */
+  app.post('/api/documentos/:id/ficheiro-da-nota', async (req, res) => {
+    if (!bucketPronto()) return res.status(503).json({ error: 'O armazenamento de ficheiros ainda não está configurado.' });
+    try {
+      const r = await all(
+        `SELECT d.id, d.name, d.kind, d.entity, d.note, p.name AS pessoa, c.name AS area,
+                to_char(d.issued_on,'YYYY-MM-DD') AS issued_on, to_char(d.valid_on,'YYYY-MM-DD') AS valid_on
+           FROM documents d
+           LEFT JOIN people p ON p.id = d.person_id
+           LEFT JOIN contexts c ON c.id = d.context_id
+          WHERE d.id = $1`, [Number(req.params.id)]);
+      if (!r.length) return res.status(404).json({ error: 'Documento não encontrado.' });
+      const d = r[0];
+      if (!String(d.note || '').trim()) return res.status(400).json({ error: 'Este documento não tem nota para passar a PDF.' });
+      const meta = [
+        d.kind && 'Tipo: ' + d.kind, d.pessoa && 'Pessoa: ' + d.pessoa, d.area && 'Área: ' + d.area,
+        d.entity && 'Entidade: ' + d.entity, d.issued_on && 'Emitido: ' + d.issued_on,
+        d.valid_on && 'Válido até: ' + d.valid_on
+      ].filter(Boolean).join('  ·  ');
+      const buffer = pdf.gerar([
+        { texto: d.name, corpo: 16, negrito: true },
+        { texto: meta, corpo: 9, cor: 0.4, antes: 4 },
+        { texto: d.note, corpo: 11, antes: 14 },
+        { texto: 'Gerado pelo Farol a partir da nota do documento, a ' + new Date().toISOString().slice(0, 10) + '.',
+          corpo: 8, cor: 0.55, antes: 18 }
+      ], { titulo: d.name });
+      const nome = d.name.replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120) + '.pdf';
+      res.status(201).json(await anexarAoDocumento(d.id, buffer, nome, 'application/pdf'));
+    } catch (err) { falhaDoc(res, err, 'POST ficheiro da nota'); }
   });
 }
 
