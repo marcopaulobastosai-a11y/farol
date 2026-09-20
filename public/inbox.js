@@ -43,7 +43,9 @@ var IB_DESTINOS = [
   ] }
 ];
 
-var IB_TABS = [['por_triar', 'Por triar'], ['catalogado', 'Catalogados'], ['descartado', 'Descartados']];
+/* A caixa e uma fila de trabalho: o que ja foi aprovado sai daqui e passa a
+   viver nos Documentos, nas Despesas, nas Tarefas e na Agenda. */
+var IB_TABS = [['por_triar', 'Por triar'], ['catalogado', 'Por aprovar'], ['descartado', 'Descartados']];
 
 /* ---------------- utilitarios ---------------- */
 function ibTamanho(n) {
@@ -254,7 +256,9 @@ function ibRender() {
   if (!IB.itens.length) {
     lista.appendChild(el('div', 'ib-empty', IB.estado === 'por_triar'
       ? 'Nada por triar. A caixa está limpa.'
-      : 'Nada aqui.'));
+      : (IB.estado === 'catalogado'
+        ? 'Nada à espera de aprovação. O que já foi aprovado está nos Documentos e nas Despesas.'
+        : 'Nada aqui.')));
     return;
   }
   IB.itens.forEach(function (item) { lista.appendChild(ibItem(item)); });
@@ -772,7 +776,7 @@ function ibLigar() {
 }
 
 /* A análise corre no servidor depois da resposta, e o que ela decidir muda a
-   lista: o item ganha nome, ou sai daqui para Catalogados. Em vez de obrigar
+   lista: o item ganha nome, ou sai daqui para Por aprovar. Em vez de obrigar
    a carregar em Actualizar, espreita-se algumas vezes e pára. */
 /* O modelo enche-se a horas de ponta e devolve 503. O ficheiro continua no
    balde, por isso dar outra oportunidade n\u00e3o custa nada a quem o enviou. */
@@ -861,7 +865,7 @@ function ibAprovar(id) {
       IB.porTriar = d.porTriar || 0;
       IB.porAprovar = d.porAprovar || 0;
       ibRender();
-      toast('Aprovado. Ja esta nos Documentos.');
+      toast('Aprovado. Saiu da caixa e ja esta nos Documentos.');
       if (typeof load === 'function') load();
     })
     .catch(function (e) { toast(e.message || 'Nao foi possivel aprovar.'); });
@@ -899,8 +903,8 @@ function ibAcompanhar(tentativa) {
       var sumiu = antes.filter(function (id) { return agora.indexOf(id) < 0; });
       if (sumiu.length && IB.estado === 'por_triar') {
         toast(sumiu.length === 1
-          ? 'Catalogado sozinho. Está em Catalogados.'
-          : sumiu.length + ' catalogados sozinhos. Estão em Catalogados.');
+          ? 'Catalogado sozinho. Está em Por aprovar.'
+          : sumiu.length + ' catalogados sozinhos. Estão em Por aprovar.');
       }
       ibAcompanhar(n + 1);
     }).catch(function () {});
