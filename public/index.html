@@ -177,100 +177,7 @@
 
     <!-- TAREFAS -->
     <section class="view" id="view-tarefas">
-      <div class="cal-top">
-        <div class="tabs" data-tabs="tar">
-          <button class="is-active" data-tab="abertas">Por fazer</button>
-          <button data-tab="todas">Todas</button>
-          <button data-tab="concluidas">Concluídas</button>
-        </div>
-        <div class="who-filter" id="tFilter"></div>
-      </div>
-
-      <div class="grid split">
-        <div class="stack">
-          <div class="card">
-            <header><h3 id="tListTitle">Tarefas</h3><span class="mono" id="tCount"></span></header>
-            <div id="tList"></div>
-          </div>
-        </div>
-
-        <div class="stack">
-          <div class="card">
-            <header><h3 id="tFormTitle">Nova tarefa</h3><span class="mono" id="tFormHint"></span></header>
-            <form id="tForm" class="form" autocomplete="off">
-              <label class="field"><span>O que é preciso fazer</span>
-                <input type="text" name="title" required placeholder="Ex.: pedir orçamentos de mudanças"></label>
-              <div class="field-row">
-                <label class="field"><span>Quem faz</span>
-                  <select name="owner_id" id="tOwner"></select></label>
-                <label class="field"><span>Início</span>
-                  <input type="date" name="starts_on"></label>
-                <label class="field"><span>Prazo</span>
-                  <input type="date" name="due_on"></label>
-              </div>
-              <div class="field">
-                <span>Por causa de quem</span>
-                <div class="chips" id="tSubjects"></div>
-              </div>
-              <div class="field">
-                <span>Documentos</span>
-                <div id="tDocs"></div>
-                <select id="tDocAdd"></select>
-              </div>
-              <div class="field-row">
-                <label class="field"><span>Projeto</span>
-                  <select name="project_id" id="tProject"></select></label>
-                <label class="field"><span>Área</span>
-                  <select name="context_id" id="tArea" required></select></label>
-              </div>
-              <div class="field-row">
-                <label class="field"><span>Prioridade</span>
-                  <select name="priority">
-                    <option value="normal">Normal</option>
-                    <option value="alta">Alta</option>
-                    <option value="baixa">Baixa</option>
-                  </select></label>
-                <label class="field"><span>Repete</span>
-                  <select name="repeat_every">
-                    <option value="">Não repete</option>
-                    <option value="semana">Todas as semanas</option>
-                    <option value="mes">Todos os meses</option>
-                    <option value="ano">Todos os anos</option>
-                  </select></label>
-              </div>
-              <label class="field"><span>Notas</span>
-                <textarea name="notes" rows="2" placeholder="Opcional"></textarea></label>
-              <div class="form-actions">
-                <button type="submit" class="btn primary" id="tSubmit">Adicionar</button>
-                <button type="button" class="btn" id="tCancel" hidden>Cancelar</button>
-                <button type="button" class="btn danger" id="tDelete" hidden>Apagar</button>
-              </div>
-            </form>
-          </div>
-
-          <div class="card">
-            <header><h3>Projetos</h3><button class="btn small" id="btnProjeto">+ Projeto</button></header>
-            <form id="pForm" class="form" hidden autocomplete="off">
-              <label class="field"><span>Nome</span>
-                <input type="text" name="name" required placeholder="Ex.: Mudança de casa"></label>
-              <label class="field"><span>Do que se trata</span>
-                <input type="text" name="description" placeholder="Uma linha chega"></label>
-              <div class="field-row">
-                <label class="field"><span>Área</span>
-                  <select name="context_id" id="pArea" required></select></label>
-                <label class="field"><span>Para quando</span>
-                  <input type="date" name="target_on"></label>
-              </div>
-              <div class="field"><span>Quem entra</span><div class="chips" id="pMembers"></div></div>
-              <div class="form-actions">
-                <button type="submit" class="btn primary">Criar projeto</button>
-                <button type="button" class="btn" id="pCancel">Cancelar</button>
-              </div>
-            </form>
-            <div id="tProjects"></div>
-          </div>
-        </div>
-      </div>
+      <div id="tf"></div>
     </section>
 
     <!-- FAMÍLIA -->
@@ -307,6 +214,26 @@
     <!-- PROJETOS -->
     <section class="view" id="view-projetos">
       <div class="grid g2" style="margin-bottom:14px" id="projects"></div>
+      <div class="card" style="max-width:40rem">
+            <header><h3>Novo projeto</h3><button class="btn small" id="btnProjeto">+ Projeto</button></header>
+            <form id="pForm" class="form" hidden autocomplete="off">
+              <label class="field"><span>Nome</span>
+                <input type="text" name="name" required placeholder="Ex.: Mudança de casa"></label>
+              <label class="field"><span>Do que se trata</span>
+                <input type="text" name="description" placeholder="Uma linha chega"></label>
+              <div class="field-row">
+                <label class="field"><span>Área</span>
+                  <select name="context_id" id="pArea" required></select></label>
+                <label class="field"><span>Para quando</span>
+                  <input type="date" name="target_on"></label>
+              </div>
+              <div class="field"><span>Quem entra</span><div class="chips" id="pMembers"></div></div>
+              <div class="form-actions">
+                <button type="submit" class="btn primary">Criar projeto</button>
+                <button type="button" class="btn" id="pCancel">Cancelar</button>
+              </div>
+            </form>
+                      </div>
     </section>
 
     <!-- FINANÇAS -->
@@ -352,5 +279,6 @@
   <script src="/areas.js"></script>
   <script src="/despesas.js"></script>
   <script src="/ficha.js"></script>
+  <script src="/tarefas.js"></script>
 </body>
 </html>

@@ -776,175 +776,7 @@ function loadGestao(){
   }).catch(function(){ toast('Não foi possível ler as tarefas.'); });
 }
 
-/* ---------- listagem ---------- */
-function balde(t){
-  if (!t.due_on) return 'semdata';
-  var hoje = hoje0(), d = parseDay(t.due_on);
-  if (d < hoje) return 'atrasadas';
-  if (d.getTime() === hoje.getTime()) return 'hoje';
-  if (d <= addDays(hoje, 7)) return 'semana';
-  return 'depois';
-}
-var BALDES = [
-  ['atrasadas','Atrasadas'], ['hoje','Hoje'], ['semana','Próximos 7 dias'],
-  ['depois','Mais tarde'], ['semdata','Sem prazo']
-];
-
-function tarefasVisiveis(){
-  return G.tasks.filter(function(t){
-    var feita = t.status === 'concluida' || t.status === 'cancelada';
-    if (gState.view === 'abertas' && feita) return false;
-    if (gState.view === 'concluidas' && !feita) return false;
-    if (gState.person){
-      var envolve = t.owner_id === gState.person || (t.subjects || []).indexOf(gState.person) >= 0;
-      if (!envolve) return false;
-    }
-    return true;
-  });
-}
-
-function renderLista(){
-  var box = $('tList');
-  clear(box);
-  var lista = tarefasVisiveis();
-  $('tCount').textContent = lista.length + (lista.length === 1 ? ' tarefa' : ' tarefas');
-
-  if (!G.people.length){
-    var vazio = el('p', 'empty', 'Ainda não há ninguém registado. Começa por adicionar as pessoas, aí em baixo — depois as tarefas passam a ter dono.');
-    box.appendChild(vazio);
-    return;
-  }
-  if (!lista.length){
-    box.appendChild(el('p', 'empty', gState.view === 'concluidas' ? 'Nada concluído ainda.' : 'Nada por fazer com estes filtros.'));
-    return;
-  }
-
-  BALDES.forEach(function(b){
-    var doBalde = lista.filter(function(t){ return balde(t) === b[0]; });
-    if (!doBalde.length) return;
-    var g = el('div', 'tgroup' + (b[0] === 'atrasadas' ? ' late' : ''));
-    var h = el('h4');
-    h.appendChild(document.createTextNode(b[1]));
-    h.appendChild(el('span', null, String(doBalde.length)));
-    g.appendChild(h);
-    doBalde.forEach(function(t){ g.appendChild(itemTarefa(t)); });
-    box.appendChild(g);
-  });
-}
-
-function itemTarefa(t){
-  var feita = t.status === 'concluida';
-  var li = el('div', 'titem' + (feita ? ' done' : ''));
-
-  var box = el('button', 'box');
-  box.type = 'button';
-  box.title = feita ? 'Reabrir' : 'Marcar como feita';
-  box.innerHTML = '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke-width="3.2" stroke-linecap="round"><path d="M5 13l4 4L19 7"/></svg>';
-  box.addEventListener('click', function(){
-    guardarTarefa(t.id, { status: feita ? 'aberta' : 'concluida' });
-  });
-  li.appendChild(box);
-
-  var main = el('button', 'tmain');
-  main.type = 'button';
-  main.appendChild(el('b', null, t.title));
-  var meta = el('div', 'tmeta');
-  var dono = pessoa(t.owner_id);
-  if (dono){
-    var m = el('span', 'mini');
-    var dot = el('i'); dot.style.background = dono.color || 'var(--c1)';
-    m.appendChild(dot); m.appendChild(document.createTextNode(dono.name));
-    meta.appendChild(m);
-  }
-  (t.subjects || []).forEach(function(pid){
-    var p = pessoa(pid);
-    if (!p) return;
-    meta.appendChild(el('span', 'sep', '·'));
-    meta.appendChild(el('span', null, 'por causa de ' + p.name));
-  });
-  var pr = projeto(t.project_id);
-  if (pr){
-    meta.appendChild(el('span', 'sep', '·'));
-    var pill = pill_(pr.name, 'accent');
-    meta.appendChild(pill);
-  }
-  /* Quantos papeis leva agarrados: quem olha para a lista fica a saber que
-     nao precisa de andar a procura deles noutro lado. */
-  if ((t.documents || []).length){
-    meta.appendChild(el('span', 'sep', '·'));
-    meta.appendChild(el('span', null, t.documents.length +
-      (t.documents.length === 1 ? ' documento' : ' documentos')));
-  }
-  if (t.notes){
-    meta.appendChild(el('span', 'sep', '·'));
-    meta.appendChild(el('span', null, t.notes));
-  }
-  main.appendChild(meta);
-  main.addEventListener('click', function(){ editarTarefa(t); });
-  li.appendChild(main);
-
-  var right = el('div', 'right');
-  if (t.due_on){
-    var b = balde(t);
-    var nivel = b === 'atrasadas' ? 'bad' : (b === 'hoje' ? 'warn' : '');
-    right.appendChild(pill_(b === 'hoje' ? 'hoje' : dataCurta(t.due_on), nivel));
-  }
-  if (t.priority !== 'normal'){
-    var p2 = el('span', 'prio ' + t.priority);
-    p2.title = t.priority === 'alta' ? 'Prioridade alta' : 'Prioridade baixa';
-    right.appendChild(p2);
-  }
-  li.appendChild(right);
-  return li;
-}
-function pill_(texto, nivel){ return pill(texto, nivel); }
-
-/* ---------- escrita ---------- */
-function guardarTarefa(id, dados){
-  apiGestao('/api/gestao/tarefas/' + id, {
-    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(dados)
-  }).then(function(d){ G = d; renderGestao(); })
-    .catch(function(){ toast('Não deu para gravar.'); });
-}
-
-function editarTarefa(t){
-  gState.editing = t.id;
-  var f = $('tForm');
-  f.title.value = t.title || '';
-  f.owner_id.value = t.owner_id || '';
-  f.due_on.value = t.due_on || '';
-  f.project_id.value = t.project_id || '';
-  f.context_id.value = t.context_id || '';
-  f.starts_on.value = t.starts_on || '';
-  tDocsSel = (t.documents || []).slice();
-  renderDocsTarefa();
-  encherDocsAdd();
-  f.priority.value = t.priority || 'normal';
-  f.repeat_every.value = t.repeat_every || '';
-  f.notes.value = t.notes || '';
-  marcarChips('tSubjects', t.subjects || []);
-  $('tFormTitle').textContent = 'Editar tarefa';
-  $('tFormHint').textContent = t.status === 'concluida' ? 'concluída' : '';
-  $('tSubmit').textContent = 'Guardar';
-  $('tCancel').hidden = false;
-  $('tDelete').hidden = false;
-  f.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-}
-
-function limparForm(){
-  gState.editing = null;
-  var f = $('tForm');
-  f.reset();
-  marcarChips('tSubjects', []);
-  tDocsSel = [];
-  renderDocsTarefa();
-  encherDocsAdd();
-  $('tFormTitle').textContent = 'Nova tarefa';
-  $('tFormHint').textContent = '';
-  $('tSubmit').textContent = 'Adicionar';
-  $('tCancel').hidden = true;
-  $('tDelete').hidden = true;
-}
+/* A lista, o detalhe e a captura rapida das tarefas vivem em tarefas.js. */
 
 function chipsSelecionados(id){
   var out = [];
@@ -1000,7 +832,6 @@ function projetoNome(id){
 /* O mesmo desenho serve o cartao das Tarefas e o ecra dos Projetos: um
    projeto e a mesma coisa nos dois sitios. */
 function renderProjetos(){
-  renderProjetosEm($('tProjects'));
   renderProjetosEm($('projects'));
   var b = $('badgeProjetos');
   if (b) b.textContent = G.projects.length || '';
@@ -1041,61 +872,6 @@ function renderProjetosEm(box){
   });
 }
 
-function renderFiltros(){
-  var box = $('tFilter');
-  clear(box);
-  G.people.forEach(function(p){
-    var b = el('button', 'chip' + (gState.person && gState.person !== p.id ? ' off' : ''));
-    b.type = 'button';
-    var i = el('i');
-    i.style.background = p.color || 'var(--c1)';
-    b.appendChild(i);
-    b.appendChild(document.createTextNode(p.name));
-    b.addEventListener('click', function(){
-      gState.person = gState.person === p.id ? null : p.id;
-      renderGestao();
-    });
-    box.appendChild(b);
-  });
-  if (G.people.length){
-    var todos = el('button', 'chip' + (gState.person ? '' : ' off'));
-    todos.type = 'button';
-    todos.textContent = 'Todos';
-    todos.addEventListener('click', function(){ gState.person = null; renderGestao(); });
-    box.appendChild(todos);
-  }
-}
-
-function encherSelects(){
-  var owner = $('tOwner');
-  var atual = owner.value;
-  clear(owner);
-  owner.appendChild(new Option('—', ''));
-  G.people.filter(function(p){ return p.can_own_tasks; }).forEach(function(p){
-    owner.appendChild(new Option(p.name, p.id));
-  });
-  owner.value = atual;
-
-  var proj = $('tProject');
-  var atualP = proj.value;
-  clear(proj);
-  proj.appendChild(new Option('—', ''));
-  G.projects.forEach(function(p){ proj.appendChild(new Option(p.name, p.id)); });
-  proj.value = atualP;
-
-  /* As areas vem da base de dados, nao de uma lista fixa no HTML. Cada area e
-     um grupo com a propria opcao la dentro, seguida das sub-areas: escolher a
-     area sozinha e legitimo, escolher a sub-area e mais preciso. Um so campo,
-     e a sub-area fica opcional por construcao. */
-  encherAreas('tArea');
-  encherAreas('pArea');
-  renderDocsTarefa();
-  encherDocsAdd();
-
-  construirChips('tSubjects', G.people);
-  construirChips('pMembers', G.people);
-}
-
 function encherAreas(id){
   var s = $(id);
   if (!s || !G.contextos) return;
@@ -1113,144 +889,28 @@ function encherAreas(id){
   s.value = atual;
 }
 
-/* Os documentos que a tarefa em edicao leva consigo. Vive fora do formulario
-   porque nao e um campo: e uma lista que se constroi a clicar. */
-var tDocsSel = [];
-
 function docPorId(id){
   if (!window.D || !D.documents) return null;
   for (var i = 0; i < D.documents.length; i++) if (D.documents[i].id === id) return D.documents[i];
   return null;
 }
 
-function renderDocsTarefa(){
-  var box = $('tDocs');
-  if (!box) return;
-  clear(box);
-  tDocsSel.forEach(function(id){
-    var doc = docPorId(id);
-    var linha = el('div');
-    linha.style.cssText = 'display:flex;align-items:center;gap:.5rem;padding:.25rem 0;font-size:.8125rem';
-    var nome = el('span', null, doc ? doc.name : 'documento ' + id);
-    if (doc && doc.inbox_id){
-      nome = el('a', null, doc.name);
-      nome.href = '/api/inbox/' + doc.inbox_id + '/ficheiro';
-      nome.target = '_blank'; nome.rel = 'noopener';
-    }
-    linha.appendChild(nome);
-    var tira = el('button', null, '\u00d7');
-    tira.type = 'button';
-    tira.title = 'Tirar da tarefa';
-    tira.style.cssText = 'border:0;background:none;padding:0 .25rem;font:inherit;color:var(--faint);cursor:pointer';
-    tira.addEventListener('click', function(){
-      tDocsSel = tDocsSel.filter(function(x){ return x !== id; });
-      renderDocsTarefa();
-      encherDocsAdd();
-    });
-    linha.appendChild(tira);
-    box.appendChild(linha);
-  });
-  if (!tDocsSel.length){
-    var vazio = el('div', null, 'Nenhum \u2014 junta abaixo se a tarefa precisar de algum.');
-    vazio.style.cssText = 'font-size:.75rem;color:var(--muted);padding:.25rem 0';
-    box.appendChild(vazio);
-  }
-}
-
-function encherDocsAdd(){
-  var s = $('tDocAdd');
-  if (!s) return;
-  clear(s);
-  s.appendChild(new Option('\u2014 juntar documento \u2014', ''));
-  ((window.D && D.documents) || []).forEach(function(doc){
-    if (tDocsSel.indexOf(doc.id) >= 0) return;
-    var dono = pessoaDoc(doc.person_id);
-    s.appendChild(new Option(doc.name + (dono ? ' (' + dono.name + ')' : ''), doc.id));
-  });
-  s.value = '';
-}
-
 function renderGestao(){
-  renderFiltros();
-  encherSelects();
-  renderLista();
   renderProjetos();
+  encherAreas('pArea');
+  construirChips('pMembers', G.people);
   var abertas = G.tasks.filter(function(t){ return t.status !== 'concluida' && t.status !== 'cancelada'; }).length;
   $('badgeTarefas').textContent = abertas || '';
-  var alvo = gState.person ? pessoa(gState.person) : null;
-  $('tListTitle').textContent = alvo ? ('Tarefas de ' + alvo.name) : 'Tarefas';
+  if (typeof tfRender === 'function') tfRender();
 }
 
 /* ---------- ligações ---------- */
 function ligarGestao(){
-  var tabs = document.querySelector('[data-tabs="tar"]');
-  if (tabs){
-    tabs.addEventListener('click', function(e){
-      var b = e.target.closest('button[data-tab]');
-      if (!b) return;
-      gState.view = b.dataset.tab;
-      renderLista();
-    });
-  }
-
-  $('tForm').addEventListener('submit', function(e){
-    e.preventDefault();
-    var f = e.target;
-    var dados = {
-      title: f.title.value.trim(),
-      owner_id: f.owner_id.value || null,
-      due_on: f.due_on.value || null,
-      project_id: f.project_id.value || null,
-      context_id: f.context_id.value || null,
-      starts_on: f.starts_on.value || null,
-      documents: tDocsSel,
-      priority: f.priority.value,
-      repeat_every: f.repeat_every.value || null,
-      notes: f.notes.value.trim() || null,
-      subjects: chipsSelecionados('tSubjects')
-    };
-    if (!dados.title) return;
-    /* A area e obrigatoria: uma tarefa sem sitio e uma tarefa que ninguem
-       volta a encontrar. A sub-area continua opcional. */
-    if (!dados.context_id) { toast('Escolhe a \u00e1rea da tarefa.'); return; }
-    var url = gState.editing ? '/api/gestao/tarefas/' + gState.editing : '/api/gestao/tarefas';
-    apiGestao(url, {
-      method: gState.editing ? 'PATCH' : 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(dados)
-    }).then(function(d){
-      G = d;
-      limparForm();
-      renderGestao();
-      toast(gState.editing ? 'Tarefa gravada.' : 'Tarefa adicionada.');
-    }).catch(function(){ toast('Não deu para gravar a tarefa.'); });
-  });
-
-  $('tCancel').addEventListener('click', limparForm);
-  $('tDelete').addEventListener('click', function(){
-    if (!gState.editing) return;
-    var id = gState.editing;
-    apiGestao('/api/gestao/tarefas/' + id, { method: 'DELETE' }).then(function(d){
-      G = d; limparForm(); renderGestao(); toast('Tarefa apagada.');
-    }).catch(function(){ toast('Não deu para apagar.'); });
-  });
-
-
   $('btnProjeto').addEventListener('click', function(){
     var f = $('pForm');
     f.hidden = !f.hidden;
     if (!f.hidden) f.name.focus();
   });
-  /* Juntar um documento e escolher da lista: escolhe-se, entra, e sai da
-     lista para nao se poder juntar duas vezes. */
-  $('tDocAdd').addEventListener('change', function(e){
-    var id = Number(e.target.value);
-    if (!id) return;
-    if (tDocsSel.indexOf(id) < 0) tDocsSel.push(id);
-    renderDocsTarefa();
-    encherDocsAdd();
-  });
-
   $('pCancel').addEventListener('click', function(){ $('pForm').hidden = true; });
   $('pForm').addEventListener('submit', function(e){
     e.preventDefault();
