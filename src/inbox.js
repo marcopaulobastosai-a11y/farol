@@ -233,10 +233,27 @@ const SELECT_ITEM = `
          to_char(i.approved_at,'YYYY-MM-DD"T"HH24:MI') AS approved_at
     FROM inbox_items i`;
 
+/* A caixa de entrada e uma fila de trabalho, nao um arquivo: mostra o que
+   ainda precisa de alguem. Depois de aprovado, o papel vive nos Documentos,
+   nas Despesas, nas Tarefas e na Agenda - e sai daqui.
+   Excepcao honesta: se o ficheiro ficou por arquivar (a passagem de bucket
+   falhou), o item continua a aparecer, porque isso e uma falha por resolver
+   e nao arrumacao feita. */
+function filtroDoEstado(estado) {
+  if (estado === 'catalogado') {
+    return pronto('arquivo')
+      ? "i.status = 'catalogado' AND (i.approved_at IS NULL" +
+        " OR (i.file_path IS NOT NULL AND i.store <> 'arquivo'))"
+      : "i.status = 'catalogado' AND i.approved_at IS NULL";
+  }
+  return 'i.status = $1';
+}
+
 async function carregar(estado) {
-  const where = estado && estado !== 'todos' ? 'WHERE i.status = $1' : '';
+  const filtra = estado && estado !== 'todos';
+  const where = filtra ? 'WHERE ' + filtroDoEstado(estado) : '';
   const itens = await all(`${SELECT_ITEM} ${where} ORDER BY i.captured_at DESC, i.id DESC`,
-    where ? [estado] : []);
+    filtra && estado !== 'catalogado' ? [estado] : []);
   const [{ n }] = await all("SELECT count(*)::int AS n FROM inbox_items WHERE status = 'por_triar'");
   /* Duas filas, dois numeros: o que ainda ninguem leu e o que ja esta lido a
      espera de uma decisao. */
