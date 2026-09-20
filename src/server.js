@@ -4,6 +4,8 @@ const express = require('express');
 const { query, ensureSchema } = require('./db');
 const auth = require('./auth');
 const inbox = require('./inbox');
+const tarefas = require('./tarefas');
+const acessos = require('./acessos');
 
 /* Hoje e hoje. O seed deixou uma data fixa nas settings (28 de agosto) e a app
    inteira acreditava nela: o cabecalho mentia e a Agenda mostrava o dia errado.
@@ -46,7 +48,9 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const APP_ENV = process.env.APP_ENV || 'qualidade';
 
-app.use(express.json());
+/* 5 MB: a importacao do TickTick manda as tarefas aos lotes, com notas e
+   passos; o limite por omissao (100 KB) cortava os lotes a meio. */
+app.use(express.json({ limit: '5mb' }));
 auth.instalar(app);
 app.use(express.static(path.join(__dirname, '..', 'public'), { maxAge: '1h' }));
 
@@ -208,8 +212,6 @@ app.patch('/api/tasks/:id', async (req, res) => {
 
 const CORES = ['var(--c1)', 'var(--c2)', 'var(--c3)', 'var(--c4)', 'var(--c5)'];
 const KINDS = ['adulto', 'crianca', 'familiar', 'animal'];
-const STATUS = ['aberta', 'em_curso', 'concluida', 'cancelada'];
-const PRIOS = ['baixa', 'normal', 'alta'];
 const PAPEIS = ['responsavel', 'participante', 'informado'];
 
 function slug(text) {
@@ -234,7 +236,7 @@ async function codigoLivre(base) {
 }
 
 async function carregarGestao() {
-  const [people, projects, members, tasks, subjects, anexos, contextos] = await Promise.all([
+  const [people, projects, members, tasks, contextos] = await Promise.all([
     all(`SELECT id, code, name, full_name, role, kind, initials, color, can_own_tasks, active, note
            FROM people WHERE origin = 'real' ORDER BY sort, id`),
     all(`SELECT id, name, description, area, context_id, depends_on_id, status,
@@ -245,26 +247,15 @@ async function carregarGestao() {
            FROM project_members pm
            JOIN projects p ON p.id = pm.project_id
           WHERE p.origin = 'real'`),
-    all(`SELECT id, title, notes, area, context_id, project_id, owner_id, status, priority,
-                to_char(starts_on,'YYYY-MM-DD') AS starts_on,
-                to_char(due_on,'YYYY-MM-DD') AS due_on, to_char(due_time,'HH24:MI') AS due_time,
-                repeat_every, repeat_count, done
-           FROM tasks WHERE origin = 'real'
-          ORDER BY (due_on IS NULL), due_on, priority DESC, id`),
-    all(`SELECT ts.task_id, ts.person_id FROM task_subjects ts
-           JOIN tasks t ON t.id = ts.task_id WHERE t.origin = 'real'`),
-    all(`SELECT td.task_id, td.document_id FROM task_documents td
-           JOIN tasks t ON t.id = td.task_id WHERE t.origin = 'real'`),
+    /* As tarefas vem do modulo proprio: abertas mais as fechadas ha pouco,
+       com passos, etiquetas e repeticao. */
+    tarefas.tarefasParaGestao(),
     /* As areas vao junto: e delas que os ecras de gestao precisam para
        mostrar onde cada coisa vive, e poupa-se um pedido. */
     all(`SELECT c.id, c.slug, c.name, c.parent_id, c.active, p.name AS parent_name
            FROM contexts c LEFT JOIN contexts p ON p.id = c.parent_id
           ORDER BY COALESCE(p.sort, c.sort), COALESCE(p.id, c.id), c.parent_id NULLS FIRST, c.sort, c.id`)
   ]);
-  tasks.forEach((t) => {
-    t.subjects = subjects.filter((s) => s.task_id === t.id).map((s) => s.person_id);
-    t.documents = anexos.filter((a) => a.task_id === t.id).map((a) => a.document_id);
-  });
   projects.forEach((p) => {
     p.members = members.filter((m) => m.project_id === p.id)
       .map((m) => ({ person_id: m.person_id, member_role: m.member_role }));
@@ -384,89 +375,10 @@ app.patch('/api/gestao/projetos/:id', async (req, res) => {
   }
 });
 
-async function gravarAssuntos(taskId, subjects) {
-  await query('DELETE FROM task_subjects WHERE task_id = $1', [taskId]);
-  for (const pid of subjects || []) {
-    await query('INSERT INTO task_subjects (task_id, person_id) VALUES ($1,$2) ON CONFLICT DO NOTHING',
-      [taskId, Number(pid)]);
-  }
-}
-
-/* Os papeis que a tarefa precisa a mao: a escritura precisa da caderneta, o
-   pedido de credito precisa da declaracao. Sem isto o documento esta no
-   Farol e mesmo assim ha que o procurar. */
-async function gravarDocumentos(taskId, documents) {
-  await query('DELETE FROM task_documents WHERE task_id = $1', [taskId]);
-  for (const did of documents || []) {
-    await query('INSERT INTO task_documents (task_id, document_id) VALUES ($1,$2) ON CONFLICT DO NOTHING',
-      [taskId, Number(did)]);
-  }
-}
-
-app.post('/api/gestao/tarefas', async (req, res) => {
-  const b = req.body || {};
-  const title = String(b.title || '').trim();
-  if (!title) return res.status(400).json({ error: 'A tarefa precisa de um título.' });
-  const status = STATUS.includes(b.status) ? b.status : 'aberta';
-  const priority = PRIOS.includes(b.priority) ? b.priority : 'normal';
-  try {
-    const rows = await all(
-      `INSERT INTO tasks (title, notes, area, context_id, project_id, owner_id, status, priority,
-                          starts_on, due_on, due_time,
-                          repeat_every, repeat_count, done, completed_at, origin, scope)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,COALESCE($9, CURRENT_DATE),$10,$11,$12,$13,$14,$15,'real',NULL)
-       RETURNING id`,
-      [title, limpar(b.notes), limpar(b.area), limpar(b.context_id), limpar(b.project_id),
-       limpar(b.owner_id), status, priority, limpar(b.starts_on),
-       limpar(b.due_on), limpar(b.due_time), limpar(b.repeat_every), b.repeat_count || 1,
-       status === 'concluida', status === 'concluida' ? new Date() : null]);
-    await gravarAssuntos(rows[0].id, b.subjects);
-    await gravarDocumentos(rows[0].id, b.documents);
-    res.status(201).json(await carregarGestao());
-  } catch (err) {
-    console.error('[farol] POST tarefa:', err.message);
-    res.status(500).json({ error: 'Não foi possível gravar a tarefa.' });
-  }
-});
-
-app.patch('/api/gestao/tarefas/:id', async (req, res) => {
-  const id = Number(req.params.id);
-  const b = req.body || {};
-  const campos = [], valores = [];
-  ['title', 'notes', 'area', 'context_id', 'project_id', 'owner_id', 'priority',
-   'starts_on', 'due_on', 'due_time', 'repeat_every']
-    .forEach((c) => {
-      if (b[c] !== undefined) { campos.push(c + ' = $' + (campos.length + 1)); valores.push(limpar(b[c])); }
-    });
-  if (b.status !== undefined && STATUS.includes(b.status)) {
-    campos.push('status = $' + (campos.length + 1)); valores.push(b.status);
-    campos.push('done = $' + (campos.length + 1)); valores.push(b.status === 'concluida');
-    campos.push('completed_at = $' + (campos.length + 1)); valores.push(b.status === 'concluida' ? new Date() : null);
-  }
-  campos.push('updated_at = now()');
-  try {
-    valores.push(id);
-    const rows = await all(
-      `UPDATE tasks SET ${campos.join(', ')} WHERE id = $${valores.length} AND origin = 'real' RETURNING id`, valores);
-    if (!rows.length) return res.status(404).json({ error: 'Tarefa não encontrada.' });
-    if (Array.isArray(b.subjects)) await gravarAssuntos(id, b.subjects);
-    if (Array.isArray(b.documents)) await gravarDocumentos(id, b.documents);
-    res.json(await carregarGestao());
-  } catch (err) {
-    console.error('[farol] PATCH tarefa:', err.message);
-    res.status(500).json({ error: 'Não foi possível gravar.' });
-  }
-});
-
-app.delete('/api/gestao/tarefas/:id', async (req, res) => {
-  try {
-    const rows = await all("DELETE FROM tasks WHERE id = $1 AND origin = 'real' RETURNING id", [Number(req.params.id)]);
-    if (!rows.length) return res.status(404).json({ error: 'Tarefa não encontrada.' });
-    res.json(await carregarGestao());
-  } catch (err) {
-    console.error('[farol] DELETE tarefa:', err.message);
-    res.status(500).json({ error: 'Não foi possível apagar.' });
-  }
+tarefas.instalar(app, {
+  carregarGestao,
+  quem: (req) => { const x = auth.sessao(req); return x ? (x.nome || x.email) : null; },
+  ehAdmin: (req) => { if (!auth.ativa()) return true; const x = auth.sessao(req); return Boolean(x && acessos.ehAdmin(x.email)); }
 });
 
 inbox.instalar(app);

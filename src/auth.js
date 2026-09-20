@@ -182,5 +182,6 @@ function instalar(app) {
 module.exports = {
   instalar,
   ativa,
+  sessao,
   get permitidos() { return acessos.emails(); }
 };
