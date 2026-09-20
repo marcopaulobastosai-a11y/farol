@@ -159,7 +159,10 @@ app.get('/api/bootstrap', async (_req, res) => {
                   d.valid_until, (d.read_at IS NOT NULL) AS lido,
                   (SELECT l.inbox_id FROM inbox_links l
                     WHERE l.target_type = 'documento' AND l.target_id = d.id
-                    ORDER BY l.inbox_id DESC LIMIT 1) AS inbox_id
+                    ORDER BY l.inbox_id DESC LIMIT 1) AS inbox_id,
+                  ARRAY(SELECT l.inbox_id FROM inbox_links l
+                         WHERE l.target_type = 'documento' AND l.target_id = d.id
+                         ORDER BY l.inbox_id) AS ficheiros
              FROM documents d
             WHERE d.aprovado
             ORDER BY d.sort, d.id DESC`),
