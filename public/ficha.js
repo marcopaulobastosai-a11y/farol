@@ -28,7 +28,17 @@ var FI_CSS = [
   '#view-pessoa .fi-num span{font-size:.75rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}',
   '#view-pessoa .fi-vazio{color:var(--muted);font-size:.8125rem;margin:0;padding:10px 2px}',
   '#view-pessoa .fi-sl{display:block;font-size:.75rem;color:var(--muted);margin-top:2px}',
-  '#view-pessoa .fi-volta{margin-bottom:.9rem}'
+  '#view-pessoa .fi-volta{margin-bottom:.9rem}',
+  '#view-pessoa .fi-topo > .grow{flex:1 1 auto;min-width:0}',
+  '#view-pessoa .fi-editar{flex:0 0 auto;align-self:flex-start}',
+  '#peDlg{max-height:calc(100dvh - 2rem);overflow-y:auto}',
+  '.pe-dlgc .fi-par{display:grid;grid-template-columns:repeat(auto-fit,minmax(11rem,1fr));gap:0 .75rem}',
+  '#view-pessoa .fi-quando{flex:0 0 3.4rem;font-family:var(--mono);font-size:.75rem;color:var(--muted);line-height:1.35}',
+  '#view-pessoa .fi-quando b{display:block;font-size:.9375rem;color:var(--ink);font-weight:500}',
+  '.pe-dlgc textarea{font:inherit;font-size:.875rem;color:var(--ink);background:var(--surface-2);border:1px solid var(--line);',
+  'border-radius:8px;padding:9px 11px;width:100%;min-width:0;min-height:4.5rem;resize:vertical;box-sizing:border-box}',
+  '.pe-dlgc textarea:focus{outline:0;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}',
+  '.pe-dlgc .fi-checks{display:flex;gap:1.25rem;flex-wrap:wrap;margin:.35rem 0 .1rem}'
 ].join('');
 
 function fiEstilo() {
@@ -45,7 +55,7 @@ function fiAvatar(p) {
   a.style.background = p.color || 'var(--c1)';
   if (p.tem_avatar) {
     var img = document.createElement('img');
-    img.src = '/api/pessoas/' + p.id + '/avatar';
+    img.src = '/api/pessoas/' + p.id + '/avatar?v=' + encodeURIComponent(p.avatar_em || '1');
     img.alt = p.name || '';
     a.appendChild(img);
   } else {
@@ -178,11 +188,21 @@ function fiDesenhar() {
   txt.appendChild(chips);
   if (p.note) txt.appendChild(el('p', 'fi-nota', p.note));
   topo.appendChild(txt);
+  /* Editar aqui mesmo: quem esta a olhar para a pessoa e quem sabe o que
+     esta errado nela. So aparece se a pagina de Pessoas estiver carregada,
+     porque e dela que vem o formulario. */
+  if (typeof peCampo === 'function' && typeof PE !== 'undefined') {
+    var editar = el('button', 'btn fi-editar', 'Editar');
+    editar.type = 'button';
+    editar.onclick = function () { fiEditar(p); };
+    topo.appendChild(editar);
+  }
   cab.appendChild(topo);
 
   var porFazer = d.tarefas.filter(function (t) { return !t.done; }).length;
+  var compromissos = d.compromissos || [];
   var nums = el('div', 'fi-num');
-  [[porFazer, 'por fazer'], [d.documentos.length, 'documentos'],
+  [[porFazer, 'por fazer'], [compromissos.length, 'compromissos'], [d.documentos.length, 'documentos'],
    [d.projetos.length, 'projetos'], [d.caixa.length, 'na caixa']].forEach(function (n) {
     var b = el('div');
     b.appendChild(el('b', null, String(n[0])));
@@ -201,6 +221,7 @@ function fiDesenhar() {
 
   fiTarefas(esq, d.tarefas);
   fiDocumentos(esq, d.documentos);
+  fiCompromissos(dir, compromissos, d.compromissosPassados || 0);
   fiProjetos(dir, d.projetos);
   fiDespesas(dir, d.despesas);
   fiCaixa(dir, d.caixa);
@@ -246,6 +267,30 @@ function fiDocumentos(pai, docs) {
   });
 }
 
+/* O que esta na Agenda com o nome desta pessoa, de hoje em diante. */
+var FI_MESES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+
+function fiCompromissos(pai, lista, passados) {
+  var c = fiCartao(pai, 'Compromissos', lista.length ? String(lista.length) : '');
+  if (!lista.length) {
+    fiVazio(c, passados
+      ? 'Nada marcado daqui para a frente.'
+      : 'Nada na Agenda com o nome desta pessoa.');
+    return;
+  }
+  var ponto = '  ' + String.fromCharCode(183) + '  ';
+  lista.forEach(function (x) {
+    var sub = [x.detail, x.com ? 'com ' + x.com : null].filter(Boolean).join(ponto);
+    var r = row(x.title, sub, x.at ? pill(x.at) : null);
+    var p = String(x.day).split('-');
+    var q = el('div', 'fi-quando');
+    q.appendChild(el('b', null, String(Number(p[2]))));
+    q.appendChild(document.createTextNode(FI_MESES[Number(p[1]) - 1] || ''));
+    r.insertBefore(q, r.firstChild);
+    c.appendChild(r);
+  });
+}
+
 function fiProjetos(pai, projetos) {
   var c = fiCartao(pai, 'Projetos', projetos.length ? String(projetos.length) : '');
   if (!projetos.length) { fiVazio(c); return; }
@@ -279,6 +324,118 @@ function fiCaixa(pai, itens) {
     var estado = x.status === 'por_triar' ? pill('por triar', 'warn') : pill('catalogado', 'good');
     c.appendChild(row(x.title || x.file_name || 'Sem nome', fiData(x.captured_at), estado));
   });
+}
+
+/* ---------------- editar ---------------- */
+/* O formulario e o da pagina de Pessoas (pessoas.js): os mesmos campos, as
+   mesmas cores, a mesma fotografia encolhida no browser. Aqui so se abre numa
+   janela e se acrescenta a nota, que e o que aparece no cartao da Familia. */
+function fiEditar(p) {
+  if (typeof peMontarDialogo === 'function') peMontarDialogo();
+  var dlg = $('peDlg');
+  var cx = $('peDlgC');
+  if (!dlg || !cx) { toast('Não foi possível abrir a edição.'); return; }
+  PE.fotoNova = null;
+  PE.fotoFora = false;
+  clear(cx);
+  cx.appendChild(el('h3', null, 'Editar ' + p.name));
+  cx.appendChild(el('p', 'pe-dlgs', 'Muda o que estiver errado. O resto da app passa a ver a pessoa assim.'));
+
+  var par1 = el('div', 'fi-par');
+  par1.appendChild(peCampo('Como lhe chamas', peTexto('fiENome', p.name)));
+  par1.appendChild(peCampo('Nome completo', peTexto('fiECompleto', p.full_name, 'Como está nos documentos')));
+  cx.appendChild(par1);
+  var par2 = el('div', 'fi-par');
+  par2.appendChild(peCampo('Quem é', peTexto('fiEPapel', p.role, 'Ex.: Filha')));
+  par2.appendChild(peCampo('Tipo', peSelectTipo('fiETipo', p.kind)));
+  cx.appendChild(par2);
+
+  var nota = el('textarea');
+  nota.id = 'fiENota';
+  nota.value = p.note || '';
+  nota.placeholder = 'Uma linha que aparece no cartão da Família';
+  cx.appendChild(peCampo('Nota', nota));
+
+  cx.appendChild(peBloco('Cor', peCores('fiECor', p.color)));
+  cx.appendChild(peBloco('Fotografia', peFoto('fiECor', p)));
+
+  var checks = el('div', 'fi-checks');
+  checks.appendChild(peCheck('fiETarefas', 'Pode ter tarefas atribuídas', p.can_own_tasks));
+  checks.appendChild(peCheck('fiEActiva', 'Activa', p.active));
+  cx.appendChild(checks);
+
+  var acts = el('div', 'pe-acoes');
+  var cancelar = el('button', 'btn', 'Cancelar');
+  cancelar.type = 'button';
+  cancelar.onclick = peFecharDlg;
+  var guardar = el('button', 'btn primary', 'Guardar');
+  guardar.type = 'button';
+  guardar.onclick = function () { fiGravar(p, guardar); };
+  acts.appendChild(cancelar);
+  acts.appendChild(guardar);
+  cx.appendChild(acts);
+
+  if (dlg.showModal) { if (!dlg.open) dlg.showModal(); } else dlg.setAttribute('open', '');
+  $('fiENome').focus();
+}
+
+function fiGravar(p, botao) {
+  var corpo = {
+    name: ($('fiENome').value || '').trim(),
+    full_name: ($('fiECompleto').value || '').trim(),
+    role: ($('fiEPapel').value || '').trim(),
+    kind: $('fiETipo').value,
+    note: ($('fiENota').value || '').trim(),
+    color: $('fiECor').dataset.cor,
+    can_own_tasks: $('fiETarefas').checked,
+    active: $('fiEActiva').checked
+  };
+  if (!corpo.name) { toast('A pessoa tem de ter um nome.'); return; }
+
+  var foto = PE.fotoNova, fora = PE.fotoFora;
+  botao.disabled = true;
+  apiGestao('/api/pessoas/' + p.id, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(corpo)
+  }).then(function (d) {
+    if (foto) {
+      return apiGestao('/api/pessoas/' + p.id + '/avatar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ avatar: foto })
+      });
+    }
+    if (fora) return apiGestao('/api/pessoas/' + p.id + '/avatar', { method: 'DELETE' });
+    return d;
+  }).then(function (d) {
+    peFecharDlg();
+    toast('Guardado.');
+    /* A fotografia vai para a cache do browser por um dia. Os cartoes da
+       Familia pedem-na sem versao, por isso refresca-se a copia guardada. */
+    if (foto || fora) {
+      try { fetch('/api/pessoas/' + p.id + '/avatar', { cache: 'reload', credentials: 'same-origin' }).catch(function () {}); }
+      catch (e) { /* sem fetch */ }
+    }
+    /* Tudo o que mostra esta pessoa passa a mostra-la como ficou. */
+    if (typeof peGuardar === 'function' && d && d.pessoas) peGuardar(d);
+    if (window.loadGestao) loadGestao();
+    /* Primeiro o arranque (cartoes da Familia), depois a ficha: o renderAll
+       reescreve o subtitulo da pagina e a ficha tem de ficar por cima. */
+    var aqui = FI.id;
+    apiGestao('/api/bootstrap').then(function (b) {
+      if (b && b.people && typeof renderAll === 'function') { D = b; renderAll(); }
+    }).catch(function () { /* os cartoes actualizam no proximo arranque */ })
+      .then(function () { return apiGestao('/api/pessoas/' + aqui + '/ficha'); })
+      .then(function (f) {
+        if (FI.id !== aqui) return;
+        FI.dados = f;
+        var v = document.getElementById('view-pessoa');
+        if (v && v.classList.contains('is-active')) fiDesenhar();
+      }).catch(function () { /* a ficha antiga fica */ });
+  }).catch(function (e) {
+    toast(e.message || 'Não foi possível guardar.');
+  }).then(function () { botao.disabled = false; });
 }
 
 /* ---------------- como se chega la ---------------- */
