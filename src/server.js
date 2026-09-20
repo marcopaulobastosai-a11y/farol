@@ -52,7 +52,11 @@ const APP_ENV = process.env.APP_ENV || 'qualidade';
    passos; o limite por omissao (100 KB) cortava os lotes a meio. */
 app.use(express.json({ limit: '5mb' }));
 auth.instalar(app);
-app.use(express.static(path.join(__dirname, '..', 'public'), { maxAge: '1h' }));
+/* Uma hora de cache queria dizer uma hora a ver a versao antiga depois de cada
+   deploy - e ninguem se lembra de recarregar a pagina a forca. Com maxAge 0 o
+   browser continua a guardar os ficheiros, mas pergunta antes de os usar: se
+   nada mudou o servidor responde 304 e nao se transfere nada. */
+app.use(express.static(path.join(__dirname, '..', 'public'), { maxAge: 0, etag: true, lastModified: true }));
 
 const all = async (sql, params) => (await query(sql, params)).rows;
 
