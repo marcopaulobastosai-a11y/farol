@@ -94,6 +94,31 @@ function urgencia(n, origem){
   return { texto: texto, nivel: nivel };
 }
 
+/* Um cartao do painel Hoje. Vive fora do renderHoje porque agora e desenhado
+   em dois sitios: o que esta a chegar, e o que ja passou. */
+function attnCard(x){
+  var a = x.a;
+  var art = el('article', x.u.nivel);
+  var g = el('div', 'grow');
+  g.appendChild(el('h4', null, a.title));
+  var abaixo = [a.origem === 'tarefa' ? 'prazo' : 'validade', a.detail]
+    .filter(Boolean).join(' \u00b7 ');
+  g.appendChild(el('p', null, abaixo));
+  art.appendChild(g);
+  var w = el('div', 'when');
+  var p = pill(x.u.texto || dataCurta(a.quando), x.u.nivel);
+  p.insertBefore(el('i', 'dot'), p.firstChild);
+  w.appendChild(p);
+  art.appendChild(w);
+  /* Clicar leva ao sitio onde se resolve, nao a lado nenhum. */
+  art.style.cursor = 'pointer';
+  art.addEventListener('click', function(){
+    if (a.origem === 'pessoa' && typeof fiAbrir === 'function') { fiAbrir(a.id); return; }
+    show(a.origem === 'documento' ? 'documentos' : 'tarefas');
+  });
+  return art;
+}
+
 function renderHoje(){
   var list = $('attnList');
   clear(list);
@@ -102,32 +127,40 @@ function renderHoje(){
     var u = urgencia(n, a.origem);
     return { a: a, dias: n, u: u };
   });
-  itens.forEach(function(x){
-    var a = x.a;
-    var art = el('article', x.u.nivel);
-    var g = el('div', 'grow');
-    g.appendChild(el('h4', null, a.title));
-    var abaixo = [a.origem === 'tarefa' ? 'prazo' : 'validade', a.detail]
-      .filter(Boolean).join(' · ');
-    g.appendChild(el('p', null, abaixo));
-    art.appendChild(g);
-    var w = el('div', 'when');
-    var p = pill(x.u.texto || dataCurta(a.quando), x.u.nivel);
-    p.insertBefore(el('i', 'dot'), p.firstChild);
-    w.appendChild(p);
-    art.appendChild(w);
-    /* Clicar leva ao sitio onde se resolve, nao a lado nenhum. */
-    art.style.cursor = 'pointer';
-    art.addEventListener('click', function(){
-      if (a.origem === 'pessoa' && typeof fiAbrir === 'function') { fiAbrir(a.id); return; }
-      show(a.origem === 'documento' ? 'documentos' : 'tarefas');
-    });
-    list.appendChild(art);
-  });
+
+  /* O painel mostrava tudo o que tinha prazo, incluindo tarefas de ha um ano:
+     quarenta e cinco linhas nao apontam para nada. O que ja passou nao se
+     esconde - conta-se numa linha so, que se abre. A vista fica o que vem ai. */
+  var atrasados = itens.filter(function(x){ return x.dias !== null && x.dias < 0; });
+  var proximos  = itens.filter(function(x){ return x.dias === null || x.dias >= 0; });
+
+  if (atrasados.length){
+    /* "21 set" para uma data do ano passado engana; nesse caso leva o ano. */
+    var q = atrasados[0].a.quando;
+    var maisAntigo = dataCurta(q) +
+      (q.slice(0, 4) !== String(D.meta.today).slice(0, 4) ? ' de ' + q.slice(0, 4) : '');
+    var bloco = el('details', 'atraso');
+    var cab = el('summary');
+    cab.appendChild(el('b', null, atrasados.length + ' em atraso'));
+    cab.appendChild(el('span', null, 'o mais antigo de ' + maisAntigo));
+    bloco.appendChild(cab);
+    var dentro = el('div', 'attn');
+    /* Ao contrario do resto: o que falhou ha menos tempo ainda se resolve. */
+    atrasados.slice().reverse().forEach(function(x){ dentro.appendChild(attnCard(x)); });
+    bloco.appendChild(dentro);
+    list.appendChild(bloco);
+  }
+
+  proximos.forEach(function(x){ list.appendChild(attnCard(x)); });
+
   if (!itens.length){
     list.appendChild(el('p', 'empty', 'Nada com data a chegar. O que tiver prazo aparece aqui sozinho.'));
+  } else if (!proximos.length){
+    list.appendChild(el('p', 'empty', 'Nada a chegar nos pr\u00f3ximos dias.'));
   }
-  $('attnLabel').textContent = 'Precisa de ti · ' + itens.length;
+  var rotulo = 'Precisa de ti \u00b7 ' + proximos.length + ' a chegar';
+  if (atrasados.length) rotulo += ' \u00b7 ' + atrasados.length + ' em atraso';
+  $('attnLabel').textContent = rotulo;
   $('badgeHoje').textContent = itens.length;
 
   var tiles = $('tiles');
@@ -193,17 +226,28 @@ function renderAgendaShell(){
   $('calNote').textContent = D.notes.agenda_nota || '';
   $('loadLabel').textContent = D.meta.week_label || '';
 
+  /* Esta lista lia when_label/when_level, campos que a consulta ja nao devolve:
+     mostrava quarenta e cinco tracos. Passa a usar a mesma conta de urgencia
+     do painel Hoje, e so o que ainda esta a tempo de ser decidido. */
   var dec = $('decisions');
   clear(dec);
-  D.attention.forEach(function(a){
+  var decide = (D.attention || []).filter(function(a){
+    var n = diasAte(a.quando);
+    return n === null || n >= 0;
+  });
+  decide.forEach(function(a){
+    var u = urgencia(diasAte(a.quando), a.origem);
     var r = el('div', 'row');
-    r.appendChild(pill(a.when_label || '—', a.when_level));
+    r.appendChild(pill(u.texto || dataCurta(a.quando), u.nivel));
     var g = el('div', 'grow');
     g.appendChild(el('span', 't', a.title));
     if (a.detail) g.appendChild(el('span', 's', a.detail));
     r.appendChild(g);
     dec.appendChild(r);
   });
+  if (!decide.length){
+    dec.appendChild(el('p', 'empty', 'Nada a decidir com data marcada.'));
+  }
 }
 function eventsOf(dayKey){
   return D.events.filter(function(e){ return e.day === dayKey && calState.active[e.calendar]; });
