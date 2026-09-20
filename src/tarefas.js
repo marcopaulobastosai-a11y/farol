@@ -17,6 +17,7 @@ const all = async (sql, params) => (await query(sql, params)).rows;
 const limpar = (v) => (v === undefined || v === '' ? null : v);
 
 const STATUS = ['aberta', 'em_curso', 'a_espera', 'concluida', 'cancelada'];
+const TIPOS = ['tarefa', 'lembrete', 'nota'];
 const PRIOS = ['baixa', 'normal', 'media', 'alta'];
 const FECHADAS = ['concluida', 'cancelada'];
 
@@ -119,7 +120,7 @@ function descreverRegra(texto) {
  * Leitura
  * ------------------------------------------------------------------ */
 
-const CAMPOS = `t.id, t.title, t.notes, t.area, t.context_id, t.project_id, t.owner_id, t.status, t.priority,
+const CAMPOS = `t.id, t.title, t.notes, t.area, t.context_id, t.project_id, t.owner_id, t.status, t.priority, t.tipo,
   to_char(t.starts_on,'YYYY-MM-DD') AS starts_on,
   to_char(t.due_on,'YYYY-MM-DD') AS due_on, to_char(t.due_time,'HH24:MI') AS due_time,
   t.repeat_every, t.repeat_rule, t.repeat_from, to_char(t.repeat_until,'YYYY-MM-DD') AS repeat_until,
@@ -257,13 +258,14 @@ async function criar(b) {
   if (!title) { const e = new Error('A tarefa precisa de um título.'); e.status = 400; throw e; }
   const status = STATUS.includes(b.status) ? b.status : 'aberta';
   const priority = PRIOS.includes(b.priority) ? b.priority : 'normal';
+  const tipo = TIPOS.includes(b.tipo) ? b.tipo : 'tarefa';
   const regra = normalizarRegra(b.repeat_rule || b.repeat_every);
   const rows = await all(
-    `INSERT INTO tasks (title, notes, area, context_id, project_id, owner_id, status, priority,
+    `INSERT INTO tasks (tipo, title, notes, area, context_id, project_id, owner_id, status, priority,
                         starts_on, due_on, due_time, repeat_every, repeat_rule, repeat_from, repeat_until,
                         reminders, tags, section, sort_order, parent_id,
                         repeat_count, done, completed_at, origin, scope)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,
+     VALUES ($23,$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,
              COALESCE($16::jsonb,'[]'::jsonb), COALESCE($17::text[],'{}'), $18,
              COALESCE($19, (SELECT COALESCE(min(sort_order),0) - 1 FROM tasks)), $20,
              1, $21, $22, 'real', NULL)
@@ -272,7 +274,7 @@ async function criar(b) {
      limpar(b.owner_id), status, priority, limpar(b.starts_on), limpar(b.due_on), limpar(b.due_time),
      limpar(b.repeat_every), regra, b.repeat_from === 'conclusao' ? 'conclusao' : 'prazo', limpar(b.repeat_until),
      lembretes(b.reminders), etiquetas(b.tags), limpar(b.section), b.sort_order != null ? Number(b.sort_order) : null,
-     limpar(b.parent_id), status === 'concluida', FECHADAS.includes(status) ? new Date() : null]);
+     limpar(b.parent_id), status === 'concluida', FECHADAS.includes(status) ? new Date() : null, tipo]);
   const id = rows[0].id;
   await gravarAssuntos(id, b.subjects);
   await gravarDocumentos(id, b.documents);
@@ -286,6 +288,7 @@ async function alterar(id, b) {
   ['title', 'notes', 'area', 'context_id', 'project_id', 'owner_id', 'starts_on', 'due_on', 'due_time',
    'repeat_until', 'section', 'parent_id'].forEach((c) => { if (b[c] !== undefined) por(c, limpar(b[c])); });
   if (b.priority !== undefined && PRIOS.includes(b.priority)) por('priority', b.priority);
+  if (b.tipo !== undefined && TIPOS.includes(b.tipo)) por('tipo', b.tipo);
   if (b.repeat_rule !== undefined || b.repeat_every !== undefined) {
     por('repeat_rule', normalizarRegra(b.repeat_rule !== undefined ? b.repeat_rule : b.repeat_every));
   }
@@ -465,6 +468,7 @@ function instalar(app, { carregarGestao, quem, ehAdmin }) {
       cond.push(`(t.owner_id = ${x} OR EXISTS (SELECT 1 FROM task_subjects s WHERE s.task_id = t.id AND s.person_id = ${x}))`);
     }
     if (req.query.estado === 'concluida' || req.query.estado === 'cancelada') cond.push('t.status = ' + p(req.query.estado));
+    if (TIPOS.includes(req.query.tipo)) cond.push('t.tipo = ' + p(req.query.tipo));
     if (req.query.projeto) cond.push('t.project_id = ' + p(Number(req.query.projeto)));
     if (req.query.q) cond.push('t.title ILIKE ' + p('%' + req.query.q + '%'));
     if (req.query.antes) cond.push('t.completed_at < ' + p(req.query.antes));
@@ -533,6 +537,36 @@ function instalar(app, { carregarGestao, quem, ehAdmin }) {
     } catch (err) { falha(res, err, 'DELETE comentario'); }
   });
 
+  /* Arrumar as mesmas coisas em muitas linhas de uma vez: mudar o tipo de
+     cinquenta notas nao pode obrigar a cinquenta pedidos. So mexe nos campos
+     de arrumacao - nada de datas nem de estados. */
+  app.patch('/api/tarefas/lote', async (req, res) => {
+    const b = req.body || {};
+    const ids = (b.ids || []).map(Number).filter(Number.isInteger);
+    if (!ids.length) return res.status(400).json({ error: 'Faltam as tarefas.' });
+    const campos = [], valores = [];
+    const por = (c, v) => { campos.push(c + ' = $' + (campos.length + 1)); valores.push(v); };
+    if (TIPOS.includes(b.tipo)) por('tipo', b.tipo);
+    if (b.context_id !== undefined) por('context_id', limpar(b.context_id));
+    if (b.project_id !== undefined) por('project_id', limpar(b.project_id));
+    if (b.owner_id !== undefined) por('owner_id', limpar(b.owner_id));
+    if (PRIOS.includes(b.priority)) por('priority', b.priority);
+    if (b.section !== undefined) por('section', limpar(b.section));
+    if (Array.isArray(b.tags)) por('tags', etiquetas(b.tags) || []);
+    if (Array.isArray(b.tirar_tags)) {
+      campos.push('tags = (SELECT COALESCE(array_agg(x), \'{}\') FROM unnest(tags) x WHERE x <> ALL($' + (campos.length + 1) + '::text[]))');
+      valores.push(etiquetas(b.tirar_tags) || []);
+    }
+    if (!campos.length) return res.status(400).json({ error: 'Nada para mudar.' });
+    try {
+      valores.push(ids);
+      const rows = await all(
+        `UPDATE tasks SET ${campos.join(', ')}, updated_at = now()
+          WHERE id = ANY($${valores.length}::int[]) AND origin = 'real' RETURNING id`, valores);
+      res.json({ alteradas: rows.length });
+    } catch (err) { falha(res, err, 'PATCH lote'); }
+  });
+
   app.post('/api/tarefas/importar', async (req, res) => {
     if (!ehAdmin(req)) return res.status(403).json({ error: 'Só o administrador importa.' });
     try { res.json(await importar(req.body || {})); }
@@ -540,4 +574,4 @@ function instalar(app, { carregarGestao, quem, ehAdmin }) {
   });
 }
 
-module.exports = { instalar, tarefasParaGestao, importar, criar, alterar, fechar, umaTarefa, proximaData, descreverRegra, STATUS, PRIOS };
+module.exports = { instalar, tarefasParaGestao, importar, criar, alterar, fechar, umaTarefa, proximaData, descreverRegra, STATUS, PRIOS, TIPOS };

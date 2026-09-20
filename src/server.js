@@ -116,6 +116,7 @@ app.get('/api/bootstrap', async (_req, res) => {
                     to_char(t.due_on,'YYYY-MM-DD') AS quando
                FROM tasks t LEFT JOIN contexts c ON c.id = t.context_id
               WHERE t.origin = 'real' AND NOT t.done AND t.status <> 'cancelada'
+                AND t.tipo <> 'nota'
                 AND t.due_on IS NOT NULL
                 AND t.due_on <= CURRENT_DATE + INTERVAL '30 days'
              UNION ALL
@@ -138,12 +139,14 @@ app.get('/api/bootstrap', async (_req, res) => {
            ) x ORDER BY quando, title`),
       all(`SELECT 'Por fazer' AS label,
                   (SELECT count(*) FROM tasks
-                    WHERE origin = 'real' AND NOT done AND status <> 'cancelada')::text AS value,
+                    WHERE origin = 'real' AND NOT done AND status <> 'cancelada'
+                      AND tipo = 'tarefa')::text AS value,
                   'tarefas abertas' AS note, 'tarefas' AS goto
            UNION ALL
            SELECT 'Com prazo a 7 dias',
                   (SELECT count(*) FROM tasks
                     WHERE origin = 'real' AND NOT done AND status <> 'cancelada'
+                      AND tipo = 'tarefa'
                       AND due_on IS NOT NULL
                       AND due_on <= CURRENT_DATE + INTERVAL '7 days')::text,
                   'incluindo o que ja passou', 'tarefas'
