@@ -23,7 +23,15 @@ var TF = {
 
 var TF_PRIO = [['alta', 'Alta'], ['media', 'Média'], ['normal', 'Nenhuma'], ['baixa', 'Baixa']];
 var TF_PRIO_ORD = { alta: 0, media: 1, normal: 2, baixa: 3 };
-var TF_ESTADOS = [['aberta', 'Por fazer'], ['em_curso', 'Em curso'], ['a_espera', 'À espera']];
+/* Os cinco estados de uma tarefa. Os tres primeiros sao o caminho normal; os
+   dois ultimos fecham-na. A cruz na caixinha e o atalho para «Concluída». */
+var TF_ESTADOS = [['aberta', 'Por iniciar', ''], ['em_curso', 'Em execução', 'accent'], ['a_espera', 'À espera', 'warn']];
+var TF_ESTADOS_FIM = [['concluida', 'Concluída', 'good'], ['cancelada', 'Não farei', '']];
+function tfEstado(v){
+  var todos = TF_ESTADOS.concat(TF_ESTADOS_FIM);
+  for (var i = 0; i < todos.length; i++) if (todos[i][0] === v) return todos[i];
+  return TF_ESTADOS[0];
+}
 var TF_DIAS_SEM = ['domingo', 'segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado'];
 var TF_RRULE_DIAS = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
 
@@ -74,6 +82,11 @@ var TF_CSS = [
   ".tf-m{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;margin-top:3px;font-size:.72rem;color:var(--muted)}",
   ".tf-m .dot{width:7px;height:7px;border-radius:50%;display:inline-block;margin-right:4px;vertical-align:0}",
   ".tf-m svg{vertical-align:-2px;margin-right:2px}",
+  ".tf-est{font-family:var(--mono);font-size:.625rem;letter-spacing:.04em;text-transform:uppercase;padding:1px 7px;border-radius:99px;border:1px solid var(--line);background:var(--surface);color:var(--muted);cursor:pointer}",
+  ".tf-est:hover{border-color:var(--accent);color:var(--accent-ink)}",
+  ".tf-est.accent{background:var(--accent-soft);border-color:transparent;color:var(--accent-ink)}",
+  ".tf-est.warn{background:var(--warn-soft);border-color:transparent;color:var(--warn)}",
+  ".tf-est.good{background:var(--good-soft);border-color:transparent;color:var(--good)}",
   ".tf-tag{font-family:var(--mono);font-size:.625rem;padding:1px 6px;border-radius:99px;background:var(--surface-2);border:1px solid var(--line-soft);color:var(--muted)}",
   ".tf-r{flex:none;text-align:right;font-family:var(--mono);font-size:.6875rem;color:var(--muted);padding-top:2px;white-space:nowrap}",
   ".tf-r.bad{color:var(--bad)} .tf-r.warn{color:var(--warn)} .tf-r.acc{color:var(--accent-ink)}",
@@ -150,6 +163,7 @@ var TF_I = {
   atraso: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
   todas: '<path d="M9 6h11M9 12h11M9 18h11"/><path d="M4 6h1M4 12h1M4 18h1"/>',
   semdata: '<rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 10h17"/><path d="M9 14l6 4M15 14l-6 4"/>',
+  curso: '<circle cx="12" cy="12" r="9"/><path d="M12 12l0-5"/><path d="M12 12l3.5 3.5"/>',
   espera: '<path d="M7 3h10M7 21h10"/><path d="M8 3c0 5 8 5 8 9s-8 4-8 9M16 3c0 5-8 5-8 9"/>',
   feito: '<circle cx="12" cy="12" r="9"/><path d="M8 12l3 3 5-6"/>',
   nao: '<circle cx="12" cy="12" r="9"/><path d="M6 6l12 12"/>',
@@ -304,6 +318,7 @@ function tfCriarRapido(input){
   if (v === 'hoje' && !r.due_on) base.due_on = tfISO(tfHoje());
   if (v === 'amanha' && !r.due_on) base.due_on = tfISO(tfMais(tfHoje(), 1));
   if (v === 'espera') base.status = 'a_espera';
+  if (v === 'execucao') base.status = 'em_curso';
   if (v.indexOf('p:') === 0 && !r.owner_id){
     var p = pessoa(Number(v.slice(2)));
     if (p && p.can_own_tasks) base.owner_id = p.id; else if (p) base.subjects = [p.id];
@@ -365,6 +380,7 @@ function tfFiltro(v){
   if (v === 'atrasadas') return function(t){ return t.due_on && t.due_on < h; };
   if (v === 'semdata') return function(t){ return !t.due_on; };
   if (v === 'espera') return function(t){ return t.status === 'a_espera'; };
+  if (v === 'execucao') return function(t){ return t.status === 'em_curso'; };
   if (v.indexOf('p:') === 0){
     var id = Number(v.slice(2));
     return function(t){ return t.owner_id === id || (t.subjects || []).indexOf(id) >= 0; };
@@ -376,7 +392,8 @@ function tfFiltro(v){
 
 function tfTituloVista(v){
   var M = { hoje: 'Hoje', amanha: 'Amanhã', semana: 'Próximos 7 dias', atrasadas: 'Atrasadas', todas: 'Por fazer',
-            semdata: 'Sem data', espera: 'À espera', concluidas: 'Concluídas', naofarei: 'Não farei' };
+            execucao: 'Em execução', semdata: 'Sem data', espera: 'À espera',
+            concluidas: 'Concluídas', naofarei: 'Não farei' };
   if (M[v]) return M[v];
   if (v.indexOf('p:') === 0){ var p = pessoa(Number(v.slice(2))); return p ? p.name : 'Pessoa'; }
   if (v.indexOf('proj:') === 0){ var pr = projeto(Number(v.slice(5))); return pr ? pr.name : 'Projeto'; }
@@ -495,6 +512,7 @@ function tfRenderSide(){
   tfSideBtn(box, 'semana', 'semana', 'Próximos 7 dias', conta('semana'));
   tfSideBtn(box, 'atrasadas', 'atraso', 'Atrasadas', conta('atrasadas'));
   tfSideBtn(box, 'todas', 'todas', 'Por fazer', conta('todas'));
+  tfSideBtn(box, 'execucao', 'curso', 'Em execução', conta('execucao'));
   tfSideBtn(box, 'semdata', 'semdata', 'Sem data', conta('semdata'));
   tfSideBtn(box, 'espera', 'espera', 'À espera', conta('espera'));
   tfSideBtn(box, 'concluidas', 'feito', 'Concluídas', null);
@@ -630,6 +648,24 @@ function tfCaixa(t, onclick){
   return b;
 }
 
+/* O estado vive na linha: ve-se sem abrir nada e muda-se ali mesmo. */
+function tfEtiquetaEstado(t){
+  var e = tfEstado(t.status);
+  var b = el('button', 'tf-est' + (e[2] ? ' ' + e[2] : ''), e[1]);
+  b.type = 'button';
+  b.dataset.tfpop = '1';
+  b.title = 'Mudar o estado';
+  b.addEventListener('click', function(ev){
+    ev.stopPropagation();
+    var ops = TF_ESTADOS.concat(TF_ESTADOS_FIM).filter(function(x){ return x[0] !== t.status; })
+      .map(function(x){
+        return [x[1], function(){ tfMudarEstado(t, x[0]); }];
+      });
+    tfMenu(b, ops);
+  });
+  return b;
+}
+
 function tfLinha(t, sub){
   var li = el('div', 'tf-row' + (sub ? ' sub' : '') + (tfFechada(t) ? ' done' : '') + (TF.aberta === t.id ? ' sel' : ''));
   li.appendChild(tfCaixa(t, function(){ tfAlternar(t); }));
@@ -642,8 +678,7 @@ function tfLinha(t, sub){
     d.appendChild(dot); d.appendChild(document.createTextNode(dono.name)); m.appendChild(d);
   }
   (t.subjects || []).forEach(function(pid){ var p = pessoa(pid); if (p) m.appendChild(el('span', null, '→ ' + p.name)); });
-  if (t.status === 'a_espera') m.appendChild(pill('à espera', 'warn'));
-  if (t.status === 'em_curso') m.appendChild(pill('em curso', 'accent'));
+  m.appendChild(tfEtiquetaEstado(t));
   var pr = projeto(t.project_id);
   if (pr && TF.vista !== 'proj:' + pr.id) m.appendChild(el('span', null, pr.name));
   if ((t.items || []).length){
@@ -686,22 +721,38 @@ function tfGravar(id, dados, msg){
   }).catch(function(e){ toast(e.message || 'Não deu para gravar.'); throw e; });
 }
 
+/* Mudar o estado, venha de onde vier. Reabrir uma tarefa fechada tira-a do
+   historico que estiver a ser mostrado. */
+function tfMudarEstado(t, estado){
+  if (estado === 'concluida' || estado === 'cancelada') return tfFechar(t, estado);
+  if (!tfFechada(t)) return tfGravar(t.id, { status: estado });
+  return tfGravar(t.id, { status: estado }, 'Tarefa reaberta.').then(function(){
+    if (TF.vista === 'concluidas' || TF.vista === 'naofarei'){
+      TF.historico = TF.historico.filter(function(x){ return x.id !== t.id; });
+      tfRenderLista();
+    }
+  });
+}
+
 function tfAlternar(t){
-  if (tfFechada(t)){
-    tfGravar(t.id, { status: 'aberta' }, 'Tarefa reaberta.').then(function(){
-      if (TF.vista === 'concluidas' || TF.vista === 'naofarei'){
-        TF.historico = TF.historico.filter(function(x){ return x.id !== t.id; }); tfRenderLista();
-      }
-    });
-    return;
-  }
+  if (tfFechada(t)) return tfMudarEstado(t, 'aberta');
+  return tfFechar(t, 'concluida');
+}
+
+/* Fechar e sempre a mesma coisa, quer venha da caixinha quer da etiqueta do
+   estado: numa rotina fica o registo e a tarefa anda para a proxima data. */
+function tfFechar(t, estado){
+  if (tfFechada(t)) return tfGravar(t.id, { status: estado });
   var rotina = Boolean(t.repeat_rule);
-  tfGravar(t.id, { status: 'concluida' }).then(function(){
+  var feita = estado === 'concluida';
+  return tfGravar(t.id, { status: estado }).then(function(){
     if (rotina){
       var n = tfPorId(t.id);
-      toast(n && !tfFechada(n) ? 'Feito. Próxima: ' + tfDataTxt(n.due_on, n.due_time) + '.' : 'Feito. A rotina terminou.');
+      var prox = n && !tfFechada(n) ? ' Próxima: ' + tfDataTxt(n.due_on, n.due_time) + '.' : ' A rotina terminou.';
+      toast((feita ? 'Feito.' : 'Esta vez fica por fazer.') + prox);
     } else {
-      tfDesfazer('Tarefa concluída.', function(){ tfGravar(t.id, { status: 'aberta' }); });
+      tfDesfazer(feita ? 'Tarefa concluída.' : 'Marcada como «não farei».',
+        function(){ tfGravar(t.id, { status: 'aberta' }); });
     }
   });
 }
@@ -783,7 +834,7 @@ function tfRenderDetalhe(base){
   bMais.addEventListener('click', function(e){
     e.stopPropagation();
     var ops = [];
-    if (!fechada) ops.push(['Não farei', function(){ tfGravar(t.id, { status: 'cancelada' }, t.repeat_rule ? 'Esta vez fica por fazer; a rotina segue.' : 'Marcada como «não farei».'); }]);
+    if (!fechada) ops.push(['Não farei', function(){ tfFechar(t, 'cancelada'); }]);
     ops.push(['Duplicar', function(){ tfDuplicar(t); }]);
     if (!t.parent_id) ops.push(['Adicionar subtarefa', function(){ var i = document.querySelector('[data-tfk=novasub]'); if (i) i.focus(); }]);
     ops.push(['Apagar', function(){ tfApagar(t); }, 'danger']);
