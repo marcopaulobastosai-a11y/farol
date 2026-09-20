@@ -33,6 +33,7 @@ const LIGACOES = [
   { chave: 'projetos',   nome: 'projeto',   plural: 'projetos',   tabela: 'project_members', coluna: 'person_id' },
   { chave: 'despesas',   nome: 'despesa',   plural: 'despesas',   tabela: 'expenses',        coluna: 'person_id' },
   { chave: 'documentos', nome: 'documento', plural: 'documentos', tabela: 'documents',       coluna: 'person_id' },
+  { chave: 'compromissos', nome: 'compromisso na agenda', plural: 'compromissos na agenda', tabela: 'event_people', coluna: 'person_id' },
   { chave: 'inbox',      nome: 'item na caixa de entrada', plural: 'itens na caixa de entrada', tabela: 'inbox_items', coluna: 'captured_by' }
 ];
 
@@ -186,7 +187,26 @@ async function ficha(id) {
       ORDER BY i.captured_at DESC, i.id DESC
       LIMIT 30`);
 
-  return { pessoa, tarefas, documentos, despesas, projetos, caixa };
+  /* Os compromissos: o que esta na Agenda com o nome desta pessoa, de hoje
+     para a frente. Os que ja passaram so interessam como contagem. */
+  const compromissos = await uma(
+    `SELECT e.id, e.title, e.at, e.detail, e.calendar,
+            to_char(e.day, 'YYYY-MM-DD') AS day,
+            (SELECT string_agg(o.name, ', ' ORDER BY o.sort, o.name)
+               FROM event_people x JOIN people o ON o.id = x.person_id
+              WHERE x.event_id = e.id AND x.person_id <> $1) AS com
+       FROM events e
+       JOIN event_people ep ON ep.event_id = e.id AND ep.person_id = $1
+      WHERE e.day >= CURRENT_DATE
+      ORDER BY e.day, e.at NULLS FIRST, e.id
+      LIMIT 50`);
+
+  const [{ n: compromissosPassados }] = await uma(
+    `SELECT count(*)::int AS n
+       FROM event_people ep JOIN events e ON e.id = ep.event_id
+      WHERE ep.person_id = $1 AND e.day < CURRENT_DATE`);
+
+  return { pessoa, tarefas, documentos, despesas, projetos, caixa, compromissos, compromissosPassados };
 }
 
 /* ---------------- ligação ao Express ---------------- */
@@ -255,6 +275,7 @@ function instalar(app) {
     if (c.active !== undefined) por('active', Boolean(c.active));
     if (c.color !== undefined) por('color', limpar(c.color) || 'var(--c1)');
     if (c.initials !== undefined) por('initials', limpar(c.initials) || null);
+    if (c.note !== undefined) por('note', limpar(c.note) || null);
     if (!campos.length) return res.status(400).json({ error: 'Nada para mudar.' });
 
     try {
