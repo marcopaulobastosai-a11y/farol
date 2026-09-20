@@ -23,7 +23,8 @@ var IB_DESTINOS = [
   { tipo: 'evento', nome: 'Evento na Agenda', campos: [
     { k: 'title', l: 'Título', tipo: 'text' },
     { k: 'day', l: 'Dia', tipo: 'date' },
-    { k: 'at', l: 'Hora', tipo: 'time' }
+    { k: 'at', l: 'Hora', tipo: 'time' },
+    { k: 'person_id', l: 'De quem', tipo: 'pessoa' }
   ] },
   { tipo: 'documento', nome: 'Documento', campos: [
     { k: 'name', l: 'Nome', tipo: 'text' },
