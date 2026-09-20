@@ -38,7 +38,25 @@ var FI_CSS = [
   '.pe-dlgc textarea{font:inherit;font-size:.875rem;color:var(--ink);background:var(--surface-2);border:1px solid var(--line);',
   'border-radius:8px;padding:9px 11px;width:100%;min-width:0;min-height:4.5rem;resize:vertical;box-sizing:border-box}',
   '.pe-dlgc textarea:focus{outline:0;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}',
-  '.pe-dlgc .fi-checks{display:flex;gap:1.25rem;flex-wrap:wrap;margin:.35rem 0 .1rem}'
+  '.pe-dlgc .fi-checks{display:flex;gap:1.25rem;flex-wrap:wrap;margin:.35rem 0 .1rem}',
+  '.pe-dlgc .fi-sec{font-family:var(--mono);font-size:.6875rem;letter-spacing:.08em;text-transform:uppercase;',
+  'color:var(--accent);margin:1.2rem 0 .6rem;padding-top:.9rem;border-top:1px solid var(--line-soft)}',
+  '.pe-dlgc .fi-dica{font-size:.75rem;color:var(--muted);margin:-.4rem 0 .8rem}',
+  '.pe-dlgc input[type=date],.pe-dlgc input[type=email],.pe-dlgc input[type=tel]{font:inherit;font-size:.875rem;',
+  'color:var(--ink);background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:9px 11px;',
+  'width:100%;min-width:0;box-sizing:border-box}',
+  '.pe-dlgc input[type=date]:focus,.pe-dlgc input[type=email]:focus,.pe-dlgc input[type=tel]:focus',
+  '{outline:0;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}',
+  '#view-pessoa .fi-dados{display:grid;grid-template-columns:minmax(7.5rem,auto) 1fr;gap:.45rem 1rem;margin:0;font-size:.875rem}',
+  '#view-pessoa .fi-dados dt{color:var(--muted);font-size:.8125rem}',
+  '#view-pessoa .fi-dados dd{margin:0;color:var(--ink);min-width:0;overflow-wrap:anywhere}',
+  '#view-pessoa .fi-dados .fi-grupo{grid-column:1/-1;font-family:var(--mono);font-size:.6875rem;letter-spacing:.08em;',
+  'text-transform:uppercase;color:var(--muted);margin-top:.6rem;padding-top:.6rem;border-top:1px solid var(--line-soft)}',
+  '#view-pessoa .fi-dados .fi-grupo:first-child{margin-top:0;padding-top:0;border-top:0}',
+  '#view-pessoa .fi-num-id{font-family:var(--mono);letter-spacing:.02em}',
+  '#view-pessoa .fi-dados a{color:var(--accent);text-underline-offset:2px}',
+  '#view-pessoa .fi-ver{border:0;background:none;color:var(--accent);font:inherit;font-size:.75rem;cursor:pointer;padding:0}',
+  '#view-pessoa .fi-link{color:var(--accent);cursor:pointer;text-decoration:underline;text-underline-offset:2px}'
 ].join('');
 
 function fiEstilo() {
@@ -103,6 +121,39 @@ function fiArea(x) {
 
 function fiEuros(v) {
   return (Math.round(Number(v || 0) * 100) / 100).toFixed(2).replace('.', ',') + ' ' + String.fromCharCode(8364);
+}
+
+var FI_TIPOS = { adulto: 'adulto', crianca: 'criança', familiar: 'familiar', animal: 'animal' };
+var FI_DOCS = { cc: 'Cartão de Cidadão', tr: 'Título de residência' };
+var FI_HUMANO = { adulto: true, crianca: true, familiar: true };
+
+/* O que cada tipo de pessoa tem de proprio. A ordem e a da janela. */
+var FI_DETALHES = {
+  adulto:   [['empregador', 'Entidade patronal', 'Onde trabalha']],
+  crianca:  [['escola', 'Escola', ''], ['ano_turma', 'Ano e turma', 'Ex.: 5.º B'],
+             ['escola_contacto', 'Contacto da escola', 'Telefone ou email da secretaria']],
+  familiar: [],
+  animal:   [['raca', 'Raça', ''], ['microchip', 'N.º do microchip', ''],
+             ['veterinario', 'Veterinário', 'Nome e contacto'], ['seguro', 'Seguro', 'Seguradora e apólice']]
+};
+/* A mesma relacao chama-se de maneira diferente conforme quem e. */
+var FI_RESPONSAVEL = { crianca: 'Encarregado de educação', familiar: 'Quem acompanha' };
+
+function fiIdade(iso) {
+  if (!iso) return null;
+  var p = String(iso).split('-').map(Number);
+  var h = new Date();
+  var anos = h.getFullYear() - p[0];
+  if (h.getMonth() + 1 < p[1] || (h.getMonth() + 1 === p[1] && h.getDate() < p[2])) anos--;
+  return anos >= 0 ? anos : null;
+}
+
+/* Os numeros que se pedem ao balcao nao ficam expostos no ecra de quem passa:
+   veem-se os ultimos tres e mostram-se todos a pedido. */
+function fiMascara(v) {
+  var t = String(v || '');
+  if (t.length <= 3) return t;
+  return new Array(t.length - 2).join(String.fromCharCode(8226)) + t.slice(-3);
 }
 
 function fiTabela(c, cabecalhos) {
@@ -179,7 +230,8 @@ function fiDesenhar() {
   var txt = el('div', 'grow');
   txt.appendChild(el('h2', 'fi-nome', p.name));
   txt.appendChild(el('div', 'fi-sub',
-    [p.full_name && p.full_name !== p.name ? p.full_name : null, p.role, p.kind]
+    [p.full_name && p.full_name !== p.name ? p.full_name : null, p.role, FI_TIPOS[p.kind] || p.kind,
+     fiIdade(p.birth_on) !== null ? fiIdade(p.birth_on) + (fiIdade(p.birth_on) === 1 ? ' ano' : ' anos') : null]
       .filter(Boolean).join(' · ')));
   var chips = el('div', 'chips');
   if (!p.active) chips.appendChild(pill('desactivada', 'warn'));
@@ -221,6 +273,7 @@ function fiDesenhar() {
 
   fiTarefas(esq, d.tarefas);
   fiDocumentos(esq, d.documentos);
+  fiDados(dir, p, d.dependentes || []);
   fiCompromissos(dir, compromissos, d.compromissosPassados || 0);
   fiProjetos(dir, d.projetos);
   fiDespesas(dir, d.despesas);
@@ -267,6 +320,128 @@ function fiDocumentos(pai, docs) {
   });
 }
 
+/* ---------------- os dados da pessoa ---------------- */
+function fiDados(pai, p, dependentes) {
+  var c = fiCartao(pai, 'Dados');
+  var dl = el('dl', 'fi-dados');
+  var mascarados = [];
+  var n = 0;
+
+  function grupo(t) { dl.appendChild(el('div', 'fi-grupo', t)); }
+  function linha(rotulo, valor) {
+    if (valor === null || valor === undefined || valor === '') return false;
+    dl.appendChild(el('dt', null, rotulo));
+    var dd = el('dd');
+    if (valor.nodeType) dd.appendChild(valor); else dd.appendChild(document.createTextNode(valor));
+    dl.appendChild(dd);
+    n++;
+    return true;
+  }
+  function numero(v) {
+    if (!v) return null;
+    var s = el('span', 'fi-num-id', fiMascara(v));
+    s.dataset.inteiro = v;
+    mascarados.push(s);
+    return s;
+  }
+  function ligacao(href, texto) {
+    var a = el('a', null, texto);
+    a.href = href;
+    return a;
+  }
+  function pessoaLink(x) {
+    var a = el('span', 'fi-link', x.name);
+    a.dataset.ficha = x.id;
+    return a;
+  }
+  /* Os grupos so aparecem quando tem alguma coisa. */
+  function bloco(titulo, linhas) {
+    var antes = dl.childNodes.length;
+    grupo(titulo);
+    var algum = false;
+    linhas.forEach(function (l) { if (linha(l[0], l[1])) algum = true; });
+    if (!algum) while (dl.childNodes.length > antes) dl.removeChild(dl.lastChild);
+  }
+
+  var humano = FI_HUMANO[p.kind];
+  var idade = fiIdade(p.birth_on);
+  bloco('Quem é', [
+    [p.kind === 'animal' ? 'Nasceu' : 'Nascimento',
+     p.birth_on ? fiData(p.birth_on) + (idade !== null ? '  ·  ' + idade + (idade === 1 ? ' ano' : ' anos') : '') : null]
+  ]);
+
+  if (humano) {
+    bloco('Contactos', [
+      ['Telemóvel', p.phone ? ligacao('tel:' + String(p.phone).replace(/\s+/g, ''), p.phone) : null],
+      ['Email', p.email ? ligacao('mailto:' + p.email, p.email) : null],
+      ['Morada', p.address]
+    ]);
+
+    var validade = null;
+    if (p.id_doc_validade) {
+      validade = el('span');
+      var pz = fiPrazo(p.id_doc_validade, 60);
+      if (pz) validade.appendChild(pz);
+    }
+    bloco('Identificação', [
+      ['NIF', numero(p.nif)],
+      ['Utente SNS', numero(p.sns)],
+      [FI_DOCS[p.id_doc_tipo] || 'Documento', numero(p.id_doc_numero)],
+      ['Válido até', validade]
+    ]);
+  }
+
+  var det = p.detalhes || {};
+  var titulos = { adulto: 'Trabalho', crianca: 'Escola', animal: 'Cuidados' };
+  var linhasDet = (FI_DETALHES[p.kind] || []).map(function (f) {
+    return [f[1], f[0] === 'microchip' ? numero(det[f[0]]) : det[f[0]]];
+  });
+  if (FI_RESPONSAVEL[p.kind]) linhasDet.push([FI_RESPONSAVEL[p.kind], p.responsavel ? pessoaLink(p.responsavel) : null]);
+  if (linhasDet.length) bloco(titulos[p.kind] || 'Apoio', linhasDet);
+
+  /* Do outro lado da mesma relacao: de quem esta pessoa trata. */
+  if (dependentes.length) {
+    var educa = dependentes.filter(function (x) { return x.kind === 'crianca'; });
+    var acomp = dependentes.filter(function (x) { return x.kind !== 'crianca'; });
+    var lista = function (xs) {
+      if (!xs.length) return null;
+      var sp = el('span');
+      xs.forEach(function (x, i) {
+        if (i) sp.appendChild(document.createTextNode(', '));
+        sp.appendChild(pessoaLink(x));
+      });
+      return sp;
+    };
+    bloco('Responsável por', [['Encarregado de', lista(educa)], ['Acompanha', lista(acomp)]]);
+  }
+
+  if (humano) {
+    bloco('Em caso de emergência', [
+      ['Ligar a', p.emerg_nome],
+      ['Telefone', p.emerg_tel ? ligacao('tel:' + String(p.emerg_tel).replace(/\s+/g, ''), p.emerg_tel) : null]
+    ]);
+    bloco('Na app', [['Conta de acesso', p.conta_email]]);
+  }
+
+  if (!n) {
+    fiVazio(c, 'Ainda sem dados. Carrega em Editar para os pôr.');
+    return;
+  }
+  c.appendChild(dl);
+
+  if (mascarados.length) {
+    var ver = el('button', 'fi-ver', 'mostrar números');
+    ver.type = 'button';
+    var aberto = false;
+    ver.onclick = function () {
+      aberto = !aberto;
+      mascarados.forEach(function (s) { s.textContent = aberto ? s.dataset.inteiro : fiMascara(s.dataset.inteiro); });
+      ver.textContent = aberto ? 'esconder números' : 'mostrar números';
+    };
+    c.querySelector('header').appendChild(ver);
+  }
+}
+
 /* O que esta na Agenda com o nome desta pessoa, de hoje em diante. */
 var FI_MESES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
 
@@ -280,7 +455,9 @@ function fiCompromissos(pai, lista, passados) {
   }
   var ponto = '  ' + String.fromCharCode(183) + '  ';
   lista.forEach(function (x) {
-    var sub = [x.detail, x.com ? 'com ' + x.com : null].filter(Boolean).join(ponto);
+    /* Um compromisso de quem esta pessoa acompanha diz de quem e. */
+    var sub = [x.de_outro && x.com ? 'de ' + x.com : null, x.detail,
+               !x.de_outro && x.com ? 'com ' + x.com : null].filter(Boolean).join(ponto);
     var r = row(x.title, sub, x.at ? pill(x.at) : null);
     var p = String(x.day).split('-');
     var q = el('div', 'fi-quando');
@@ -364,6 +541,19 @@ function fiEditar(p) {
   checks.appendChild(peCheck('fiEActiva', 'Activa', p.active));
   cx.appendChild(checks);
 
+  /* Os dados mudam com o tipo: uma crianca tem escola, o Brownie tem
+     microchip. Trocar o tipo redesenha esta parte sem perder o que ja se
+     escreveu nos campos que continuam a fazer sentido. */
+  var dados = el('div');
+  dados.id = 'fiEDados';
+  cx.appendChild(dados);
+  var v = fiValoresDe(p);
+  fiCamposDados(dados, p, p.kind, v);
+  $('fiETipo').onchange = function () {
+    v = Object.assign(v, fiLerDados());
+    fiCamposDados(dados, p, $('fiETipo').value, v);
+  };
+
   var acts = el('div', 'pe-acoes');
   var cancelar = el('button', 'btn', 'Cancelar');
   cancelar.type = 'button';
@@ -379,6 +569,111 @@ function fiEditar(p) {
   $('fiENome').focus();
 }
 
+/* ---- os campos de dados na janela ---- */
+function fiValoresDe(p) {
+  var v = {
+    birth_on: p.birth_on, phone: p.phone, email: p.email, address: p.address,
+    nif: p.nif, sns: p.sns, id_doc_tipo: p.id_doc_tipo, id_doc_numero: p.id_doc_numero,
+    id_doc_validade: p.id_doc_validade, emerg_nome: p.emerg_nome, emerg_tel: p.emerg_tel,
+    conta_email: p.conta_email, responsavel_id: p.responsavel_id
+  };
+  var det = p.detalhes || {};
+  Object.keys(det).forEach(function (k) { v['det_' + k] = det[k]; });
+  return v;
+}
+
+function fiInput(id, tipo, valor, dica) {
+  var i = el('input');
+  i.type = tipo; i.id = id; i.value = valor || '';
+  if (dica) i.placeholder = dica;
+  return i;
+}
+
+function fiSelect(id, opcoes, valor) {
+  var s = el('select');
+  s.id = id;
+  opcoes.forEach(function (o) { s.appendChild(new Option(o[1], o[0])); });
+  s.value = valor === null || valor === undefined ? '' : String(valor);
+  return s;
+}
+
+function fiPar(pai, a, b) {
+  var d = el('div', 'fi-par');
+  d.appendChild(a);
+  if (b) d.appendChild(b);
+  pai.appendChild(d);
+}
+
+function fiCamposDados(box, p, kind, v) {
+  clear(box);
+  var humano = FI_HUMANO[kind];
+  var sec = function (t) { box.appendChild(el('div', 'fi-sec', t)); };
+
+  sec('Nascimento');
+  fiPar(box, peCampo('Data', fiInput('fiDNasc', 'date', v.birth_on)));
+
+  if (humano) {
+    sec('Contactos');
+    fiPar(box, peCampo('Telemóvel', fiInput('fiDTel', 'tel', v.phone, '9xx xxx xxx')),
+               peCampo('Email', fiInput('fiDEmail', 'email', v.email)));
+    box.appendChild(peCampo('Morada', fiInput('fiDMorada', 'text', v.address)));
+    box.appendChild(el('p', 'fi-dica', 'Só se não viver na casa.'));
+
+    sec('Identificação');
+    fiPar(box, peCampo('NIF', fiInput('fiDNif', 'text', v.nif, '9 algarismos')),
+               peCampo('N.º de utente SNS', fiInput('fiDSns', 'text', v.sns, '9 algarismos')));
+    fiPar(box, peCampo('Documento', fiSelect('fiDDocTipo',
+                 [['', '—'], ['cc', 'Cartão de Cidadão'], ['tr', 'Título de residência']], v.id_doc_tipo)),
+               peCampo('Número', fiInput('fiDDocNum', 'text', v.id_doc_numero)));
+    fiPar(box, peCampo('Válido até', fiInput('fiDDocVal', 'date', v.id_doc_validade)));
+    box.appendChild(el('p', 'fi-dica', 'A validade avisa no Hoje dois meses antes.'));
+  }
+
+  var campos = FI_DETALHES[kind] || [];
+  var resp = FI_RESPONSAVEL[kind];
+  if (campos.length || resp) {
+    sec({ adulto: 'Trabalho', crianca: 'Escola', animal: 'Cuidados' }[kind] || 'Apoio');
+    var pares = campos.map(function (f) {
+      return peCampo(f[1], fiInput('fiDet_' + f[0], 'text', v['det_' + f[0]], f[2]));
+    });
+    if (resp) {
+      var gente = ((typeof G !== 'undefined' && G.people && G.people.length) ? G.people : (D && D.people) || [])
+        .filter(function (x) { return x.id !== p.id && x.kind !== 'animal' && x.kind !== 'crianca'; });
+      pares.push(peCampo(resp, fiSelect('fiDResp',
+        [['', '—']].concat(gente.map(function (x) { return [String(x.id), x.name]; })), v.responsavel_id)));
+    }
+    for (var i = 0; i < pares.length; i += 2) fiPar(box, pares[i], pares[i + 1]);
+  }
+
+  if (humano) {
+    sec('Em caso de emergência');
+    fiPar(box, peCampo('Ligar a', fiInput('fiDEmNome', 'text', v.emerg_nome, 'Nome')),
+               peCampo('Telefone', fiInput('fiDEmTel', 'tel', v.emerg_tel)));
+
+    sec('Na app');
+    var contas = (FI.dados && FI.dados.contas) || [];
+    if (v.conta_email && contas.indexOf(v.conta_email) < 0) contas = contas.concat([v.conta_email]);
+    box.appendChild(peCampo('Conta de acesso', fiSelect('fiDConta',
+      [['', '— sem conta —']].concat(contas.map(function (e) { return [e, e]; })), v.conta_email)));
+    box.appendChild(el('p', 'fi-dica', 'O email com que entra no Farol. Só aparecem as contas da página Acessos.'));
+  }
+}
+
+/* Le o que esta escrito nos campos que existem agora na janela. */
+function fiLerDados() {
+  var v = {};
+  var ler = function (id) { var x = $(id); return x ? x.value.trim() : undefined; };
+  var mapa = { birth_on: 'fiDNasc', phone: 'fiDTel', email: 'fiDEmail', address: 'fiDMorada',
+    nif: 'fiDNif', sns: 'fiDSns', id_doc_tipo: 'fiDDocTipo', id_doc_numero: 'fiDDocNum',
+    id_doc_validade: 'fiDDocVal', emerg_nome: 'fiDEmNome', emerg_tel: 'fiDEmTel',
+    conta_email: 'fiDConta', responsavel_id: 'fiDResp' };
+  Object.keys(mapa).forEach(function (k) { var x = ler(mapa[k]); if (x !== undefined) v[k] = x; });
+  Object.keys(FI_DETALHES).forEach(function (t) {
+    FI_DETALHES[t].forEach(function (f) { var x = ler('fiDet_' + f[0]); if (x !== undefined) v['det_' + f[0]] = x; });
+  });
+  return v;
+}
+
 function fiGravar(p, botao) {
   var corpo = {
     name: ($('fiENome').value || '').trim(),
@@ -391,6 +686,21 @@ function fiGravar(p, botao) {
     active: $('fiEActiva').checked
   };
   if (!corpo.name) { toast('A pessoa tem de ter um nome.'); return; }
+
+  /* Os dados vao todos; o que nao se aplica ao tipo vai vazio, para nao
+     ficar guardado escondido um NIF do Brownie ou uma escola de um adulto. */
+  var lidos = fiLerDados();
+  var humano = FI_HUMANO[corpo.kind];
+  ['birth_on', 'phone', 'email', 'address', 'nif', 'sns', 'id_doc_tipo', 'id_doc_numero',
+   'id_doc_validade', 'emerg_nome', 'emerg_tel', 'conta_email', 'responsavel_id'].forEach(function (k) {
+    corpo[k] = (k === 'birth_on' || humano || k === 'responsavel_id') && lidos[k] ? lidos[k] : null;
+  });
+  if (!FI_RESPONSAVEL[corpo.kind]) corpo.responsavel_id = null;
+  corpo.detalhes = {};
+  (FI_DETALHES[corpo.kind] || []).forEach(function (f) {
+    if (lidos['det_' + f[0]]) corpo.detalhes[f[0]] = lidos['det_' + f[0]];
+  });
+  if (corpo.id_doc_numero && !corpo.id_doc_tipo) { toast('Diz que documento é: Cartão de Cidadão ou Título de residência.'); return; }
 
   var foto = PE.fotoNova, fora = PE.fotoFora;
   botao.disabled = true;
