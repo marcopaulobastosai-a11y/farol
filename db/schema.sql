@@ -613,3 +613,67 @@ ALTER TABLE people ADD COLUMN IF NOT EXISTS detalhes        JSONB NOT NULL DEFAU
 CREATE UNIQUE INDEX IF NOT EXISTS people_conta_email_uidx ON people (conta_email)
   WHERE conta_email IS NOT NULL;
 CREATE INDEX IF NOT EXISTS people_responsavel_idx ON people (responsavel_id);
+
+-- ---------------------------------------------------------------------------
+-- Tarefas, segunda versao: o que se aprendeu com o TickTick
+--
+-- Uma tarefa passa a ter lista de verificacao (os passos de um pagamento:
+-- transferir, mandar o comprovativo, acertar as contas partilhadas),
+-- subtarefas, uma regra de repeticao a serio, lembretes, etiquetas livres,
+-- comentarios que servem de registo e o estado «a espera».
+--
+-- Uma rotina que se conclui deixa uma copia concluida (o historico) e anda
+-- para a proxima data. A copia aponta para a rotina por series_id.
+--
+-- external_id guarda a origem de quem veio de fora (ex.: 'ticktick:<id>'):
+-- importar duas vezes nao duplica nada.
+-- ---------------------------------------------------------------------------
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS parent_id    INTEGER REFERENCES tasks(id) ON DELETE CASCADE;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS series_id    INTEGER REFERENCES tasks(id) ON DELETE SET NULL;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS repeat_rule  TEXT;      -- FREQ=MONTHLY;BYMONTHDAY=25 (RFC 5545, sem o prefixo RRULE:)
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS repeat_from  TEXT NOT NULL DEFAULT 'prazo';  -- prazo | conclusao
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS repeat_until DATE;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS reminders    JSONB NOT NULL DEFAULT '[]'::jsonb; -- [{"min":-900}] minutos em relacao ao prazo
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS tags         TEXT[] NOT NULL DEFAULT '{}';
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS section      TEXT;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS sort_order   DOUBLE PRECISION NOT NULL DEFAULT 0;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS external_id  TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS tasks_external_idx ON tasks (external_id) WHERE external_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS tasks_parent_idx ON tasks (parent_id);
+CREATE INDEX IF NOT EXISTS tasks_series_idx ON tasks (series_id);
+CREATE INDEX IF NOT EXISTS tasks_status_idx ON tasks (status, completed_at DESC);
+-- status passa a admitir 'a_espera'; prioridade passa a admitir 'media'.
+
+CREATE TABLE IF NOT EXISTS task_items (
+  id           SERIAL PRIMARY KEY,
+  task_id      INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  title        TEXT NOT NULL,
+  done         BOOLEAN NOT NULL DEFAULT FALSE,
+  sort         DOUBLE PRECISION NOT NULL DEFAULT 0,
+  completed_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS task_items_task_idx ON task_items (task_id, sort);
+
+CREATE TABLE IF NOT EXISTS task_comments (
+  id         SERIAL PRIMARY KEY,
+  task_id    INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  body       TEXT NOT NULL,
+  author     TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  external_id TEXT
+);
+CREATE INDEX IF NOT EXISTS task_comments_task_idx ON task_comments (task_id, created_at);
+CREATE UNIQUE INDEX IF NOT EXISTS task_comments_external_idx ON task_comments (external_id) WHERE external_id IS NOT NULL;
+
+-- Projetos importados e documentos que vieram de notas tambem sabem de onde vieram.
+ALTER TABLE projects  ADD COLUMN IF NOT EXISTS external_id TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS projects_external_idx ON projects (external_id) WHERE external_id IS NOT NULL;
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS note        TEXT;
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS external_id TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS documents_external_idx ON documents (external_id) WHERE external_id IS NOT NULL;
+
+-- As rotinas antigas so tinham repeat_every em texto. Passam a regra.
+UPDATE tasks SET repeat_rule = CASE repeat_every
+    WHEN 'dia' THEN 'FREQ=DAILY' WHEN 'semana' THEN 'FREQ=WEEKLY'
+    WHEN 'mes' THEN 'FREQ=MONTHLY' WHEN 'ano' THEN 'FREQ=YEARLY' END
+ WHERE repeat_rule IS NULL AND repeat_every IN ('dia','semana','mes','ano');
