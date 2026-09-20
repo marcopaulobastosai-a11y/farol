@@ -151,6 +151,12 @@ const CRIAR = {
       `INSERT INTO events (day, at, title, calendar, detail, origin)
        VALUES ($1,$2,$3,$4,$5,'real') RETURNING id`,
       [d.day, limpar(d.at), title, d.calendar || 'farol', limpar(d.detail)]);
+    /* De quem e o compromisso: e isto que o leva a ficha da pessoa. */
+    const quem = [].concat(d.people || [], d.person_id ? [d.person_id] : []);
+    for (const pid of quem) {
+      await query('INSERT INTO event_people (event_id, person_id) VALUES ($1,$2) ON CONFLICT DO NOTHING',
+        [rows[0].id, Number(pid)]);
+    }
     return rows[0].id;
   },
 
@@ -388,7 +394,7 @@ async function paraDestino(d) {
   delete dados.area;
   const pid = await pessoaPorNome(dados.pessoa);
   if (pid) {
-    if (d.tipo === 'documento' || d.tipo === 'despesa') dados.person_id = pid;
+    if (d.tipo === 'documento' || d.tipo === 'despesa' || d.tipo === 'evento') dados.person_id = pid;
     if (d.tipo === 'tarefa') dados.subjects = [pid];
   }
   if (d.tipo === 'despesa' && dados.notes && !dados.note) dados.note = dados.notes;
@@ -615,6 +621,12 @@ function instalar(app) {
           await query('UPDATE documents SET person_id = $2 WHERE id = $1', [l.target_id, pid]);
         } else if (l.target_type === 'despesa') {
           await query('UPDATE expenses SET person_id = $2 WHERE id = $1', [l.target_id, pid]);
+        } else if (l.target_type === 'evento') {
+          await query('DELETE FROM event_people WHERE event_id = $1', [l.target_id]);
+          if (pid) {
+            await query('INSERT INTO event_people (event_id, person_id) VALUES ($1,$2) ON CONFLICT DO NOTHING',
+              [l.target_id, pid]);
+          }
         } else if (l.target_type === 'tarefa' && pid) {
           await query('INSERT INTO task_subjects (task_id, person_id) VALUES ($1,$2) ON CONFLICT DO NOTHING',
             [l.target_id, pid]);
