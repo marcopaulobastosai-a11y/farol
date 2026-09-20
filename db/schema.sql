@@ -677,3 +677,19 @@ UPDATE tasks SET repeat_rule = CASE repeat_every
     WHEN 'dia' THEN 'FREQ=DAILY' WHEN 'semana' THEN 'FREQ=WEEKLY'
     WHEN 'mes' THEN 'FREQ=MONTHLY' WHEN 'ano' THEN 'FREQ=YEARLY' END
  WHERE repeat_rule IS NULL AND repeat_every IN ('dia','semana','mes','ano');
+
+-- ---------------------------------------------------------------------------
+-- Tipos de linha: nem tudo o que esta na lista e uma tarefa
+--
+-- Havia tres coisas diferentes a viver na mesma lista e a pesar o mesmo:
+--   tarefa   - pede uma acao nossa e tem ciclo de vida (por iniciar, em
+--              execucao, concluida);
+--   lembrete - so precisa de aparecer no dia certo (aniversarios, validades,
+--              debitos que ja acontecem sozinhos). Nao se atrasa nem conta
+--              para o que ha por fazer;
+--   nota     - e memoria, nao trabalho (dados de uma empresa, atas, listas de
+--              restaurantes). Em vez de prazo tem, quando faz sentido, uma
+--              data de revisao - a mesma coluna due_on, lida de outra maneira.
+-- ---------------------------------------------------------------------------
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS tipo TEXT NOT NULL DEFAULT 'tarefa';
+CREATE INDEX IF NOT EXISTS tasks_tipo_idx ON tasks (tipo) WHERE tipo <> 'tarefa';
