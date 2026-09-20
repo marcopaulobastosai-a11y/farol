@@ -30,9 +30,21 @@ var TF_PRIO_ORD = { alta: 0, media: 1, normal: 2, baixa: 3 };
    precisa de aparecer no dia e o que e memoria. Cada uma tem o seu separador. */
 var TF_TIPOS = [
   ['tarefa', 'Tarefas', 'Pede uma acção tua'],
+  ['pagamento', 'Pagamentos', 'Dinheiro a sair — com comprovativo no fim'],
   ['lembrete', 'Lembretes', 'Só precisa de aparecer no dia'],
   ['nota', 'Notas', 'Memória — sem ciclo de vida']
 ];
+var TF_METODOS = ['transferência', 'débito direto', 'multibanco', 'mb way', 'cartão', 'numerário', 'cheque', 'outro'];
+function tfEuros(v){
+  if (v === null || v === undefined || v === '') return '';
+  return Number(v).toLocaleString('pt-PT', { style: 'currency', currency: 'EUR' });
+}
+function tfPapel(t, papel){
+  return (t.papeis || []).filter(function(x){ return x.papel === papel; }).map(function(x){ return x.id; });
+}
+function tfSemProva(t){
+  return t.tipo === 'pagamento' && t.paid_on && !tfPapel(t, 'comprovativo').length && !tfPapel(t, 'recibo').length;
+}
 function tfTipo(t){ return (t && t.tipo) || 'tarefa'; }
 
 var TF_ESTADOS = [['aberta', 'Por iniciar', ''], ['em_curso', 'Em execução', 'accent'], ['a_espera', 'À espera', 'warn']];
@@ -102,6 +114,8 @@ var TF_CSS = [
   ".tf-est.warn{background:var(--warn-soft);border-color:transparent;color:var(--warn)}",
   ".tf-est.good{background:var(--good-soft);border-color:transparent;color:var(--good)}",
   ".tf-tag{font-family:var(--mono);font-size:.625rem;padding:1px 6px;border-radius:99px;background:var(--surface-2);border:1px solid var(--line-soft);color:var(--muted)}",
+  ".tf-val{flex:none;font-family:var(--mono);font-size:.8125rem;color:var(--ink);padding-top:1px;white-space:nowrap;font-variant-numeric:tabular-nums}",
+  ".tf-row.done .tf-val{color:var(--faint)}",
   ".tf-r{flex:none;text-align:right;font-family:var(--mono);font-size:.6875rem;color:var(--muted);padding-top:2px;white-space:nowrap}",
   ".tf-r.bad{color:var(--bad)} .tf-r.warn{color:var(--warn)} .tf-r.acc{color:var(--accent-ink)}",
   ".tf-mais{margin:8px auto 0;display:block}",
@@ -191,6 +205,8 @@ var TF_I = {
   pontos: '<circle cx="5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="19" cy="12" r="1.3"/>',
   seta: '<path d="M6 9l6 6 6-6"/>',
   proj: '<path d="M4 6h16M4 12h10M4 18h6"/>',
+  euro: '<path d="M18 6a7 7 0 1 0 0 12"/><path d="M4 10h9M4 14h9"/>',
+  papel: '<path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/>',
   tag: '<path d="M20.6 13.4l-7.2 7.2a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.3"/>',
   check: '<path d="M5 13l4 4L19 7"/>'
 };
@@ -240,7 +256,7 @@ function tfProximoDiaSemana(n){
 }
 
 function tfPerceber(texto){
-  var r = { title: texto, tipo: null, due_on: null, due_time: null, priority: null, owner_id: null, subjects: [],
+  var r = { title: texto, tipo: null, amount: null, due_on: null, due_time: null, priority: null, owner_id: null, subjects: [],
             context_id: null, project_id: null, tags: [], repeat_rule: null, sinais: [] };
   var s = ' ' + texto + ' ';
   function tira(re, fn){
@@ -248,9 +264,16 @@ function tfPerceber(texto){
   }
   var h = tfHoje();
 
-  tira(/\s!(lembrete|nota|tarefa)(?=\s)/i, function(_, p){
+  tira(/\s!(lembrete|nota|tarefa|pagamento)(?=\s)/i, function(_, p){
     r.tipo = tfNorm(p);
-    r.sinais.push([r.tipo === 'nota' ? 'lista' : (r.tipo === 'lembrete' ? 'sino' : 'todas'), r.tipo]);
+    r.sinais.push([r.tipo === 'nota' ? 'lista' : (r.tipo === 'lembrete' ? 'sino' : (r.tipo === 'pagamento' ? 'euro' : 'todas')), r.tipo]);
+  });
+  /* «1250€», «€1.250,00» ou «1250 eur»: o valor tira-se do texto e a linha
+     passa a pagamento sem ser preciso dize-lo. */
+  tira(/\s(?:€\s?([\d.]+(?:,\d{1,2})?)|([\d.]+(?:,\d{1,2})?)\s?(?:€|eur(?:os)?))(?=\s)/i, function(_, a, b){
+    r.amount = (a || b);
+    if (!r.tipo) r.tipo = 'pagamento';
+    r.sinais.push(['euro', r.amount.replace('.', '') + ' €']);
   });
   tira(/\s!(alta|m[eé]dia|baixa|[123])(?=\s)/i, function(_, p){
     p = tfNorm(p); r.priority = { alta: 'alta', media: 'media', baixa: 'baixa', '1': 'alta', '2': 'media', '3': 'baixa' }[p];
@@ -348,6 +371,7 @@ function tfCriarRapido(input){
   if (v.indexOf('tag:') === 0) r.tags.push(v.slice(4));
   var dados = {
     tipo: r.tipo || TF.tipo,
+    amount: r.amount,
     title: r.title,
     due_on: r.due_on || base.due_on || null,
     due_time: r.due_time,
@@ -403,6 +427,7 @@ function tfFiltro(v){
   if (v === 'espera') return function(t){ return t.status === 'a_espera'; };
   if (v === 'execucao') return function(t){ return t.status === 'em_curso'; };
   if (v === 'rever') return function(t){ return t.due_on && t.due_on <= h; };
+  if (v === 'mes') return function(t){ return t.due_on && t.due_on <= h.slice(0, 8) + '31'; };
   if (v.indexOf('p:') === 0){
     var id = Number(v.slice(2));
     return function(t){ return t.owner_id === id || (t.subjects || []).indexOf(id) >= 0; };
@@ -416,6 +441,13 @@ function tfTituloVista(v){
   var M = { hoje: 'Hoje', amanha: 'Amanhã', semana: 'Próximos 7 dias', atrasadas: 'Atrasadas', todas: 'Por fazer',
             execucao: 'Em execução', semdata: 'Sem data', espera: 'À espera',
             concluidas: 'Concluídas', naofarei: 'Não farei', rever: 'Para rever' };
+  if (TF.tipo === 'pagamento'){
+    if (v === 'todas') return 'A pagar';
+    if (v === 'atrasadas') return 'Em atraso';
+    if (v === 'mes') return 'Este mês';
+    if (v === 'semprova') return 'Sem comprovativo';
+    if (v === 'concluidas') return 'Pagos';
+  }
   if (TF.tipo === 'lembrete'){
     if (v === 'todas') return 'Lembretes';
     if (v === 'concluidas') return 'Já vistos';
@@ -586,6 +618,13 @@ function tfRenderSide(){
     tfSideBtn(box, 'espera', 'espera', 'À espera', conta('espera'));
     tfSideBtn(box, 'concluidas', 'feito', 'Concluídas', null);
     tfSideBtn(box, 'naofarei', 'nao', 'Não farei', null);
+  } else if (TF.tipo === 'pagamento'){
+    tfSideBtn(box, 'todas', 'euro', 'A pagar', conta('todas'));
+    tfSideBtn(box, 'atrasadas', 'atraso', 'Em atraso', conta('atrasadas'));
+    tfSideBtn(box, 'semana', 'semana', 'Próximos 7 dias', conta('semana'));
+    tfSideBtn(box, 'mes', 'sino', 'Este mês', conta('mes'));
+    tfSideBtn(box, 'semprova', 'papel', 'Sem comprovativo', null);
+    tfSideBtn(box, 'concluidas', 'feito', 'Pagos', null);
   } else if (TF.tipo === 'lembrete'){
     /* Um lembrete nao se atrasa: ou ja passou ou ainda vem. */
     tfSideBtn(box, 'todas', 'sino', 'Todos', conta('todas'));
@@ -623,13 +662,22 @@ function tfRenderSide(){
 
 function tfIr(v){
   TF.vista = v;
-  if (v === 'concluidas' || v === 'naofarei'){ TF.historico = []; TF.histFim = false; TF.histVista = v; tfCarregarHistorico(); }
+  if (v === 'concluidas' || v === 'naofarei' || v === 'semprova'){
+    TF.historico = []; TF.histFim = false; TF.histVista = v; tfCarregarHistorico();
+  }
   tfRender();
   var lista = $('tfLista');
   if (lista && lista.getBoundingClientRect().top < 0) window.scrollTo({ top: 0 });
 }
 
 function tfCarregarHistorico(){
+  if (TF.vista === 'semprova'){
+    var pedido = TF.vista;
+    return apiGestao('/api/tarefas/pagamentos/sem-prova').then(function(rows){
+      if (TF.vista !== pedido) return;
+      TF.historico = rows; TF.histFim = true; tfRenderLista();
+    }).catch(function(){ toast('Não deu para ler os pagamentos sem comprovativo.'); });
+  }
   var ultimo = TF.historico[TF.historico.length - 1];
   var url = '/api/tarefas/historico?limite=60&tipo=' + TF.tipo +
     '&estado=' + (TF.vista === 'naofarei' ? 'cancelada' : 'concluida') +
@@ -668,9 +716,11 @@ function tfRenderLista(){
   clear(box);
   var v = TF.vista;
   $('tfTitulo').textContent = tfTituloVista(v);
-  var hist = v === 'concluidas' || v === 'naofarei';
+  var hist = v === 'concluidas' || v === 'naofarei' || v === 'semprova';
   $('tfNova').parentNode.hidden = hist;
-  $('tfNova').placeholder = TF.tipo === 'nota'
+  $('tfNova').placeholder = TF.tipo === 'pagamento'
+    ? 'Novo pagamento — ex.: renda 1250€ dia 9 todos os meses #casa'
+    : TF.tipo === 'nota'
     ? 'Guardar nota — ex.: horário da escola #família'
     : (TF.tipo === 'lembrete'
         ? 'Novo lembrete — ex.: anos da Olga 15/10 todos os anos'
@@ -682,8 +732,16 @@ function tfRenderLista(){
     var f = tfFiltro(v);
     lista = tfAbertas().filter(f).sort(tfOrdenar);
   }
-  var nome = TF.tipo === 'nota' ? ['nota', 'notas'] : (TF.tipo === 'lembrete' ? ['lembrete', 'lembretes'] : ['tarefa', 'tarefas']);
-  $('tfConta').textContent = lista.length + (hist && !TF.histFim ? '+' : '') + ' ' + (lista.length === 1 ? nome[0] : nome[1]);
+  var nome = TF.tipo === 'nota' ? ['nota', 'notas']
+    : (TF.tipo === 'lembrete' ? ['lembrete', 'lembretes']
+      : (TF.tipo === 'pagamento' ? ['pagamento', 'pagamentos'] : ['tarefa', 'tarefas']));
+  var conta = lista.length + (hist && !TF.histFim ? '+' : '') + ' ' + (lista.length === 1 ? nome[0] : nome[1]);
+  if (TF.tipo === 'pagamento'){
+    /* Numa lista de pagamentos, o que interessa saber de relance e quanto e. */
+    var soma = lista.reduce(function(a, t){ return a + Number((hist ? t.paid_amount : t.amount) || 0); }, 0);
+    if (soma) conta += ' · ' + tfEuros(soma);
+  }
+  $('tfConta').textContent = conta;
 
   if (!lista.length){
     box.appendChild(el('div', 'tf-vazio', hist ? 'Nada por aqui.' : (v === 'hoje' ? 'Nada para hoje. Bom trabalho.' : 'Nada por fazer nesta lista.')));
@@ -778,6 +836,8 @@ function tfLinha(t, sub){
   (t.subjects || []).forEach(function(pid){ var p = pessoa(pid); if (p) m.appendChild(el('span', null, '→ ' + p.name)); });
   /* Um lembrete nao tem ciclo de vida: ou ja apareceu ou ainda vem. */
   if (tfTipo(t) === 'tarefa') m.appendChild(tfEtiquetaEstado(t));
+  if (t.tipo === 'pagamento' && t.payee) m.appendChild(el('span', null, t.payee));
+  if (tfSemProva(t)) m.appendChild(pill('falta comprovativo', 'warn'));
   var pr = projeto(t.project_id);
   if (pr && TF.vista !== 'proj:' + pr.id) m.appendChild(el('span', null, pr.name));
   if ((t.items || []).length){
@@ -790,6 +850,10 @@ function tfLinha(t, sub){
   (t.tags || []).forEach(function(tg){ m.appendChild(el('span', 'tf-tag', tg)); });
   if (m.childNodes.length) corpo.appendChild(m);
   li.appendChild(corpo);
+  if (t.tipo === 'pagamento' && (t.amount || t.paid_amount)){
+    var val = el('div', 'tf-val', tfEuros(t.paid_on ? (t.paid_amount || t.amount) : t.amount));
+    li.appendChild(val);
+  }
   var dir;
   if (tfFechada(t) && t.completed_at){
     var cd = new Date(t.completed_at);
@@ -836,6 +900,13 @@ function tfMudarEstado(t, estado){
 
 function tfAlternar(t){
   if (tfFechada(t)) return tfMudarEstado(t, 'aberta');
+  /* Marcar um pagamento como feito e dizer quanto, quando e com que prova: a
+     caixinha abre a janela em vez de fechar a seco. */
+  if (tfTipo(t) === 'pagamento'){
+    var alvo = document.querySelector('.tf-row.sel .tf-box') || document.querySelector('.tf-det .tf-box') || $('tfLista');
+    tfAbrir(t.id);
+    return setTimeout(function(){ tfPopPagar(tfPorId(t.id) || t, alvo); }, 60);
+  }
   return tfFechar(t, 'concluida');
 }
 
@@ -923,6 +994,14 @@ function tfRenderDetalhe(base){
   if (t.repeat_rule){ bData.appendChild(tfIcone('rep', 12)); }
   bData.addEventListener('click', function(e){ e.stopPropagation(); tfPopData(t, bData); });
   top.appendChild(bData);
+  if (tfTipo(t) === 'pagamento' && !fechada){
+    var bPagar = el('button', 'btn small primary', t.paid_on ? 'Corrigir pagamento' : 'Pagar');
+    bPagar.type = 'button';
+    bPagar.style.marginLeft = '6px';
+    bPagar.dataset.tfpop = '1';
+    bPagar.addEventListener('click', function(e){ e.stopPropagation(); tfPopPagar(t, bPagar); });
+    top.appendChild(bPagar);
+  }
   top.appendChild(el('span', 'tf-sp'));
   var bPrio = el('button', 'tf-ico'); bPrio.type = 'button'; bPrio.dataset.tfpop = '1'; bPrio.title = 'Prioridade';
   bPrio.innerHTML = tfSvg(TF_I.bandeira, 16);
@@ -1046,6 +1125,35 @@ function tfRenderDetalhe(base){
     campo('Estado', sEst);
   }
 
+  if (tfTipo(t) === 'pagamento'){
+    var iVal = el('input'); iVal.type = 'text'; iVal.value = t.amount != null ? String(t.amount).replace('.', ',') : '';
+    iVal.placeholder = '0,00';
+    iVal.addEventListener('change', function(){ tfGravar(t.id, { amount: iVal.value }); });
+    campo('Valor', iVal);
+
+    var iQuem = el('input'); iQuem.type = 'text'; iQuem.value = t.payee || ''; iQuem.placeholder = 'a quem se paga';
+    iQuem.addEventListener('change', function(){ tfGravar(t.id, { payee: iQuem.value.trim() || null }); });
+    campo('A quem', iQuem);
+
+    var iRef = el('input'); iRef.type = 'text'; iRef.value = t.payment_ref || '';
+    iRef.placeholder = 'IBAN, entidade e referência…';
+    iRef.addEventListener('change', function(){ tfGravar(t.id, { payment_ref: iRef.value.trim() || null }); });
+    campo('Referência', iRef);
+
+    if (t.paid_on){
+      var pago = el('div');
+      pago.appendChild(pill('pago a ' + tfDataTxt(t.paid_on), 'good'));
+      if (t.paid_amount != null) pago.appendChild(document.createTextNode(' ' + tfEuros(t.paid_amount)));
+      if (t.payment_method) pago.appendChild(document.createTextNode(' · ' + t.payment_method));
+      if (t.expense_id) pago.appendChild(document.createTextNode(' · despesa registada'));
+      if (tfSemProva(t)){
+        pago.appendChild(document.createElement('br'));
+        pago.appendChild(pill('falta comprovativo', 'warn'));
+      }
+      campo('Pagamento', pago);
+    }
+  }
+
   var sDono = el('select');
   sDono.appendChild(new Option('—', ''));
   (G.people || []).filter(function(p){ return p.can_own_tasks && p.active !== false; }).forEach(function(p){ sDono.appendChild(new Option(p.name, p.id)); });
@@ -1113,15 +1221,23 @@ function tfRenderDetalhe(base){
 
   // documentos
   var dBox = el('div');
-  (t.documents || []).forEach(function(did){
+  (t.papeis || (t.documents || []).map(function(x){ return { id: x, papel: 'anexo' }; })).forEach(function(ref){
+    var did = ref.id;
     var doc = docPorId(did);
     var l = el('div', 'tf-it');
+    if (ref.papel && ref.papel !== 'anexo'){
+      var et = el('span', 'tf-tag', ref.papel);
+      et.style.marginRight = '4px';
+      l.appendChild(et);
+    }
     var nome = doc && doc.inbox_id ? el('a', null, doc.name) : el('span', null, doc ? doc.name : 'documento ' + did);
     if (doc && doc.inbox_id){ nome.href = '/api/inbox/' + doc.inbox_id + '/ficheiro'; nome.target = '_blank'; nome.rel = 'noopener'; }
     nome.style.flex = '1';
     l.appendChild(nome);
     var x = el('button', 'tf-ico'); x.type = 'button'; x.innerHTML = tfSvg(TF_I.x, 13);
-    x.addEventListener('click', function(){ tfGravar(t.id, { documents: t.documents.filter(function(y){ return y !== did; }) }); });
+    x.addEventListener('click', function(){
+      tfGravar(t.id, { documents: (t.papeis || []).filter(function(y){ return y.id !== did; }) });
+    });
     l.appendChild(x);
     dBox.appendChild(l);
   });
@@ -1134,7 +1250,9 @@ function tfRenderDetalhe(base){
   });
   sDoc.addEventListener('change', function(){
     if (!sDoc.value) return;
-    tfGravar(t.id, { documents: (t.documents || []).concat([Number(sDoc.value)]) });
+    var lista = (t.papeis || []).slice();
+    lista.push({ id: Number(sDoc.value), papel: tfTipo(t) === 'pagamento' ? 'fatura' : 'anexo' });
+    tfGravar(t.id, { documents: lista });
   });
   dBox.appendChild(sDoc);
   campo('Documentos', dBox);
@@ -1400,6 +1518,91 @@ function tfPopData(t, ancora){
       repeat_rule: regra, repeat_from: sFrom ? sFrom.value : 'prazo', repeat_until: regra && iAte ? (iAte.value || null) : null,
       reminders: iD.value ? st.reminders.map(function(m){ return { min: m }; }) : []
     });
+  });
+  ac.appendChild(bC); ac.appendChild(bOk);
+  p.appendChild(ac);
+  tfPosicionar(p, ancora);
+}
+
+/* ------------------------------------------------------------------ *
+ * pagar
+ * ------------------------------------------------------------------ */
+
+function tfEscolherDoc(rotulo, escolhidos){
+  var box = el('div');
+  box.appendChild(el('label', null, rotulo));
+  var s = el('select');
+  s.appendChild(new Option('— nenhum —', ''));
+  ((window.D && D.documents) || []).forEach(function(doc){
+    var dono = pessoa(doc.person_id);
+    s.appendChild(new Option(doc.name + (dono ? ' (' + dono.name + ')' : ''), doc.id));
+  });
+  if (escolhidos && escolhidos.length) s.value = escolhidos[0];
+  box.appendChild(s);
+  box.valor = function(){ return s.value ? Number(s.value) : null; };
+  return box;
+}
+
+function tfPopPagar(t, ancora){
+  tfFecharPop();
+  var p = el('div', 'tf-pop');
+  p.style.width = '330px';
+
+  p.appendChild(el('label', null, 'Pago a'));
+  var iD = el('input'); iD.type = 'date'; iD.value = t.paid_on || tfISO(tfHoje());
+  p.appendChild(iD);
+
+  p.appendChild(el('label', null, 'Valor'));
+  var linha = el('div', 'tf-linha');
+  var iV = el('input'); iV.type = 'text';
+  iV.value = (t.paid_amount != null ? t.paid_amount : (t.amount != null ? t.amount : '')).toString().replace('.', ',');
+  iV.placeholder = '0,00';
+  var sM = el('select');
+  sM.appendChild(new Option('— método —', ''));
+  TF_METODOS.forEach(function(m){ sM.appendChild(new Option(m, m)); });
+  if (t.payment_method) sM.value = t.payment_method;
+  linha.appendChild(iV); linha.appendChild(sM);
+  p.appendChild(linha);
+
+  var comp = tfEscolherDoc('Comprovativo de pagamento', tfPapel(t, 'comprovativo'));
+  var rec = tfEscolherDoc('Recibo ou fatura', tfPapel(t, 'recibo').concat(tfPapel(t, 'fatura')));
+  p.appendChild(comp); p.appendChild(rec);
+  var ajuda = el('div', null, 'Sem eles o pagamento fica pago na mesma, marcado como «falta comprovativo». Os ficheiros que chegam pela Caixa de entrada aparecem aqui depois de catalogados.');
+  ajuda.style.cssText = 'font-size:.7rem;color:var(--muted);margin-top:6px;line-height:1.45';
+  p.appendChild(ajuda);
+
+  var lin2 = el('label');
+  lin2.style.cssText = 'display:flex;gap:7px;align-items:center;margin-top:10px;color:var(--ink-2);font-size:.78rem';
+  var cx = el('input'); cx.type = 'checkbox'; cx.checked = !t.expense_id;
+  cx.style.cssText = 'width:15px;height:15px;accent-color:var(--accent)';
+  lin2.appendChild(cx);
+  lin2.appendChild(document.createTextNode(t.expense_id ? 'Registar outra despesa nas Finanças' : 'Registar a despesa nas Finanças'));
+  p.appendChild(lin2);
+
+  var ac = el('div', 'tf-acoes');
+  var bC = el('button', 'btn small', 'Cancelar'); bC.type = 'button'; bC.addEventListener('click', tfFecharPop);
+  var bOk = el('button', 'btn small primary', 'Dar por pago'); bOk.type = 'button';
+  bOk.addEventListener('click', function(){
+    var docs = [];
+    if (comp.valor()) docs.push({ id: comp.valor(), papel: 'comprovativo' });
+    if (rec.valor()) docs.push({ id: rec.valor(), papel: 'recibo' });
+    var rotina = Boolean(t.repeat_rule);
+    tfFecharPop();
+    apiGestao('/api/tarefas/' + t.id + '/pagar', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        paid_on: iD.value || null, paid_amount: iV.value || null,
+        payment_method: sM.value || null, criar_despesa: cx.checked, documentos: docs
+      })
+    }).then(function(d){
+      G = d;
+      renderGestao();
+      var n = tfPorId(t.id);
+      var falta = !docs.length ? ' Falta o comprovativo.' : '';
+      toast(rotina && n && !tfFechada(n)
+        ? 'Pago. Próximo: ' + tfDataTxt(n.due_on) + '.' + falta
+        : 'Pagamento registado.' + falta);
+    }).catch(function(e){ toast(e.message || 'Não deu para registar o pagamento.'); });
   });
   ac.appendChild(bC); ac.appendChild(bOk);
   p.appendChild(ac);

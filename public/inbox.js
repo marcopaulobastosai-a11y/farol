@@ -20,6 +20,15 @@ var IB_DESTINOS = [
     { k: 'owner_id', l: 'Quem faz', tipo: 'pessoa' },
     { k: 'project_id', l: 'Projeto', tipo: 'projeto' }
   ] },
+  { tipo: 'pagamento', nome: 'Pagamento', campos: [
+    { k: 'title', l: 'O que se paga', tipo: 'text' },
+    { k: 'amount', l: 'Valor (\u20ac)', tipo: 'number' },
+    { k: 'due_on', l: 'Até quando', tipo: 'date' },
+    { k: 'payee', l: 'A quem', tipo: 'text' },
+    { k: 'payment_ref', l: 'IBAN ou referência', tipo: 'text' },
+    { k: 'context_id', l: 'Área', tipo: 'area' },
+    { k: 'owner_id', l: 'Quem paga', tipo: 'pessoa' }
+  ] },
   { tipo: 'evento', nome: 'Evento na Agenda', campos: [
     { k: 'title', l: 'Título', tipo: 'text' },
     { k: 'day', l: 'Dia', tipo: 'date' },
@@ -500,7 +509,7 @@ function ibDesenharTriagem() {
 
   ibCabecalho(p, 'No que e que isto se transforma?', null);
   p.appendChild(el('div', 'ib-alvo', IB.triando.file_name || ibNomeBonito(IB.triando) || 'Nota sem ficheiro'));
-  p.appendChild(el('p', 'ib-note', 'Pode ser mais do que uma coisa. O tal\u00e3o da m\u00e1quina \u00e9 despesa e \u00e9 garantia.'));
+  p.appendChild(el('p', 'ib-note', 'Pode ser mais do que uma coisa. O tal\u00e3o da m\u00e1quina \u00e9 despesa e \u00e9 garantia; uma fatura por pagar \u00e9 pagamento e \u00e9 documento.'));
 
   var jp = ibProposta(IB.triando);
   if (jp) {
