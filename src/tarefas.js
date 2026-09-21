@@ -673,6 +673,13 @@ function instalar(app, { carregarGestao, quem, ehAdmin }) {
     if (TIPOS.includes(b.tipo)) por('tipo', b.tipo);
     if (b.context_id !== undefined) por('context_id', limpar(b.context_id));
     if (b.project_id !== undefined) por('project_id', limpar(b.project_id));
+    /* O lote escreve direto na base e nao passa pelo criar/alterar, por isso a
+       regra dos tres niveis tem de ser repetida aqui: sem isto, mudar cinquenta
+       tarefas de uma vez era a porta de servico para as pendurar num programa. */
+    if (b.project_id !== undefined) {
+      try { await verificarProjeto(b.project_id); }
+      catch (err) { return res.status(err.status || 400).json({ error: err.message }); }
+    }
     if (b.owner_id !== undefined) por('owner_id', limpar(b.owner_id));
     if (PRIOS.includes(b.priority)) por('priority', b.priority);
     if (b.section !== undefined) por('section', limpar(b.section));
