@@ -268,7 +268,8 @@ async function carregarGestao() {
            FROM people WHERE origin = 'real' ORDER BY sort, id`),
     all(`SELECT id, name, description, area, context_id, depends_on_id, status,
                 to_char(started_on,'YYYY-MM-DD') AS started_on,
-                to_char(target_on,'YYYY-MM-DD') AS target_on, sort
+                to_char(target_on,'YYYY-MM-DD') AS target_on,
+                to_char(closed_on,'YYYY-MM-DD') AS closed_on, sort
            FROM projects WHERE origin = 'real' ORDER BY sort, id`),
     all(`SELECT pm.project_id, pm.person_id, pm.member_role
            FROM project_members pm
@@ -399,6 +400,88 @@ app.patch('/api/gestao/projetos/:id', async (req, res) => {
   } catch (err) {
     console.error('[farol] PATCH projeto:', err.message);
     res.status(500).json({ error: 'Não foi possível gravar.' });
+  }
+});
+
+/* Um projeto visto por dentro. A lista do /api/gestao chega para os cartões,
+   mas a página de um projeto precisa do que lhe está agarrado nas outras
+   tabelas — e das tarefas todas, inclusive as já fechadas: sem elas a barra
+   de progresso mente, porque o /api/gestao só traz as fechadas há pouco. */
+app.get('/api/gestao/projetos/:id', async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'Projeto inválido.' });
+  try {
+    const rows = await all(
+      `SELECT id, name, description, area, context_id, depends_on_id, status, sort,
+              to_char(started_on,'YYYY-MM-DD') AS started_on,
+              to_char(target_on,'YYYY-MM-DD')  AS target_on,
+              to_char(closed_on,'YYYY-MM-DD')  AS closed_on
+         FROM projects WHERE id = $1 AND origin = 'real'`, [id]);
+    if (!rows.length) return res.status(404).json({ error: 'Projeto não encontrado.' });
+    const projeto = rows[0];
+    const [membros, tarefas_, documentos, despesas, dependentes] = await Promise.all([
+      all('SELECT person_id, member_role FROM project_members WHERE project_id = $1', [id]),
+      all(`SELECT t.id, t.title, t.status, t.tipo, t.priority, t.owner_id, t.done, t.tags,
+                  to_char(t.due_on,'YYYY-MM-DD') AS due_on,
+                  to_char(t.completed_at,'YYYY-MM-DD') AS completed_on
+             FROM tasks t
+            WHERE t.project_id = $1 AND t.origin = 'real'
+            ORDER BY (t.due_on IS NULL), t.due_on, t.sort_order, t.id`, [id]),
+      all(`SELECT id, name, entity, kind, aprovado,
+                  to_char(valid_on,'YYYY-MM-DD')  AS valid_on,
+                  to_char(issued_on,'YYYY-MM-DD') AS issued_on
+             FROM documents WHERE project_id = $1
+            ORDER BY COALESCE(issued_on, valid_on) DESC NULLS LAST, id DESC`, [id]),
+      all(`SELECT id, description, amount::float8 AS amount, merchant, category, person_id,
+                  to_char(spent_on,'YYYY-MM-DD') AS spent_on
+             FROM expenses WHERE project_id = $1
+            ORDER BY spent_on DESC, id DESC`, [id]),
+      all(`SELECT id, name, status FROM projects
+            WHERE depends_on_id = $1 AND origin = 'real' ORDER BY sort, id`, [id])
+    ]);
+    projeto.members = membros.map((m) => ({ person_id: m.person_id, member_role: m.member_role }));
+    res.json({ projeto, tarefas: tarefas_, documentos, despesas, dependentes });
+  } catch (err) {
+    console.error('[farol] GET projeto:', err.message);
+    res.status(500).json({ error: 'Não foi possível ler o projeto.' });
+  }
+});
+
+/* A ordem é do Marco, não da base de dados: grava-se a lista inteira de uma
+   vez porque arrastar uma linha mexe na posição de todas as outras. */
+app.post('/api/gestao/projetos/ordem', async (req, res) => {
+  const ids = Array.isArray(req.body && req.body.ids) ? req.body.ids.map(Number) : [];
+  if (!ids.length || ids.some((x) => !Number.isInteger(x))) {
+    return res.status(400).json({ error: 'Ordem inválida.' });
+  }
+  try {
+    for (let i = 0; i < ids.length; i += 1) {
+      await query("UPDATE projects SET sort = $1 WHERE id = $2 AND origin = 'real'", [i + 1, ids[i]]);
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[farol] ordem projetos:', err.message);
+    res.status(500).json({ error: 'Não foi possível gravar a ordem.' });
+  }
+});
+
+/* Apagar um projeto não apaga o trabalho: as tarefas, os documentos e as
+   despesas ficam, só deixam de ter projeto (ON DELETE SET NULL). Quem apaga
+   fica a saber quanto é que isso afectou. */
+app.delete('/api/gestao/projetos/:id', async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'Projeto inválido.' });
+  try {
+    const antes = (await all(
+      `SELECT (SELECT count(*)::int FROM tasks     WHERE project_id = $1) AS tarefas,
+              (SELECT count(*)::int FROM documents WHERE project_id = $1) AS documentos,
+              (SELECT count(*)::int FROM expenses  WHERE project_id = $1) AS despesas`, [id]))[0];
+    const rows = await all("DELETE FROM projects WHERE id = $1 AND origin = 'real' RETURNING id", [id]);
+    if (!rows.length) return res.status(404).json({ error: 'Projeto não encontrado.' });
+    res.json({ ok: true, soltos: antes });
+  } catch (err) {
+    console.error('[farol] DELETE projeto:', err.message);
+    res.status(500).json({ error: 'Não foi possível apagar o projeto.' });
   }
 });
 
