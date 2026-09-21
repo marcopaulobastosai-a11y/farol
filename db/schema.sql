@@ -693,3 +693,19 @@ BEGIN
 EXCEPTION WHEN OTHERS THEN
   RAISE WARNING '[farol] nao foi possivel mudar o valor por omissao de origin: %', SQLERRM;
 END $$;
+
+
+-- ---------------------------------------------------------------------------
+-- 15. PROGRAMAS — tres niveis: programa > projeto > tarefa
+-- ---------------------------------------------------------------------------
+-- Um lancamento de marca nao e uma tarefa grande nem uma area: e um conjunto
+-- de projetos com fim. Faltava o nivel de cima, e sem ele tres projetos irmaos
+-- nao sabiam que eram a mesma coisa.
+--
+-- Nao ha tabela nova: um programa e uma linha de projects com tipo='programa'.
+-- As regras (um programa nao tem pai; um projeto so pende de um programa; uma
+-- tarefa nunca pende de um programa) vivem no servidor, porque sao elas que
+-- garantem que os niveis sao exactamente tres e que nao ha ciclos possiveis.
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS tipo      TEXT NOT NULL DEFAULT 'projeto';
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS parent_id INTEGER REFERENCES projects(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS projects_parent_idx ON projects (parent_id);
