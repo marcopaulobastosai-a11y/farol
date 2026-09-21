@@ -424,18 +424,25 @@ function pjCarregarDetalhe(){
   var pedido = PJ.aberto;
   var p = $('pjPagina');
   if (p && !PJ.det){ clear(p); p.appendChild(el('p', 'vazio', 'A ler o projeto…')); }
+  /* O tratamento do erro esta no segundo argumento do .then, e nao num .catch
+     a seguir: assim so apanha a leitura. Um erro a desenhar seguia para o
+     mesmo sitio e aparecia como «nao foi possivel ler este projeto», que manda
+     procurar a avaria no servidor quando ela esta aqui. */
   return apiGestao('/api/gestao/projetos/' + pedido).then(function(d){
-    if (PJ.aberto !== pedido) return;
-    PJ.det = d;
-    pjRenderPagina();
-  }).catch(function(){
-    if (PJ.aberto !== pedido) return;
+    return PJ.aberto === pedido ? d : null;
+  }, function(e){
+    if (PJ.aberto !== pedido) return null;
     clear(p);
-    p.appendChild(el('p', 'vazio', 'Não foi possível ler este projeto.'));
+    p.appendChild(el('p', 'vazio', (e && e.message) || 'Não foi possível ler este projeto.'));
     var v = el('button', 'btn', '‹ Projetos');
     v.type = 'button';
     v.addEventListener('click', pjFechar);
     p.appendChild(v);
+    return null;
+  }).then(function(d){
+    if (!d) return;
+    PJ.det = d;
+    pjRenderPagina();
   });
 }
 
