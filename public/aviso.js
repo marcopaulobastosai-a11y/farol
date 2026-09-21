@@ -186,6 +186,11 @@ function avTarefa(a){
   var iArea = avCampo(s.grelha, 'Área', avAreas(t.context_id), true);
   var iNotas = avCampo(s.grelha, 'Notas', avNotas(t.notes), true);
 
+  /* A prova do que se fez costuma aparecer aqui, no aviso do dia, e nao mais
+     tarde quando a pessoa se lembrar de ir as Tarefas: o mesmo bloco de
+     documentos do anexos.js, que grava sozinho. */
+  if (typeof axBloco === 'function') avCampo(s.grelha, 'Documentos', axBloco(t), true);
+
   avBotoes(s, 'Abrir na lista', function(){
     avFechar();
     show('tarefas');
