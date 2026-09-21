@@ -14,6 +14,12 @@
  * G.tasks: o G.tasks so traz as tarefas abertas e as fechadas ha duas semanas,
  * e uma barra de progresso feita so com essas mentiria por defeito.
  *
+ * Tres niveis, e mais nenhum: PROGRAMA > PROJETO > TAREFA. Um programa e uma
+ * linha de projects com tipo='programa'; nao tem trabalho proprio, guarda
+ * projetos. As regras vivem no servidor (um programa nao pende de nada, um
+ * projeto so pende de um programa, uma tarefa nunca pende de um programa) e
+ * daí sai de graca a impossibilidade de um ciclo.
+ *
  * Reaproveita os globais do app.js ($, el, clear, toast, pill, apiGestao, G,
  * loadGestao, pessoa, projeto, areaNome, projetoNome, dataCurta, diasAte,
  * show, TITLES) e, quando existe, o tfAbrir das Tarefas.
@@ -35,6 +41,19 @@ var PJ_ESTADOS = [
   ['concluido', 'Concluído', 'good']
 ];
 var PJ_PAPEIS = [['responsavel', 'Responsável'], ['participante', 'Participante'], ['informado', 'Informado']];
+var PJ_TIPOS = [['programa', 'Programa'], ['projeto', 'Projeto']];
+
+function pjEhPrograma(pr){ return pr && pr.tipo === 'programa'; }
+function pjProgramas(){ return (G.projects || []).filter(pjEhPrograma); }
+function pjFilhos(id){ return (G.projects || []).filter(function(p){ return p.parent_id === id; }); }
+/* As tarefas que o cartao de um projeto conhece sem abrir nada. Num programa
+   sao as dos projetos dele: ele proprio nao tem nenhuma. */
+function pjAbertasDe(pr){
+  var ids = pjEhPrograma(pr) ? pjFilhos(pr.id).map(function(f){ return f.id; }) : [pr.id];
+  return (G.tasks || []).filter(function(t){
+    return ids.indexOf(t.project_id) >= 0 && t.status !== 'concluida' && t.status !== 'cancelada';
+  }).length;
+}
 
 var PJ_CSS = [
   "#view-projetos .pj-bar{display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap}",
@@ -73,7 +92,7 @@ var PJ_CSS = [
   "#view-projetos .pj-lin .pj-corpo-lin{flex:1;min-width:0}",
   "#view-projetos .pj-lin .pj-t{display:block;font-size:.875rem;color:var(--ink);line-height:1.35;overflow-wrap:anywhere}",
   "#view-projetos .pj-lin.feita .pj-t{color:var(--faint);text-decoration:line-through}",
-  "#view-projetos .pj-lin .pj-m{display:flex;flex-wrap:wrap;gap:4px 8px;margin-top:3px;font-size:.72rem;color:var(--muted)}",
+  "#view-projetos .pj-lin .pj-m,#view-projetos .pj-mini .pj-m{display:flex;flex-wrap:wrap;gap:4px 8px;margin-top:3px;font-size:.72rem;color:var(--muted)}",
   "#view-projetos .pj-lin .pj-r{flex:none;font-family:var(--mono);font-size:.6875rem;color:var(--muted);white-space:nowrap;padding-top:2px}",
   "#view-projetos .pj-lin .pj-r.bad{color:var(--bad)} #view-projetos .pj-lin .pj-r.warn{color:var(--warn)}",
   "#view-projetos .pj-add{width:100%;font:inherit;font-size:.8125rem;color:var(--ink);background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin-top:10px}",
@@ -91,6 +110,23 @@ var PJ_CSS = [
   "#view-projetos .pj-dep:first-of-type{border-top:0}",
   "#view-projetos .pj-dep b{font-weight:500;color:var(--ink);cursor:pointer}",
   "#view-projetos .pj-dep b:hover{color:var(--accent-ink);text-decoration:underline}",
+  "#view-projetos .pj-prog{grid-column:1/-1;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface-2);padding:12px;display:flex;flex-direction:column;gap:10px}",
+  "#view-projetos .pj-prog > header{display:flex;align-items:center;gap:10px;flex-wrap:wrap;cursor:pointer}",
+  "#view-projetos .pj-prog > header h3{font-family:var(--serif);font-size:1.15rem;font-weight:600}",
+  "#view-projetos .pj-prog > header .mono{color:var(--muted)}",
+  "#view-projetos .pj-prog > header .pj-sp{flex:1}",
+  "#view-projetos .pj-prog .pj-filhos{display:grid;grid-template-columns:repeat(auto-fill,minmax(17rem,1fr));gap:10px}",
+  "#view-projetos .pj-prog .pj-card{background:var(--surface)}",
+  "#view-projetos .pj-etq{display:inline-block;font-family:var(--mono);font-size:.5625rem;letter-spacing:.09em;text-transform:uppercase;color:var(--faint);border:1px solid var(--line);border-radius:99px;padding:1px 7px}",
+  "#view-projetos .pj-pai{display:inline-flex;align-items:center;gap:6px;border:0;background:none;font:inherit;font-size:.8125rem;color:var(--muted);cursor:pointer;padding:2px 0;margin-bottom:2px}",
+  "#view-projetos .pj-pai:hover{color:var(--accent-ink)}",
+  "#view-projetos .pj-pai b{font-weight:500;color:var(--ink-2)}",
+  "#view-projetos .pj-mini{display:flex;align-items:center;gap:10px;padding:9px 6px;border-top:1px solid var(--line-soft);border-radius:7px;cursor:pointer}",
+  "#view-projetos .pj-mini:first-child{border-top-color:transparent}",
+  "#view-projetos .pj-mini:hover{background:var(--surface-2)}",
+  "#view-projetos .pj-mini .pj-corpo-lin{flex:1;min-width:0}",
+  "#view-projetos .pj-mini .pj-barra{margin-top:5px;max-width:14rem}",
+  "#view-projetos .pj-aviso{display:flex;gap:8px;align-items:flex-start;background:var(--warn-soft);color:var(--warn);border-radius:8px;padding:8px 10px;font-size:.8125rem;margin-top:10px}",
   "@media (max-width:980px){#view-projetos .pj-corpo{grid-template-columns:minmax(0,1fr)}}"
 ].join('\n');
 
@@ -193,13 +229,32 @@ function pjFormNovo(){
   area.name = 'context_id'; area.id = 'pjArea';
   var alvo = el('input');
   alvo.type = 'date'; alvo.name = 'target_on';
+  var tipo = el('select');
+  PJ_TIPOS.forEach(function(x){ tipo.appendChild(new Option(x[1], x[0])); });
+  tipo.value = 'projeto';
+  var prog = el('select');
+  prog.id = 'pjProgNovo';
 
   f.appendChild(campo('Nome', nome));
   f.appendChild(campo('Do que se trata', desc));
+  var linha0 = el('div', 'field-row');
+  linha0.appendChild(campo('O que é', tipo));
+  var campoProg = campo('Dentro do programa', prog);
+  linha0.appendChild(campoProg);
+  f.appendChild(linha0);
   var linha = el('div', 'field-row');
   linha.appendChild(campo('Área', area));
   linha.appendChild(campo('Para quando', alvo));
   f.appendChild(linha);
+
+  /* Um programa nao pende de nada: quando se escolhe programa, o campo do
+     programa desaparece em vez de ficar la a oferecer o impossivel. */
+  function acertarTipo(){
+    campoProg.hidden = tipo.value === 'programa';
+    if (tipo.value === 'programa') prog.value = '';
+  }
+  tipo.addEventListener('change', acertarTipo);
+  acertarTipo();
 
   var eq = el('div', 'field');
   eq.appendChild(el('span', null, 'Quem entra'));
@@ -226,6 +281,8 @@ function pjFormNovo(){
         description: desc.value.trim() || null,
         context_id: area.value || null,
         target_on: alvo.value || null,
+        tipo: tipo.value,
+        parent_id: tipo.value === 'programa' ? null : (prog.value || null),
         members: chipsSelecionados('pjMembros').map(function(id){
           return { person_id: id, member_role: 'participante' };
         })
@@ -245,13 +302,21 @@ function pjFormNovo(){
 
 /* O filtro de entrada mostra tudo o que ainda nao fechou, planeados inclusive:
    um projeto a espera de outro continua a ser trabalho por fazer, e esconde-lo
-   por defeito era a maneira mais facil de o esquecer. */
+   por defeito era a maneira mais facil de o esquecer.
+   Um programa fica a vista enquanto tiver um projeto a vista: escondia-se a
+   casa toda por causa do estado da porta. */
+function pjCabe(pr){
+  if (PJ.filtro === 'todos') return true;
+  if (PJ.filtro === 'planeados') return pr.status === 'planeado';
+  if (PJ.filtro === 'concluidos') return pr.status === 'concluido';
+  return pr.status !== 'concluido';
+}
 function pjFiltrados(){
-  var todos = G.projects || [];
-  if (PJ.filtro === 'todos') return todos.slice();
-  if (PJ.filtro === 'planeados') return todos.filter(function(p){ return p.status === 'planeado'; });
-  if (PJ.filtro === 'concluidos') return todos.filter(function(p){ return p.status === 'concluido'; });
-  return todos.filter(function(p){ return p.status !== 'concluido'; });
+  return (G.projects || []).filter(function(pr){
+    if (pr.parent_id) return false;   /* os filhos aparecem dentro do programa */
+    if (pjCabe(pr)) return true;
+    return pjEhPrograma(pr) && pjFilhos(pr.id).some(pjCabe);
+  });
 }
 
 function pjRenderFiltros(){
@@ -285,7 +350,49 @@ function pjRenderCards(){
       : 'Ainda sem projetos. A mudança de casa e a sociedade nova entram aqui.'));
     return;
   }
-  lista.forEach(function(pr){ box.appendChild(pjCard(pr)); });
+  lista.forEach(function(pr){
+    box.appendChild(pjEhPrograma(pr) ? pjBlocoPrograma(pr) : pjCard(pr));
+  });
+}
+
+/* Um programa nao e um cartao maior: e uma caixa com os projetos dele dentro.
+   Ver a marca Falua Rides e ver, na mesma linha de olhos, as tres frentes que
+   a compoem — era isso que faltava quando eram tres cartoes soltos. */
+function pjBlocoPrograma(pr){
+  var box = el('section', 'pj-prog');
+  var h = el('header');
+  h.appendChild(el('span', 'pj-etq', 'Programa'));
+  h.appendChild(el('h3', null, pr.name));
+  var est = pjEstado(pr.status);
+  h.appendChild(pill(est[1], est[2]));
+  h.appendChild(el('div', 'pj-sp'));
+  var filhos = pjFilhos(pr.id);
+  var abertas = pjAbertasDe(pr);
+  h.appendChild(el('span', 'mono',
+    filhos.length + (filhos.length === 1 ? ' projeto' : ' projetos')
+    + ' · ' + abertas + (abertas === 1 ? ' tarefa aberta' : ' tarefas abertas')));
+  if (pr.target_on){
+    var u = urgencia(diasAte(pr.target_on), 'tarefa');
+    var d = el('span', 'mono num', 'fim ' + dataCurta(pr.target_on) + (u.texto ? ' · ' + u.texto : ''));
+    if (u.nivel) d.style.color = 'var(--' + u.nivel + ')';
+    h.appendChild(d);
+  }
+  h.addEventListener('click', function(){ pjAbrir(pr.id); });
+  box.appendChild(h);
+
+  if (pr.description) box.appendChild(el('p', 'pj-desc', pr.description));
+
+  var dentro = el('div', 'pj-filhos');
+  var visiveis = filhos.filter(pjCabe);
+  if (!visiveis.length){
+    dentro.appendChild(el('p', 'vazio', filhos.length
+      ? 'Nenhum projeto deste programa neste filtro.'
+      : 'Programa ainda sem projetos.'));
+  } else {
+    visiveis.forEach(function(f){ dentro.appendChild(pjCard(f)); });
+  }
+  box.appendChild(dentro);
+  return box;
 }
 
 function pjCard(pr){
@@ -307,9 +414,7 @@ function pjCard(pr){
 
   /* Sem abrir o projeto so se sabe das tarefas que o /api/gestao trouxe: as
      abertas. E esse o numero que o cartao mostra, e e isso que ele diz. */
-  var abertas = (G.tasks || []).filter(function(t){
-    return t.project_id === pr.id && t.status !== 'concluida' && t.status !== 'cancelada';
-  }).length;
+  var abertas = pjAbertasDe(pr);
   var nomes = (pr.members || []).map(function(m){
     var p = pessoa(m.person_id);
     return p ? (m.member_role === 'responsavel' ? p.name + ' (resp.)' : p.name) : null;
@@ -391,12 +496,12 @@ function pjReordenar(origem, destino){
  * ------------------------------------------------------------------ */
 
 function pjAbrir(id){
+  PJ.aba = null;
   /* Vir de outro ecra (de um aviso, de uma ficha) tem de trazer o ecra dos
      Projetos com ele: o show() poe o titulo do ecra, e o da pagina do projeto
      e escrito a seguir, no pjRenderPagina. */
   if (typeof show === 'function') show('projetos');
   PJ.aberto = id;
-  PJ.aba = 'tarefas';
   PJ.det = null;
   pjTrocar();
   pjCarregarDetalhe();
@@ -442,6 +547,12 @@ function pjCarregarDetalhe(){
   }).then(function(d){
     if (!d) return;
     PJ.det = d;
+    /* Um programa abre pelos projetos; um projeto abre pelas tarefas. E a aba
+       so se corrige quando nao existe no que se abriu. */
+    var validas = pjEhPrograma(d.projeto)
+      ? ['projetos', 'tarefas', 'documentos', 'despesas']
+      : ['tarefas', 'documentos', 'despesas'];
+    if (validas.indexOf(PJ.aba) < 0) PJ.aba = validas[0];
     pjRenderPagina();
   });
 }
@@ -467,9 +578,10 @@ function pjRenderPagina(){
   /* O nome do projeto vive uma vez so, no campo que se edita. A barra de cima
      continua a dizer em que ecra se esta e acrescenta onde e que o projeto
      mora — repetir o nome nos dois sitios so enchia o ecra. */
+  var programa = pjEhPrograma(pr);
   $('pageTitle').textContent = 'Projetos';
-  $('pageSub').textContent = [areaNome(pr.context_id), pjEstado(pr.status)[1]].filter(Boolean).join(' · ')
-    || 'Uma frente de trabalho por dentro';
+  $('pageSub').textContent = [programa ? 'Programa' : null, areaNome(pr.context_id),
+    pjEstado(pr.status)[1]].filter(Boolean).join(' · ') || 'Uma frente de trabalho por dentro';
 
   /* ---- barra de topo ---- */
   var top = el('div', 'pj-top');
@@ -484,9 +596,16 @@ function pjRenderPagina(){
   var alternar = el('button', 'btn', fechado ? 'Reabrir' : 'Marcar como concluído');
   alternar.type = 'button';
   alternar.addEventListener('click', function(){
-    pjGuardar(fechado
-      ? { status: 'ativo', closed_on: null }
-      : { status: 'concluido', closed_on: new Date().toISOString().slice(0, 10) });
+    if (fechado) return pjGuardar({ status: 'ativo', closed_on: null });
+    /* Fechar um programa com projetos por fechar e quase sempre engano, mas a
+       app nao decide por ele: pergunta, com o numero a vista. */
+    var porFechar = (PJ.det.filhos || []).filter(function(f){ return f.status !== 'concluido'; });
+    if (porFechar.length && !window.confirm(
+      'Este programa tem ' + porFechar.length
+      + (porFechar.length === 1 ? ' projeto por fechar' : ' projetos por fechar')
+      + ':\n\n' + porFechar.map(function(f){ return '· ' + f.name; }).join('\n')
+      + '\n\nFechar o programa na mesma?')) return;
+    pjGuardar({ status: 'concluido', closed_on: new Date().toISOString().slice(0, 10) });
   });
   top.appendChild(alternar);
 
@@ -495,6 +614,19 @@ function pjRenderPagina(){
   apagar.addEventListener('click', function(){ pjApagar(pr); });
   top.appendChild(apagar);
   box.appendChild(top);
+
+  /* Um projeto dentro de um programa diz de quem e logo acima do nome, e o
+     nome do programa leva la. */
+  if (PJ.det.pai){
+    var sobe = el('button', 'pj-pai');
+    sobe.type = 'button';
+    sobe.innerHTML = pjSvg('<path d="M4 6h16M4 12h10M4 18h6"/>', 13);
+    sobe.appendChild(document.createTextNode(' Faz parte do programa '));
+    sobe.appendChild(el('b', null, PJ.det.pai.name));
+    sobe.addEventListener('click', function(){ pjAbrir(PJ.det.pai.id); });
+    box.appendChild(sobe);
+  }
+  if (programa) box.appendChild(el('div', 'pj-etq', 'Programa'));
 
   /* ---- nome e descricao, editaveis no sitio ---- */
   var titulo = el('textarea', 'pj-titulo');
@@ -563,7 +695,10 @@ function pjNumeros(){
     n.appendChild(el('span', null, rotulo));
     nums.appendChild(n);
   }
-  num(pct + '%', feitas + ' de ' + uteis.length + ' tarefas');
+  var filhos = d.filhos || [];
+  if (filhos.length) num(String(filhos.length), filhos.length === 1 ? 'projeto' : 'projetos');
+  num(pct + '%', feitas + ' de ' + uteis.length + ' tarefas'
+    + (pjEhPrograma(pr) ? ' nos projetos' : ''));
   num(String(uteis.length - feitas), 'por fazer');
   if (atrasadas) num(String(atrasadas), 'em atraso', 'bad');
   if (d.documentos.length) num(String(d.documentos.length), 'documentos');
@@ -575,15 +710,39 @@ function pjNumeros(){
   }
   if (pr.closed_on) num(dataCurta(pr.closed_on), 'fechado em');
   wrap.appendChild(nums);
+
+  /* Um programa que acaba antes de um dos projetos dele e uma contradicao, e
+     a app nao guarda contradicoes caladas. */
+  if (pr.target_on){
+    var tarde = (d.filhos || []).filter(function(f){
+      return f.status !== 'concluido' && f.target_on && f.target_on > pr.target_on;
+    });
+    if (tarde.length){
+      var av = el('div', 'pj-aviso');
+      av.innerHTML = pjSvg('<path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9L2.4 18a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/>', 16);
+      av.appendChild(el('span', null,
+        (tarde.length === 1 ? 'O projeto ' : 'Os projetos ')
+        + tarde.map(function(f){ return '«' + f.name + '»'; }).join(', ')
+        + (tarde.length === 1 ? ' aponta' : ' apontam')
+        + ' para depois do fim do programa (' + dataCurta(pr.target_on) + ').'));
+      wrap.appendChild(av);
+    }
+  }
   return wrap;
 }
 
 function pjAbas(){
   var d = PJ.det;
   var tabs = el('div', 'tabs');
-  [['tarefas', 'Tarefas', d.tarefas.length],
-   ['documentos', 'Documentos', d.documentos.length],
-   ['despesas', 'Despesas', d.despesas.length]].forEach(function(x){
+  var abas = pjEhPrograma(d.projeto)
+    ? [['projetos', 'Projetos', (d.filhos || []).length],
+       ['tarefas', 'Tarefas', d.tarefas.length],
+       ['documentos', 'Documentos', d.documentos.length],
+       ['despesas', 'Despesas', d.despesas.length]]
+    : [['tarefas', 'Tarefas', d.tarefas.length],
+       ['documentos', 'Documentos', d.documentos.length],
+       ['despesas', 'Despesas', d.despesas.length]];
+  abas.forEach(function(x){
     var b = el('button', PJ.aba === x[0] ? 'is-active' : '', x[1] + (x[2] ? ' · ' + x[2] : ''));
     b.type = 'button';
     b.addEventListener('click', function(){
@@ -601,13 +760,105 @@ function pjRenderAba(){
   var box = $('pjConteudo');
   if (!box || !PJ.det) return;
   clear(box);
+  if (pjEhPrograma(PJ.det.projeto) && PJ.aba === 'projetos') return pjAbaProjetos(box);
   if (PJ.aba === 'tarefas') return pjAbaTarefas(box);
   if (PJ.aba === 'documentos') return pjAbaDocumentos(box);
   return pjAbaDespesas(box);
 }
 
+/* Os projetos de um programa, cada um com a sua barra e o seu prazo. E aqui
+   que se cria um projeto novo dentro dele — o unico sitio onde escolher o
+   programa e desnecessario porque ja se esta dentro dele. */
+function pjAbaProjetos(box){
+  var filhos = PJ.det.filhos || [];
+  if (!filhos.length){
+    box.appendChild(el('p', 'vazio', 'Programa ainda sem projetos.'));
+  }
+  filhos.forEach(function(f){
+    var li = el('div', 'pj-mini');
+    var corpo = el('div', 'pj-corpo-lin');
+    corpo.appendChild(el('span', 'pj-t', f.name));
+    var m = el('div', 'pj-m');
+    [areaNome(f.context_id), f.description].filter(Boolean)
+      .forEach(function(x){ m.appendChild(el('span', null, x)); });
+    if (m.childNodes.length) corpo.appendChild(m);
+    var pct = f.tarefas ? Math.round((f.feitas / f.tarefas) * 100) : 0;
+    var barra = el('div', 'pj-barra' + (pct === 100 ? ' cheia' : ''));
+    var i = el('i');
+    i.style.width = pct + '%';
+    barra.appendChild(i);
+    corpo.appendChild(barra);
+    li.appendChild(corpo);
+
+    var dir = el('div');
+    dir.style.textAlign = 'right';
+    var est = pjEstado(f.status);
+    dir.appendChild(pill(est[1], est[2]));
+    var nota = el('div', 'pj-r');
+    nota.style.marginTop = '4px';
+    nota.textContent = f.tarefas
+      ? f.feitas + '/' + f.tarefas + ' · ' + pct + '%'
+      : 'sem tarefas';
+    dir.appendChild(nota);
+    if (f.target_on && f.status !== 'concluido'){
+      var u = urgencia(diasAte(f.target_on), 'tarefa');
+      var q = el('div', 'pj-r' + (u.nivel ? ' ' + u.nivel : ''));
+      q.textContent = dataCurta(f.target_on) + (u.texto ? ' · ' + u.texto : '');
+      dir.appendChild(q);
+    }
+    li.appendChild(dir);
+    li.addEventListener('click', function(){ pjAbrir(f.id); });
+    box.appendChild(li);
+  });
+
+  var add = el('input', 'pj-add');
+  add.type = 'text';
+  add.placeholder = '+ Novo projeto neste programa';
+  add.addEventListener('keydown', function(e){
+    if (e.key !== 'Enter') return;
+    var nome = add.value.trim();
+    if (!nome) return;
+    add.value = '';
+    apiGestao('/api/gestao/projetos', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: nome,
+        tipo: 'projeto',
+        parent_id: PJ.aberto,
+        context_id: PJ.det.projeto.context_id || null
+      })
+    }).then(function(){ return loadGestao(); })
+      .then(function(){ return pjCarregarDetalhe(); })
+      .then(function(){ toast('Projeto criado no programa.'); })
+      .catch(function(e2){ toast((e2 && e2.message) || 'Não deu para criar o projeto.'); });
+  });
+  box.appendChild(add);
+}
+
 function pjAbaTarefas(box){
   var tarefas = PJ.det.tarefas;
+  /* Num programa as tarefas sao as dos projetos dele, e mostram-se agrupadas
+     por projeto: uma lista corrida de quarenta linhas nao diz de quem sao. */
+  if (pjEhPrograma(PJ.det.projeto)){
+    if (!tarefas.length){
+      box.appendChild(el('p', 'vazio', 'Os projetos deste programa ainda não têm tarefas.'));
+      return;
+    }
+    (PJ.det.filhos || []).forEach(function(f){
+      var suas = tarefas.filter(function(t){ return t.project_id === f.id; });
+      if (!suas.length) return;
+      var h = el('div', 'mono');
+      h.style.cssText = 'margin:14px 0 2px;cursor:pointer';
+      h.textContent = f.name + ' · ' + suas.length;
+      h.addEventListener('click', function(){ pjAbrir(f.id); });
+      box.appendChild(h);
+      suas.forEach(function(t){ box.appendChild(pjLinhaTarefa(t)); });
+    });
+    var nota = el('p', 'vazio');
+    nota.textContent = 'Uma tarefa entra num projeto, não no programa.';
+    box.appendChild(nota);
+    return;
+  }
   if (!tarefas.length){
     box.appendChild(el('p', 'vazio', 'Sem tarefas ligadas a este projeto.'));
   } else {
@@ -752,6 +1003,24 @@ function pjFicha(){
     g.appendChild(node);
   }
 
+  var tipo = el('select');
+  PJ_TIPOS.forEach(function(x){ tipo.appendChild(new Option(x[1], x[0])); });
+  tipo.value = pr.tipo || 'projeto';
+  tipo.addEventListener('change', function(){
+    pjGuardar(tipo.value === 'programa' ? { tipo: 'programa', parent_id: null } : { tipo: 'projeto' });
+  });
+  linha('O que é', tipo);
+
+  /* Um programa nao pende de nada, por isso nem oferece o campo. */
+  if (!pjEhPrograma(pr)){
+    var prog = el('select');
+    prog.appendChild(new Option('— fora de programa —', ''));
+    pjProgramas().forEach(function(x){ prog.appendChild(new Option(x.name, x.id)); });
+    prog.value = pr.parent_id || '';
+    prog.addEventListener('change', function(){ pjGuardar({ parent_id: prog.value || null }); });
+    linha('Programa', prog);
+  }
+
   var area = el('select');
   pjEncherAreas(area, pr.context_id);
   area.addEventListener('change', function(){ pjGuardar({ context_id: area.value || null }); });
@@ -782,7 +1051,7 @@ function pjFicha(){
 
   var dep = el('select');
   dep.appendChild(new Option('— de nenhum —', ''));
-  (G.projects || []).filter(function(p){ return p.id !== pr.id; })
+  (G.projects || []).filter(function(p){ return p.id !== pr.id && !pjEhPrograma(p); })
     .forEach(function(p){ dep.appendChild(new Option(p.name, p.id)); });
   dep.value = pr.depends_on_id || '';
   dep.addEventListener('change', function(){ pjGuardar({ depends_on_id: dep.value || null }); });
@@ -875,7 +1144,12 @@ function pjApagar(pr){
   if (d.tarefas.length) presos.push(d.tarefas.length + (d.tarefas.length === 1 ? ' tarefa' : ' tarefas'));
   if (d.documentos.length) presos.push(d.documentos.length + (d.documentos.length === 1 ? ' documento' : ' documentos'));
   if (d.despesas.length) presos.push(d.despesas.length + (d.despesas.length === 1 ? ' despesa' : ' despesas'));
+  var filhos = (d.filhos || []).length;
   var aviso = 'Apagar «' + pr.name + '»?'
+    + (filhos
+      ? '\n\n' + filhos + (filhos === 1 ? ' projeto fica' : ' projetos ficam')
+        + ' na app, fora de qualquer programa.'
+      : '')
     + (presos.length
       ? '\n\n' + presos.join(', ') + ' ficam na app, mas deixam de ter projeto.'
       : '');
@@ -911,6 +1185,14 @@ function pjRender(){
   pjRenderFiltros();
   pjRenderCards();
   if ($('pjArea')) pjEncherAreas($('pjArea'), $('pjArea').value);
+  var sp = $('pjProgNovo');
+  if (sp){
+    var antes = sp.value;
+    clear(sp);
+    sp.appendChild(new Option('— fora de programa —', ''));
+    pjProgramas().forEach(function(x){ sp.appendChild(new Option(x.name, x.id)); });
+    sp.value = antes;
+  }
   if ($('pjMembros') && typeof construirChips === 'function') construirChips('pjMembros', G.people || []);
 }
 
