@@ -20,6 +20,7 @@ const { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } = re
 const { query } = require('./db');
 const ia = require('./ia');
 const pdf = require('./pdf');
+const { PAPEIS } = require('./tarefas');
 
 const all = async (sql, params) => (await query(sql, params)).rows;
 const limpar = (v) => (v === undefined || v === '' ? null : v);
@@ -806,6 +807,81 @@ function instalar(app) {
                              WHERE l.target_type = 'documento' AND l.target_id = d.id)
           ORDER BY d.id`) });
     } catch (err) { falhaDoc(res, err, 'GET sem-ficheiro'); }
+  });
+
+  /* ---------------------------------------------------------------- *
+   * Anexar um ficheiro a partir de uma tarefa
+   *
+   * O ficheiro nao fica a viver dentro da tarefa: nasce documento, no
+   * arquivo, ja aprovado, porque a decisao foi de quem carregou. Um segundo
+   * sitio para guardar papeis era um arquivo invisivel ao lado dos
+   * Documentos, e ninguem o iria procurar quando a tarefa fechasse.
+   *
+   * A area e a pessoa herdam-se da tarefa: sao quase sempre as certas, e
+   * corrigem-se no ecra dos Documentos como qualquer outro campo.
+   * ---------------------------------------------------------------- */
+
+  app.post('/api/tarefas/:id(\\d+)/anexo', upload.single('ficheiro'), async (req, res) => {
+    const f = req.file;
+    const taskId = Number(req.params.id);
+    if (!f) return res.status(400).json({ error: 'Escolhe um ficheiro.' });
+    if (!bucketPronto()) return res.status(503).json({ error: 'O armazenamento de ficheiros ainda não está configurado.' });
+    const papel = PAPEIS.includes(req.body && req.body.papel) ? req.body.papel : 'anexo';
+    try {
+      const t = (await all(
+        "SELECT id, title, context_id, owner_id FROM tasks WHERE id = $1 AND origin = 'real'", [taskId]))[0];
+      if (!t) return res.status(404).json({ error: 'Tarefa não encontrada.' });
+
+      /* O mesmo papel duas vezes nao vira dois documentos: se o ficheiro ja
+         esta no arquivo, liga-se a tarefa ao documento que ja havia. */
+      const checksum = crypto.createHash('sha256').update(f.buffer).digest('hex');
+      const jaHa = (await all(
+        `SELECT l.target_id AS documento
+           FROM inbox_items i
+           JOIN inbox_links l ON l.inbox_id = i.id AND l.target_type = 'documento'
+          WHERE i.checksum = $1 AND i.status <> 'descartado'
+          ORDER BY i.id LIMIT 1`, [checksum]))[0];
+
+      let docId, repetido = false;
+      if (jaHa) {
+        docId = jaHa.documento;
+        repetido = true;
+      } else {
+        const nome = String((req.body && req.body.nome) || '').trim()
+          || f.originalname.replace(/\.[^.]+$/, '')
+          || t.title;
+        docId = (await all(
+          `INSERT INTO documents (name, person_id, context_id, aprovado, origin, sort)
+           VALUES ($1,$2,$3,TRUE,'real',
+                   COALESCE((SELECT max(sort) + 1 FROM documents), 1))
+           RETURNING id`,
+          [nome, t.owner_id, t.context_id]))[0].id;
+        await anexarAoDocumento(docId, f.buffer, f.originalname, f.mimetype);
+      }
+
+      await query(
+        `INSERT INTO task_documents (task_id, document_id, papel) VALUES ($1,$2,$3)
+         ON CONFLICT (task_id, document_id) DO UPDATE SET papel = EXCLUDED.papel`,
+        [taskId, docId, papel]);
+
+      /* Devolve-se a linha com as mesmas colunas do /api/bootstrap: o ecra vai
+         junta-la a lista de documentos que ja tem em memoria, e meia linha com
+         ar de linha inteira e a maneira mais silenciosa de mentir. */
+      const doc = (await all(
+        `SELECT d.id, d.name, d.entity, d.person_id, d.kind, d.context_id,
+                d.status_label, d.status_level,
+                to_char(d.issued_on,'YYYY-MM-DD') AS issued_on,
+                to_char(d.valid_on,'YYYY-MM-DD')  AS valid_on,
+                d.valid_until, (d.read_at IS NOT NULL) AS lido,
+                (SELECT l.inbox_id FROM inbox_links l
+                  WHERE l.target_type = 'documento' AND l.target_id = d.id
+                  ORDER BY l.inbox_id DESC LIMIT 1) AS inbox_id,
+                ARRAY(SELECT l.inbox_id FROM inbox_links l
+                       WHERE l.target_type = 'documento' AND l.target_id = d.id
+                       ORDER BY l.inbox_id) AS ficheiros
+           FROM documents d WHERE d.id = $1`, [docId]))[0];
+      res.status(201).json({ ok: true, documento: doc, papel, repetido });
+    } catch (err) { falhaDoc(res, err, 'POST anexo da tarefa'); }
   });
 
   app.post('/api/documentos/:id/ficheiro', upload.single('ficheiro'), async (req, res) => {
