@@ -366,7 +366,10 @@ function tfCriarRapido(input){
   }
   if (v.indexOf('proj:') === 0 && !r.project_id){
     var pr = projeto(Number(v.slice(5)));
-    if (pr){ base.project_id = pr.id; base.context_id = pr.context_id; }
+    /* Num programa a captura rapida so herda a area: a tarefa tem de escolher
+       um projeto, e o servidor recusa-a se ficar pendurada no programa. */
+    if (pr && pr.tipo !== 'programa'){ base.project_id = pr.id; base.context_id = pr.context_id; }
+    else if (pr){ base.context_id = pr.context_id; }
   }
   if (v.indexOf('tag:') === 0) r.tags.push(v.slice(4));
   var dados = {
@@ -432,7 +435,13 @@ function tfFiltro(v){
     var id = Number(v.slice(2));
     return function(t){ return t.owner_id === id || (t.subjects || []).indexOf(id) >= 0; };
   }
-  if (v.indexOf('proj:') === 0){ var pid = Number(v.slice(5)); return function(t){ return t.project_id === pid; }; }
+  if (v.indexOf('proj:') === 0){
+    var pid = Number(v.slice(5));
+    /* Carregar no nome de um programa traz o que esta nos projetos dele: e
+       isso que a pessoa quer dizer. O programa nao tem tarefas proprias. */
+    var alvo = tfAlvosDoProjeto(pid);
+    return function(t){ return alvo.indexOf(t.project_id) >= 0; };
+  }
   if (v.indexOf('tag:') === 0){ var tg = v.slice(4); return function(t){ return (t.tags || []).indexOf(tg) >= 0; }; }
   return function(){ return true; };
 }
@@ -573,6 +582,18 @@ function tfSideBtn(box, chave, icone, texto, n, extra){
   }
   b.addEventListener('click', function(){ tfIr(chave); });
   box.appendChild(b);
+  return b;
+}
+
+/* Os projetos cujas tarefas contam para uma chave proj:<id>. Num projeto e
+   ele proprio; num programa sao os projetos dele, que e onde o trabalho vive. */
+function tfAlvosDoProjeto(id){
+  var pr = projeto(id);
+  if (pr && pr.tipo === 'programa'){
+    return (G.projects || []).filter(function(f){ return f.parent_id === id; })
+      .map(function(f){ return f.id; });
+  }
+  return [id];
 }
 
 function tfRenderTipos(){
@@ -648,7 +669,17 @@ function tfRenderSide(){
   var projs = (G.projects || []).filter(function(p){ return p.status !== 'concluido'; });
   if (projs.length){
     box.appendChild(el('div', 'tf-lbl', 'Projetos'));
-    projs.forEach(function(p){ tfSideBtn(box, 'proj:' + p.id, 'proj', p.name, conta('proj:' + p.id)); });
+    /* Primeiro cada programa, com os projetos dele indentados por baixo;
+       depois os projetos que nao pertencem a programa nenhum. */
+    projs.filter(function(p){ return p.tipo === 'programa'; }).forEach(function(prog){
+      tfSideBtn(box, 'proj:' + prog.id, 'proj', prog.name, conta('proj:' + prog.id));
+      projs.filter(function(f){ return f.parent_id === prog.id; }).forEach(function(f){
+        var b = tfSideBtn(box, 'proj:' + f.id, null, f.name, conta('proj:' + f.id));
+        if (b) b.style.paddingLeft = '26px';
+      });
+    });
+    projs.filter(function(p){ return p.tipo !== 'programa' && !p.parent_id; })
+      .forEach(function(p){ tfSideBtn(box, 'proj:' + p.id, 'proj', p.name, conta('proj:' + p.id)); });
   }
 
   var tags = {};
