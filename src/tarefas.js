@@ -295,6 +295,20 @@ async function fechar(id, estado) {
   return true;
 }
 
+/* O terceiro nivel e a tarefa, e ela vive dentro de um projeto. Um programa e
+   o nivel de cima: guarda projetos, nao trabalho. Sem esta guarda a hierarquia
+   ficava com tres niveis no desenho e quatro na pratica. */
+async function verificarProjeto(projectId) {
+  if (projectId === undefined || projectId === null || projectId === '') return;
+  const pr = (await all('SELECT tipo, name FROM projects WHERE id = $1', [Number(projectId)]))[0];
+  if (!pr) return;
+  if (pr.tipo === 'programa') {
+    const e = new Error('\u00ab' + pr.name + '\u00bb e um programa: uma tarefa entra num dos projetos dele.');
+    e.status = 400;
+    throw e;
+  }
+}
+
 async function criar(b) {
   const title = String(b.title || '').trim();
   if (!title) { const e = new Error('A tarefa precisa de um título.'); e.status = 400; throw e; }
@@ -302,6 +316,7 @@ async function criar(b) {
   const priority = PRIOS.includes(b.priority) ? b.priority : 'normal';
   const tipo = TIPOS.includes(b.tipo) ? b.tipo : 'tarefa';
   const regra = normalizarRegra(b.repeat_rule || b.repeat_every);
+  await verificarProjeto(b.project_id);
   const rows = await all(
     `INSERT INTO tasks (tipo, title, notes, area, context_id, project_id, owner_id, status, priority,
                         starts_on, due_on, due_time, repeat_every, repeat_rule, repeat_from, repeat_until,
@@ -326,6 +341,7 @@ async function criar(b) {
 }
 
 async function alterar(id, b) {
+  await verificarProjeto(b.project_id);
   const campos = [], valores = [];
   const por = (c, v) => { campos.push(c + ' = $' + (campos.length + 1)); valores.push(v); };
   ['title', 'notes', 'area', 'context_id', 'project_id', 'owner_id', 'starts_on', 'due_on', 'due_time',
@@ -571,7 +587,13 @@ function instalar(app, { carregarGestao, quem, ehAdmin }) {
     }
     if (req.query.estado === 'concluida' || req.query.estado === 'cancelada') cond.push('t.status = ' + p(req.query.estado));
     if (TIPOS.includes(req.query.tipo)) cond.push('t.tipo = ' + p(req.query.tipo));
-    if (req.query.projeto) cond.push('t.project_id = ' + p(Number(req.query.projeto)));
+    /* Filtrar por um programa traz o que esta nos projetos dele: e o que a
+       pessoa quer dizer quando carrega no nome do programa. */
+    if (req.query.projeto) {
+      const x = p(Number(req.query.projeto));
+      cond.push(`(t.project_id = ${x} OR t.project_id IN
+                   (SELECT id FROM projects WHERE parent_id = ${x}))`);
+    }
     if (req.query.q) cond.push('t.title ILIKE ' + p('%' + req.query.q + '%'));
     if (req.query.antes) cond.push('t.completed_at < ' + p(req.query.antes));
     const limite = Math.min(200, Number(req.query.limite) || 60);
