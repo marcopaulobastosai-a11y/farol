@@ -908,6 +908,10 @@ function pjPainelTarefa(box){
       s.appendChild(l);
     });
   }
+
+  /* Os documentos de uma tarefa sao os mesmos vistos de qualquer lado: o
+     bloco vem do anexos.js, com o mesmo enviar e o mesmo ligar ao arquivo. */
+  pjSeccao(box, 'Documentos').appendChild(axBloco(t));
 }
 
 /* ------------------------------------------------------------------ *
