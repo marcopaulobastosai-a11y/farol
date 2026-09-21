@@ -1130,6 +1130,15 @@ function tfRenderDetalhe(base){
     det.appendChild(ss);
   }
 
+  /* Documentos: seccao e nao campo. Um nome de ficheiro nao cabe na coluna
+     estreita da grelha dos detalhes, e o que aparecia era «Docum...». O bloco
+     e o mesmo aqui, no painel dos Projetos e na janela de um aviso: vive no
+     anexos.js. */
+  var sd = el('div', 'tf-sec');
+  sd.appendChild(el('div', 'tf-lbl', 'Documentos' + ((t.documents || []).length ? ' \u00b7 ' + t.documents.length : '')));
+  sd.appendChild(axBloco(t));
+  det.appendChild(sd);
+
   // campos
   var sc = el('div', 'tf-sec');
   sc.appendChild(el('div', 'tf-lbl', 'Detalhes'));
@@ -1249,44 +1258,6 @@ function tfRenderDetalhe(base){
     tfGravar(t.id, { tags: iTags.value.split(',').map(function(s){ return s.trim(); }).filter(Boolean) });
   });
   campo('Etiquetas', iTags);
-
-  // documentos
-  var dBox = el('div');
-  (t.papeis || (t.documents || []).map(function(x){ return { id: x, papel: 'anexo' }; })).forEach(function(ref){
-    var did = ref.id;
-    var doc = docPorId(did);
-    var l = el('div', 'tf-it');
-    if (ref.papel && ref.papel !== 'anexo'){
-      var et = el('span', 'tf-tag', ref.papel);
-      et.style.marginRight = '4px';
-      l.appendChild(et);
-    }
-    var nome = doc && doc.inbox_id ? el('a', null, doc.name) : el('span', null, doc ? doc.name : 'documento ' + did);
-    if (doc && doc.inbox_id){ nome.href = '/api/inbox/' + doc.inbox_id + '/ficheiro'; nome.target = '_blank'; nome.rel = 'noopener'; }
-    nome.style.flex = '1';
-    l.appendChild(nome);
-    var x = el('button', 'tf-ico'); x.type = 'button'; x.innerHTML = tfSvg(TF_I.x, 13);
-    x.addEventListener('click', function(){
-      tfGravar(t.id, { documents: (t.papeis || []).filter(function(y){ return y.id !== did; }) });
-    });
-    l.appendChild(x);
-    dBox.appendChild(l);
-  });
-  var sDoc = el('select');
-  sDoc.appendChild(new Option('+ juntar documento', ''));
-  ((window.D && D.documents) || []).forEach(function(doc){
-    if ((t.documents || []).indexOf(doc.id) >= 0) return;
-    var dono = pessoa(doc.person_id);
-    sDoc.appendChild(new Option(doc.name + (dono ? ' (' + dono.name + ')' : ''), doc.id));
-  });
-  sDoc.addEventListener('change', function(){
-    if (!sDoc.value) return;
-    var lista = (t.papeis || []).slice();
-    lista.push({ id: Number(sDoc.value), papel: tfTipo(t) === 'pagamento' ? 'fatura' : 'anexo' });
-    tfGravar(t.id, { documents: lista });
-  });
-  dBox.appendChild(sDoc);
-  campo('Documentos', dBox);
 
   if ((t.reminders || []).length){
     campo('Lembretes', el('span', null, t.reminders.map(function(r){ return tfLembreteTxt(r.min, !t.due_time); }).join(' · ')));
