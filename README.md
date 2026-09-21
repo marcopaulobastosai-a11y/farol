@@ -1,27 +1,28 @@
-# Farol — ambiente de QUALIDADE
+# Farol
 
-Painel de gestão pessoal e familiar: Hoje, Agenda, Família, Casa, Projetos, Finanças, Saúde e Documentos.
+Painel de gestão pessoal e familiar: Hoje, Agenda, Tarefas, Caixa de entrada, Família,
+Casa, Projetos, Finanças, Saúde e Documentos.
 
-Este repositório é o **ambiente de qualidade**: os dados são fictícios e servem para testar o
-comportamento da aplicação. Nada aqui é real. O ambiente com dados reais será outro, à parte —
-outro projeto, outra base de dados, outro endereço.
+Isto é a aplicação a sério. Os dados na base de dados são reais e são de quem a usa —
+**nada de real entra neste repositório**: aqui vive a estrutura (`db/schema.sql`), e os
+nomes, as moradas, os valores e os ficheiros entram pela aplicação.
 
 ## Como está feito
 
 - **Node 20 + Express** a servir a API e os ficheiros estáticos.
 - **PostgreSQL** — toda a informação da aplicação vive na base de dados (`db/schema.sql`).
   O frontend não tem dados embebidos: arranca vazio e preenche-se a partir de `/api/bootstrap`.
-- **Frontend** em HTML/CSS/JS simples, sem framework nem build.
+- **Frontend** em HTML/CSS/JS simples, sem framework nem passo de build.
 
 ## Arranque
 
-Na primeira ligação a aplicação cria o esquema e, se a base de dados estiver vazia,
-carrega os dados de qualidade (`db/seed.sql`).
+Em cada arranque a aplicação corre o `db/schema.sql` inteiro: é aí que entram as tabelas,
+as colunas novas e as migrações. Nada é semeado — a base começa vazia e enche-se com o que
+alguém lá puser.
 
 ```bash
 npm install
 DATABASE_URL=postgres://... npm start       # http://localhost:3000
-DATABASE_URL=postgres://... npm run seed    # repõe os dados (apaga o que lá estiver)
 ```
 
 ## Variáveis de ambiente
@@ -29,39 +30,38 @@ DATABASE_URL=postgres://... npm run seed    # repõe os dados (apaga o que lá e
 | Variável | Para que serve |
 | --- | --- |
 | `DATABASE_URL` | ligação ao PostgreSQL (no Railway: `${{Postgres.DATABASE_URL}}`) |
-| `APP_ENV` | nome do ambiente, mostrado na barra do topo e no menu (aqui: `qualidade`) |
 | `PORT` | porta HTTP (o Railway define-a automaticamente) |
 | `GOOGLE_CLIENT_ID` | ID do cliente OAuth (Web) do Google — público, não é segredo |
 | `SESSION_SECRET` | chave para assinar o cookie de sessão (valor aleatório longo) |
 | `ALLOWED_EMAILS` | emails que podem entrar, separados por vírgula |
+| `GEMINI_API_KEY` | chave do Gemini, para a leitura automática dos ficheiros da caixa de entrada |
+| `INBOX_BUCKET_*`, `ARQUIVO_BUCKET_*` | onde ficam os ficheiros: um bucket para a caixa, outro para o arquivo |
 
 ## API
 
 | Método | Rota | O que faz |
 | --- | --- | --- |
 | `GET` | `/api/health` | estado da app e da base de dados |
-| `GET` | `/api/bootstrap` | todo o conteúdo do painel, numa chamada |
-| `PATCH` | `/api/tasks/:id` | marca/desmarca uma tarefa (`{"done": true}`) — grava mesmo |
-
-As tarefas são o exemplo de escrita: marcar uma no ecrã grava na base de dados e sobrevive ao *refresh*.
+| `GET` | `/api/bootstrap` | o conteúdo do painel, numa chamada |
+| `GET` | `/api/gestao` | pessoas, projetos, tarefas e áreas |
+| `GET`/`POST`/`PATCH`/`DELETE` | `/api/tarefas`, `/api/pessoas`, `/api/documentos`, `/api/despesas`, `/api/inbox`, `/api/contextos`, `/api/acessos` | os módulos, cada um no seu ficheiro em `src/` |
 
 ## Estrutura
 
 ```
-db/schema.sql      esquema (25 tabelas)
-db/seed.sql        dados fictícios do ambiente de qualidade
-src/server.js      API + servidor estático
-src/db.js          ligação e arranque da base de dados
-src/seed.js        `npm run seed`
-public/            index.html, app.js, styles.css
+db/schema.sql      esquema e migrações — corre a cada arranque
+src/server.js      arranque, bootstrap e servidor estático
+src/auth.js        entrada com conta Google e barreira /api
+src/db.js          ligação à base de dados
+src/inbox.js       caixa de entrada, buckets e triagem
+src/ia.js          leitura automática dos ficheiros (Gemini)
+src/tarefas.js     tarefas, projetos e importação
+src/pessoas.js     pessoas e ficha de cada uma
+src/catalogo.js    corrigir e apagar documentos e despesas
+src/contextos.js   áreas e sub-áreas
+src/pdf.js         PDF de uma nota, sem dependências
+public/            index.html, styles.css e um ficheiro por ecrã
 ```
-
-## Barra de ambiente
-
-Enquanto `APP_ENV` estiver definido, a app mostra uma barra fixa no topo com o nome do ambiente e
-o aviso de que os dados não são reais, mais uma etiqueta no menu lateral. O texto do aviso está na
-tabela `settings` (`env_nota`). Num ambiente com dados reais, basta `APP_ENV=real` para a barra
-desaparecer.
 
 ## Entrada com conta Google
 
@@ -82,5 +82,6 @@ Todas as rotas `/api/*` ficam fechadas, excepto `/api/health` (para o Railway ve
 o serviço) e `/api/config` (para o ecrã de entrada saber qual é o client id).
 
 Para criar o cliente OAuth: Google Cloud → APIs e Serviços → Credenciais →
-*Criar credenciais* → *ID de cliente OAuth* → *Aplicação Web*, com
-`https://farol-qa.up.railway.app` nas **origens JavaScript autorizadas**.
+*Criar credenciais* → *ID de cliente OAuth* → *Aplicação Web*, com o endereço público da
+aplicação nas **origens JavaScript autorizadas**. Se o endereço mudar, o novo tem de ser
+acrescentado aí **antes** da mudança — senão o login deixa de funcionar.
