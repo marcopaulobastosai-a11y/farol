@@ -262,7 +262,7 @@ async function codigoLivre(base) {
 }
 
 async function carregarGestao() {
-  const [people, projects, members, tasks, contextos] = await Promise.all([
+  const [people, projects, members, tasks, contextos, contagens] = await Promise.all([
     all(`SELECT id, code, name, full_name, role, kind, initials, color, can_own_tasks, active, note
            FROM people WHERE origin = 'real' ORDER BY sort, id`),
     all(`SELECT id, name, description, area, context_id, depends_on_id, status,
@@ -282,11 +282,31 @@ async function carregarGestao() {
        mostrar onde cada coisa vive, e poupa-se um pedido. */
     all(`SELECT c.id, c.slug, c.name, c.parent_id, c.active, p.name AS parent_name
            FROM contexts c LEFT JOIN contexts p ON p.id = c.parent_id
-          ORDER BY COALESCE(p.sort, c.sort), COALESCE(p.id, c.id), c.parent_id NULLS FIRST, c.sort, c.id`)
+          ORDER BY COALESCE(p.sort, c.sort), COALESCE(p.id, c.id), c.parent_id NULLS FIRST, c.sort, c.id`),
+    /* Quantas tarefas tem cada projeto ao certo. Sem isto, a lista so podia
+       contar as que o /api/gestao traz — as abertas e as fechadas ha duas
+       semanas — e uma percentagem feita com essas mente por defeito, cada vez
+       mais com o tempo. Uma consulta agregada chega, e e barata. */
+    all(`SELECT project_id,
+                count(*)::int AS total,
+                count(*) FILTER (WHERE status = 'concluida')::int AS feitas,
+                count(*) FILTER (WHERE status <> 'concluida'
+                                   AND due_on IS NOT NULL
+                                   AND due_on < CURRENT_DATE)::int AS atrasadas
+           FROM tasks
+          WHERE origin = 'real' AND project_id IS NOT NULL AND status <> 'cancelada'
+          GROUP BY project_id`)
   ]);
   projects.forEach((p) => {
     p.members = members.filter((m) => m.project_id === p.id)
       .map((m) => ({ person_id: m.person_id, member_role: m.member_role }));
+    const c = contagens.filter((x) => x.project_id === p.id)[0];
+    p.contagem = {
+      total: c ? c.total : 0,
+      feitas: c ? c.feitas : 0,
+      abertas: c ? c.total - c.feitas : 0,
+      atrasadas: c ? c.atrasadas : 0
+    };
   });
   return { people, projects, tasks, contextos };
 }
