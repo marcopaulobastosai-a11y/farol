@@ -266,6 +266,7 @@ async function carregarGestao() {
     all(`SELECT id, code, name, full_name, role, kind, initials, color, can_own_tasks, active, note
            FROM people WHERE origin = 'real' ORDER BY sort, id`),
     all(`SELECT id, name, description, area, context_id, depends_on_id, status,
+                tipo, parent_id,
                 to_char(started_on,'YYYY-MM-DD') AS started_on,
                 to_char(target_on,'YYYY-MM-DD') AS target_on,
                 to_char(closed_on,'YYYY-MM-DD') AS closed_on, sort
@@ -357,20 +358,47 @@ async function gravarMembros(projectId, members) {
   }
 }
 
+const TIPOS_PROJETO = ['programa', 'projeto'];
+
+/* As tres regras que fazem os niveis serem exactamente tres:
+ *   1. um programa nunca tem pai;
+ *   2. um projeto so pode pender de um programa;
+ *   3. uma tarefa nunca pende de um programa (garantido no tarefas.js).
+ * Da 1 e da 2 sai de graca a impossibilidade de um ciclo: o pai tem de ser um
+ * programa, e um programa nao tem pai. Nao e preciso andar a subir a arvore. */
+async function validarHierarquia(id, tipo, parentId) {
+  if (tipo === 'programa') {
+    if (parentId) return 'Um programa nao pende de nada: e o nivel de cima.';
+    return null;
+  }
+  if (!parentId) return null;
+  if (id && Number(parentId) === Number(id)) return 'Um projeto nao pode pender de si proprio.';
+  const pai = (await all('SELECT tipo FROM projects WHERE id = $1', [Number(parentId)]))[0];
+  if (!pai) return 'O programa indicado nao existe.';
+  if (pai.tipo !== 'programa') {
+    return 'Um projeto so pode pertencer a um programa \u2014 nao a outro projeto.';
+  }
+  return null;
+}
+
 app.post('/api/gestao/projetos', async (req, res) => {
   const b = req.body || {};
   const name = String(b.name || '').trim();
   if (!name) return res.status(400).json({ error: 'O nome do projeto é obrigatório.' });
   try {
+    const tipo = TIPOS_PROJETO.includes(b.tipo) ? b.tipo : 'projeto';
+    const parentId = tipo === 'programa' ? null : limpar(b.parent_id);
+    const mal = await validarHierarquia(null, tipo, parentId);
+    if (mal) return res.status(400).json({ error: mal });
     const n = (await all("SELECT count(*)::int AS n FROM projects WHERE origin = 'real'"))[0].n;
     const rows = await all(
       `INSERT INTO projects (name, description, area, context_id, depends_on_id, status,
-                             started_on, target_on, sort, origin, progress)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'real',0)
-       RETURNING id, name, description, area, context_id, depends_on_id, status,
+                             started_on, target_on, sort, origin, progress, tipo, parent_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'real',0,$10,$11)
+       RETURNING id, name, description, area, context_id, depends_on_id, status, tipo, parent_id,
                  to_char(started_on,'YYYY-MM-DD') AS started_on, to_char(target_on,'YYYY-MM-DD') AS target_on`,
       [name, limpar(b.description), limpar(b.area), limpar(b.context_id), limpar(b.depends_on_id),
-       b.status || 'ativo', limpar(b.started_on), limpar(b.target_on), n + 1]);
+       b.status || 'ativo', limpar(b.started_on), limpar(b.target_on), n + 1, tipo, parentId]);
     await gravarMembros(rows[0].id, b.members);
     res.status(201).json(rows[0]);
   } catch (err) {
@@ -384,10 +412,41 @@ app.patch('/api/gestao/projetos/:id', async (req, res) => {
   const b = req.body || {};
   const campos = [], valores = [];
   ['name', 'description', 'area', 'context_id', 'depends_on_id', 'status',
-   'started_on', 'target_on', 'closed_on'].forEach((c) => {
+   'started_on', 'target_on', 'closed_on', 'parent_id'].forEach((c) => {
     if (b[c] !== undefined) { campos.push(c + ' = $' + (campos.length + 1)); valores.push(limpar(b[c])); }
   });
   try {
+    /* Mudar de tipo e mudar de pai sao a mesma decisao vista de dois lados, e
+       por isso validam-se juntos, contra o que a linha vai ficar a ser e nao
+       contra o que era. */
+    const atual = (await all('SELECT tipo, parent_id FROM projects WHERE id = $1', [id]))[0];
+    if (!atual) return res.status(404).json({ error: 'Projeto nao encontrado.' });
+    let tipo = atual.tipo;
+    if (b.tipo !== undefined) {
+      if (!TIPOS_PROJETO.includes(b.tipo)) return res.status(400).json({ error: 'Tipo invalido.' });
+      tipo = b.tipo;
+      campos.push('tipo = $' + (campos.length + 1));
+      valores.push(tipo);
+    }
+    const parentId = b.parent_id !== undefined ? limpar(b.parent_id) : atual.parent_id;
+    /* Um programa com projetos agarrados nao pode passar a projeto: os filhos
+       ficariam a pender de um projeto, que e o nivel que nao existe. */
+    if (tipo === 'projeto' && atual.tipo === 'programa') {
+      const n = (await all(
+        "SELECT count(*)::int AS n FROM projects WHERE parent_id = $1 AND origin = 'real'", [id]))[0].n;
+      if (n) {
+        return res.status(400).json({
+          error: 'Este programa tem ' + n + (n === 1 ? ' projeto' : ' projetos')
+            + ' agarrados. Tira-os primeiro.' });
+      }
+    }
+    const mal = await validarHierarquia(id, tipo, parentId);
+    if (mal) return res.status(400).json({ error: mal });
+    /* Passar a programa deixa cair o pai: um programa nao pende de nada. */
+    if (tipo === 'programa' && parentId && b.parent_id === undefined) {
+      campos.push('parent_id = $' + (campos.length + 1));
+      valores.push(null);
+    }
     if (campos.length) {
       valores.push(id);
       const rows = await all(
@@ -411,35 +470,64 @@ app.get('/api/gestao/projetos/:id', async (req, res) => {
   if (!Number.isInteger(id)) return res.status(400).json({ error: 'Projeto inválido.' });
   try {
     const rows = await all(
-      `SELECT id, name, description, area, context_id, depends_on_id, status, sort,
+      `SELECT id, name, description, area, context_id, depends_on_id, status, sort, tipo, parent_id,
               to_char(started_on,'YYYY-MM-DD') AS started_on,
               to_char(target_on,'YYYY-MM-DD')  AS target_on,
               to_char(closed_on,'YYYY-MM-DD')  AS closed_on
          FROM projects WHERE id = $1 AND origin = 'real'`, [id]);
     if (!rows.length) return res.status(404).json({ error: 'Projeto não encontrado.' });
     const projeto = rows[0];
-    const [membros, tarefas_, documentos, despesas, dependentes] = await Promise.all([
+
+    /* Um programa nao tem trabalho proprio: o que se mostra nele e a soma do
+       que esta nos projetos dele. Somam-se as tarefas, nunca as percentagens —
+       a media de percentagens daria a um projeto de duas tarefas o mesmo peso
+       que a um de vinte. */
+    const filhos = projeto.tipo === 'programa'
+      ? await all(
+        `SELECT id, name, description, context_id, status, sort,
+                to_char(started_on,'YYYY-MM-DD') AS started_on,
+                to_char(target_on,'YYYY-MM-DD')  AS target_on,
+                to_char(closed_on,'YYYY-MM-DD')  AS closed_on
+           FROM projects WHERE parent_id = $1 AND origin = 'real' ORDER BY sort, id`, [id])
+      : [];
+    const alvos = projeto.tipo === 'programa' ? filhos.map((f) => f.id) : [id];
+
+    const [membros, tarefas_, documentos, despesas, dependentes, pai] = await Promise.all([
       all('SELECT person_id, member_role FROM project_members WHERE project_id = $1', [id]),
-      all(`SELECT t.id, t.title, t.status, t.tipo, t.priority, t.owner_id, t.done, t.tags,
+      alvos.length ? all(
+        `SELECT t.id, t.title, t.status, t.tipo, t.priority, t.owner_id, t.done, t.tags, t.project_id,
                   to_char(t.due_on,'YYYY-MM-DD') AS due_on,
                   to_char(t.completed_at,'YYYY-MM-DD') AS completed_on
              FROM tasks t
-            WHERE t.project_id = $1 AND t.origin = 'real'
-            ORDER BY (t.due_on IS NULL), t.due_on, t.sort_order, t.id`, [id]),
-      all(`SELECT id, name, entity, kind, aprovado,
+            WHERE t.project_id = ANY($1::int[]) AND t.origin = 'real'
+            ORDER BY (t.due_on IS NULL), t.due_on, t.sort_order, t.id`, [alvos]) : [],
+      alvos.length ? all(
+        `SELECT id, name, entity, kind, aprovado, project_id,
                   to_char(valid_on,'YYYY-MM-DD')  AS valid_on,
                   to_char(issued_on,'YYYY-MM-DD') AS issued_on
-             FROM documents WHERE project_id = $1
-            ORDER BY COALESCE(issued_on, valid_on) DESC NULLS LAST, id DESC`, [id]),
-      all(`SELECT id, description, amount::float8 AS amount, merchant, category, person_id,
+             FROM documents WHERE project_id = ANY($1::int[])
+            ORDER BY COALESCE(issued_on, valid_on) DESC NULLS LAST, id DESC`, [alvos]) : [],
+      alvos.length ? all(
+        `SELECT id, description, amount::float8 AS amount, merchant, category, person_id, project_id,
                   to_char(spent_on,'YYYY-MM-DD') AS spent_on
-             FROM expenses WHERE project_id = $1
-            ORDER BY spent_on DESC, id DESC`, [id]),
+             FROM expenses WHERE project_id = ANY($1::int[])
+            ORDER BY spent_on DESC, id DESC`, [alvos]) : [],
       all(`SELECT id, name, status FROM projects
-            WHERE depends_on_id = $1 AND origin = 'real' ORDER BY sort, id`, [id])
+            WHERE depends_on_id = $1 AND origin = 'real' ORDER BY sort, id`, [id]),
+      projeto.parent_id
+        ? all('SELECT id, name, status FROM projects WHERE id = $1', [projeto.parent_id])
+        : []
     ]);
     projeto.members = membros.map((m) => ({ person_id: m.person_id, member_role: m.member_role }));
-    res.json({ projeto, tarefas: tarefas_, documentos, despesas, dependentes });
+    filhos.forEach((f) => {
+      const suas = tarefas_.filter((t) => t.project_id === f.id && t.status !== 'cancelada');
+      f.tarefas = suas.length;
+      f.feitas = suas.filter((t) => t.status === 'concluida').length;
+    });
+    res.json({
+      projeto, tarefas: tarefas_, documentos, despesas, dependentes,
+      filhos, pai: pai[0] || null
+    });
   } catch (err) {
     console.error('[farol] GET projeto:', err.message);
     res.status(500).json({ error: 'Não foi possível ler o projeto.' });
@@ -474,7 +562,9 @@ app.delete('/api/gestao/projetos/:id', async (req, res) => {
     const antes = (await all(
       `SELECT (SELECT count(*)::int FROM tasks     WHERE project_id = $1) AS tarefas,
               (SELECT count(*)::int FROM documents WHERE project_id = $1) AS documentos,
-              (SELECT count(*)::int FROM expenses  WHERE project_id = $1) AS despesas`, [id]))[0];
+              (SELECT count(*)::int FROM expenses  WHERE project_id = $1) AS despesas,
+              (SELECT count(*)::int FROM projects  WHERE parent_id  = $1
+                                                     AND origin = 'real') AS projetos`, [id]))[0];
     const rows = await all("DELETE FROM projects WHERE id = $1 AND origin = 'real' RETURNING id", [id]);
     if (!rows.length) return res.status(404).json({ error: 'Projeto não encontrado.' });
     res.json({ ok: true, soltos: antes });
