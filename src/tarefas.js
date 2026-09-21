@@ -21,6 +21,9 @@ const TIPOS = ['tarefa', 'lembrete', 'nota', 'pagamento'];
 const METODOS = ['transferência', 'débito direto', 'multibanco', 'mb way', 'cartão', 'numerário', 'cheque', 'outro'];
 const PRIOS = ['baixa', 'normal', 'media', 'alta'];
 const FECHADAS = ['concluida', 'cancelada'];
+/* O papel de um documento numa tarefa. Fora destes quatro, nao ha nome que
+   alguem consiga ler daqui a um ano: o que vier de fora fica «anexo». */
+const PAPEIS = ['anexo', 'fatura', 'comprovativo', 'recibo'];
 
 /* ------------------------------------------------------------------ *
  * Repeticao
@@ -192,7 +195,8 @@ async function gravarAssuntos(taskId, subjects) {
 function umDocumento(d) {
   const id = Number(d && d.id !== undefined ? d.id : d);
   if (!Number.isInteger(id)) return null;
-  return { id, papel: (d && d.papel) || 'anexo' };
+  const papel = d && d.papel;
+  return { id, papel: PAPEIS.includes(papel) ? papel : 'anexo' };
 }
 
 async function juntarDocumentos(taskId, documents) {
@@ -705,4 +709,4 @@ function instalar(app, { carregarGestao, quem, ehAdmin }) {
   });
 }
 
-module.exports = { instalar, tarefasParaGestao, importar, criar, alterar, fechar, umaTarefa, proximaData, descreverRegra, STATUS, PRIOS, TIPOS };
+module.exports = { instalar, tarefasParaGestao, importar, criar, alterar, fechar, umaTarefa, proximaData, descreverRegra, STATUS, PRIOS, TIPOS, PAPEIS };
