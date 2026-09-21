@@ -21,8 +21,6 @@
   --shadow:0 1px 2px rgba(15,40,40,.05), 0 8px 24px -16px rgba(15,40,40,.35);
   --radius:10px;
 
-  --env-bg:#8A5A16;
-  --env-ink:#FFFFFF;
 
   --fs-mono:.6875rem;
   --sans:"IBM Plex Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
@@ -49,14 +47,10 @@
     --warn-soft:#2E2513;
     --bad:#E0736F;
     --bad-soft:#321A1A;
-    --env-bg:#7A4E12;
-    --env-ink:#F7EEE1;
     --shadow:0 1px 2px rgba(0,0,0,.4), 0 10px 30px -20px rgba(0,0,0,.9);
   }
 }
 :root[data-theme="dark"]{
-  --env-bg:#7A4E12;
-  --env-ink:#F7EEE1;
   --ground:#0A1214;
   --surface:#111C1E;
   --surface-2:#162325;
@@ -79,30 +73,6 @@
 }
 
 *{box-sizing:border-box;}
-.envbar{
-  position:fixed;top:0;left:0;right:0;z-index:30;
-  height:34px;display:flex;align-items:center;justify-content:center;gap:10px;
-  background:var(--env-bg);color:var(--env-ink);
-  padding:0 14px;text-align:center;
-}
-.envbar b{font-weight:600;letter-spacing:.09em;text-transform:uppercase;font-size:.8125rem;}
-.envbar span{font-size:.8125rem;opacity:.82;}
-body.has-envbar{padding-top:34px;}
-body.has-envbar .rail{top:34px;height:calc(100vh - 34px);}
-body.has-envbar .topbar{top:34px;}
-@media (max-width:700px){
-  .envbar{height:auto;min-height:34px;padding:6px 12px;flex-direction:column;gap:1px;line-height:1.3;}
-  .envbar span{font-size:.6875rem;}
-  body.has-envbar{padding-top:52px;}
-  body.has-envbar .topbar{top:52px;}
-}
-.env-chip{
-  display:inline-flex;align-items:center;justify-content:center;
-  margin:0 8px;padding:5px 14px;border-radius:20px;
-  background:var(--env-bg);color:var(--env-ink);
-  font-family:var(--mono);font-size:.6875rem;letter-spacing:.1em;text-transform:uppercase;font-weight:500;
-  align-self:flex-start;
-}
 body{
   margin:0;
   background:var(--ground);
