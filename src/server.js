@@ -387,7 +387,9 @@ app.post('/api/gestao/projetos', async (req, res) => {
   if (!name) return res.status(400).json({ error: 'O nome do projeto é obrigatório.' });
   try {
     const tipo = TIPOS_PROJETO.includes(b.tipo) ? b.tipo : 'projeto';
-    const parentId = tipo === 'programa' ? null : limpar(b.parent_id);
+    /* Valida-se o que foi pedido, nao o que sobrou depois de o limpar: deixar
+       cair o pai de um programa em silencio e a app a fingir que percebeu. */
+    const parentId = limpar(b.parent_id);
     const mal = await validarHierarquia(null, tipo, parentId);
     if (mal) return res.status(400).json({ error: mal });
     const n = (await all("SELECT count(*)::int AS n FROM projects WHERE origin = 'real'"))[0].n;
@@ -436,8 +438,9 @@ app.patch('/api/gestao/projetos/:id', async (req, res) => {
         "SELECT count(*)::int AS n FROM projects WHERE parent_id = $1 AND origin = 'real'", [id]))[0].n;
       if (n) {
         return res.status(400).json({
-          error: 'Este programa tem ' + n + (n === 1 ? ' projeto' : ' projetos')
-            + ' agarrados. Tira-os primeiro.' });
+          error: n === 1
+            ? 'Este programa tem 1 projeto agarrado. Tira-o primeiro.'
+            : 'Este programa tem ' + n + ' projetos agarrados. Tira-os primeiro.' });
       }
     }
     const mal = await validarHierarquia(id, tipo, parentId);
