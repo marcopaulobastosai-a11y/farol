@@ -46,7 +46,6 @@ function hojeMeta() {
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const APP_ENV = process.env.APP_ENV || 'qualidade';
 
 /* 5 MB: a importacao do TickTick manda as tarefas aos lotes, com notas e
    passos; o limite por omissao (100 KB) cortava os lotes a meio. */
@@ -64,9 +63,9 @@ app.get('/api/health', async (_req, res) => {
   try {
     const [{ n: pessoas }] = await all('SELECT count(*)::int AS n FROM people');
     const [{ n: eventos }] = await all('SELECT count(*)::int AS n FROM events');
-    res.json({ ok: true, env: APP_ENV, db: 'up', pessoas, eventos });
+    res.json({ ok: true, db: 'up', pessoas, eventos });
   } catch (err) {
-    res.status(503).json({ ok: false, env: APP_ENV, db: 'down', error: err.message });
+    res.status(503).json({ ok: false, db: 'down', error: err.message });
   }
 });
 
@@ -205,7 +204,7 @@ app.get('/api/bootstrap', async (_req, res) => {
     }
 
     res.json({
-      meta: { env: APP_ENV, ...settings, ...hojeMeta() },
+      meta: { ...settings, ...hojeMeta() },
       people, calendars, events, attention, tiles, documents,
       notes: Object.fromEntries(notes.map((n) => [n.slug, n.body]))
     });
@@ -505,7 +504,7 @@ app.get('*', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'i
     console.error('[farol] arranque sem base de dados:', err.message);
   }
   app.listen(PORT, () => console.log(
-    `[farol] ambiente ${APP_ENV} a servir na porta ${PORT}` +
+    `[farol] a servir na porta ${PORT}` +
     (auth.ativa()
       ? ` · login Google activo (${auth.permitidos.length} conta(s) autorizada(s))`
       : ' · SEM autenticação — falta GOOGLE_CLIENT_ID ou SESSION_SECRET') +
