@@ -31,7 +31,14 @@ var PJ = {
   det: null,          // { projeto, tarefas, documentos, despesas, dependentes }
   aba: 'tarefas',     // tarefas | documentos | despesas
   montado: false,
-  arrasta: null
+  arrasta: null,
+  /* A arvore: um programa esta aberto salvo ordem em contrario (por isso o
+     !== false), um projeto tem as tarefas recolhidas salvo ordem em contrario
+     (por isso o === true). E o que se ve ao entrar: os projetos todos, e as
+     tarefas so do projeto em que se esta a trabalhar. */
+  progAbertos: {},
+  projAbertos: {},
+  sel: null           // { tipo: 'programa'|'projeto'|'tarefa', id: <n> }
 };
 
 var PJ_ESTADOS = [
@@ -59,18 +66,6 @@ var PJ_CSS = [
   "#view-projetos .pj-bar{display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap}",
   "#view-projetos .pj-bar .tabs{margin-bottom:0}",
   "#view-projetos .pj-bar .btn.small{margin-left:auto}",
-  "#view-projetos .pj-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(19rem,1fr));gap:12px}",
-  "#view-projetos .pj-card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:14px;cursor:pointer;display:flex;flex-direction:column;gap:8px;position:relative}",
-  "#view-projetos .pj-card:hover{border-color:var(--accent)}",
-  "#view-projetos .pj-card.arrastado{opacity:.4}",
-  "#view-projetos .pj-card.alvo{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}",
-  "#view-projetos .pj-card h4{font-family:var(--serif);font-size:1.0625rem;font-weight:600;line-height:1.25;padding-right:22px}",
-  "#view-projetos .pj-card .pj-onde{font-size:.75rem;color:var(--muted)}",
-  "#view-projetos .pj-card .pj-desc{font-size:.8125rem;color:var(--ink-2);line-height:1.45}",
-  "#view-projetos .pj-card footer{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:auto;padding-top:4px}",
-  "#view-projetos .pj-card footer .mono{margin-left:auto;color:var(--muted)}",
-  "#view-projetos .pj-pega{position:absolute;top:10px;right:8px;color:var(--faint);cursor:grab;line-height:0;padding:2px}",
-  "#view-projetos .pj-pega:active{cursor:grabbing}",
   "#view-projetos .pj-barra{height:5px;border-radius:99px;background:var(--surface-2);border:1px solid var(--line-soft);overflow:hidden}",
   "#view-projetos .pj-barra i{display:block;height:100%;background:var(--accent)}",
   "#view-projetos .pj-barra.cheia i{background:var(--good)}",
@@ -110,13 +105,53 @@ var PJ_CSS = [
   "#view-projetos .pj-dep:first-of-type{border-top:0}",
   "#view-projetos .pj-dep b{font-weight:500;color:var(--ink);cursor:pointer}",
   "#view-projetos .pj-dep b:hover{color:var(--accent-ink);text-decoration:underline}",
-  "#view-projetos .pj-prog{grid-column:1/-1;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface-2);padding:12px;display:flex;flex-direction:column;gap:10px}",
-  "#view-projetos .pj-prog > header{display:flex;align-items:center;gap:10px;flex-wrap:wrap;cursor:pointer}",
-  "#view-projetos .pj-prog > header h3{font-family:var(--serif);font-size:1.15rem;font-weight:600}",
-  "#view-projetos .pj-prog > header .mono{color:var(--muted)}",
-  "#view-projetos .pj-prog > header .pj-sp{flex:1}",
-  "#view-projetos .pj-prog .pj-filhos{display:grid;grid-template-columns:repeat(auto-fill,minmax(17rem,1fr));gap:10px}",
-  "#view-projetos .pj-prog .pj-card{background:var(--surface)}",
+  "#view-projetos .pj-lista{display:grid;grid-template-columns:minmax(0,1fr) 23rem;gap:16px;align-items:start}",
+  "#view-projetos .pj-arv{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:6px 8px;min-width:0}",
+  "#view-projetos .pj-bloco{border:1px solid var(--line-soft);background:var(--surface-2);border-radius:10px;margin:6px 0;padding:4px 6px 2px}",
+  "#view-projetos .pj-bloco.sel{border-color:var(--accent);background:var(--accent-soft)}",
+  "#view-projetos .pj-bloco.arrastado{opacity:.4}",
+  "#view-projetos .pj-bloco.alvo,#view-projetos .pj-no.alvo{box-shadow:0 0 0 2px var(--accent)}",
+  "#view-projetos .pj-no{display:flex;align-items:center;gap:10px;padding:8px 8px;border-radius:8px}",
+  "#view-projetos .pj-no.n2{padding:7px 8px}",
+  "#view-projetos .pj-no.sel{background:var(--accent-soft);box-shadow:inset 2px 0 0 var(--accent)}",
+  "#view-projetos .pj-no.arrastado{opacity:.4}",
+  "#view-projetos .pj-filhos{padding:0 0 6px 11px;margin-left:11px;border-left:1px solid var(--line-soft)}",
+  "#view-projetos .pj-seta{flex:none;width:22px;height:22px;border:0;background:none;color:var(--muted);border-radius:6px;padding:0;cursor:pointer;display:flex;align-items:center;justify-content:center}",
+  "#view-projetos .pj-seta:hover{background:var(--surface);color:var(--ink)}",
+  "#view-projetos .pj-seta svg{transition:transform .15s}",
+  "#view-projetos .pj-seta.on svg{transform:rotate(90deg)}",
+  "#view-projetos .pj-rot{flex:1 1 auto;min-width:5rem;text-align:left;border:0;background:none;padding:0;cursor:pointer;display:flex;align-items:center;gap:9px;font:inherit;color:var(--ink)}",
+  "#view-projetos .pj-rot .t1{font-family:var(--serif);font-size:1.0625rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
+  "#view-projetos .pj-rot .t2{font-size:.875rem;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
+  "#view-projetos .pj-rot .onde{font-size:.72rem;color:var(--faint);white-space:nowrap}",
+  "#view-projetos .pj-meta{flex:none;font-family:var(--mono);font-size:.6875rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
+  "#view-projetos .pj-meta.bad{color:var(--bad)} #view-projetos .pj-meta.warn{color:var(--warn)} #view-projetos .pj-meta.faint{color:var(--faint)}",
+  "#view-projetos .pj-meta.data{width:6.5rem;text-align:right}",
+  "#view-projetos .pj-meta.conta{width:5.5rem;text-align:right}",
+  "#view-projetos .pj-tar{display:flex;align-items:center;gap:9px;width:100%;border:0;border-top:1px solid var(--line-soft);background:none;padding:6px 8px;border-radius:7px;cursor:pointer;font:inherit;text-align:left}",
+  "#view-projetos .pj-tar:hover{background:var(--surface-2)}",
+  "#view-projetos .pj-tar.sel{background:var(--accent-soft)}",
+  "#view-projetos .pj-tar .cx{flex:none;width:14px;height:14px;border-radius:4px;border:1.5px solid var(--line-strong,#C3D0D1);background:var(--surface)}",
+  "#view-projetos .pj-tar .cx.bad{border-color:var(--bad)} #view-projetos .pj-tar .cx.warn{border-color:var(--warn)}",
+  "#view-projetos .pj-tar .tt{flex:1;min-width:0;font-size:.8125rem;color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
+  "#view-projetos .pj-tar .quem{flex:none;display:flex;align-items:center;gap:5px;font-size:.72rem;color:var(--faint)}",
+  "#view-projetos .pj-tar .quem i{width:7px;height:7px;border-radius:50%}",
+  "#view-projetos .pj-tarefas{padding:2px 0 8px 33px}",
+  "#view-projetos .pj-nada{padding:6px 4px;font-size:.75rem;color:var(--faint)}",
+  "#view-projetos .pj-grip{flex:none;width:14px;color:var(--line);cursor:grab;line-height:0;padding:0;border:0;background:none;opacity:0}",
+  "#view-projetos .pj-no:hover .pj-grip,#view-projetos .pj-grip:focus{opacity:1}",
+  "#view-projetos .pj-painel{position:sticky;top:96px;max-height:calc(100vh - 116px);overflow:auto;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:16px 16px 18px;display:flex;flex-direction:column;gap:13px}",
+  "#view-projetos .pj-painel > header{display:flex;align-items:center;gap:8px}",
+  "#view-projetos .pj-painel > header .mono{flex:1}",
+  "#view-projetos .pj-painel h2{font-family:var(--serif);font-size:1.3125rem;font-weight:600;line-height:1.25}",
+  "#view-projetos .pj-painel .pj-desc{font-size:.8125rem;line-height:1.5;color:var(--ink-2);margin-top:5px}",
+  "#view-projetos .pj-subir{display:inline-flex;align-items:center;gap:6px;border:0;background:none;font:inherit;font-size:.75rem;color:var(--muted);cursor:pointer;padding:0 0 4px}",
+  "#view-projetos .pj-subir:hover{color:var(--accent-ink)}",
+  "#view-projetos .pj-sec{border-top:1px solid var(--line-soft);padding-top:11px}",
+  "#view-projetos .pj-sec > .mono{display:block;margin-bottom:7px}",
+  "#view-projetos .pj-ficha > span.pj-v{font-family:var(--sans);font-size:.8125rem;letter-spacing:0;text-transform:none;color:var(--ink)}",
+  "@media (max-width:1100px){#view-projetos .pj-lista{grid-template-columns:minmax(0,1fr)}",
+  "  #view-projetos .pj-painel{position:static;max-height:none}}",
   "#view-projetos .pj-etq{display:inline-block;font-family:var(--mono);font-size:.5625rem;letter-spacing:.09em;text-transform:uppercase;color:var(--faint);border:1px solid var(--line);border-radius:99px;padding:1px 7px}",
   "#view-projetos .pj-pai{display:inline-flex;align-items:center;gap:6px;border:0;background:none;font:inherit;font-size:.8125rem;color:var(--muted);cursor:pointer;padding:2px 0;margin-bottom:2px}",
   "#view-projetos .pj-pai:hover{color:var(--accent-ink)}",
@@ -185,9 +220,17 @@ function pjMontar(){
 
   lista.appendChild(pjFormNovo());
 
-  var cards = el('div', 'pj-cards');
-  cards.id = 'pjCards';
-  lista.appendChild(cards);
+  /* Duas colunas: a arvore a esquerda, e o detalhe do que estiver escolhido
+     sempre no mesmo sitio a direita. Nao ha salto de pagina para ver uma
+     coisa: o contexto fica a vista enquanto se le o detalhe. */
+  var corpo = el('div', 'pj-lista');
+  var arv = el('div', 'pj-arv');
+  arv.id = 'pjArvore';
+  corpo.appendChild(arv);
+  var painel = el('aside', 'pj-painel');
+  painel.id = 'pjPainel';
+  corpo.appendChild(painel);
+  lista.appendChild(corpo);
   sec.appendChild(lista);
 
   var pag = el('div');
@@ -339,113 +382,8 @@ function pjRenderFiltros(){
     });
 }
 
-function pjRenderCards(){
-  var box = $('pjCards');
-  if (!box) return;
-  clear(box);
-  var lista = pjFiltrados();
-  if (!lista.length){
-    box.appendChild(el('p', 'vazio', G.projects && G.projects.length
-      ? 'Nenhum projeto neste filtro.'
-      : 'Ainda sem projetos. A mudança de casa e a sociedade nova entram aqui.'));
-    return;
-  }
-  lista.forEach(function(pr){
-    box.appendChild(pjEhPrograma(pr) ? pjBlocoPrograma(pr) : pjCard(pr));
-  });
-}
 
-/* Um programa nao e um cartao maior: e uma caixa com os projetos dele dentro.
-   Ver a marca Falua Rides e ver, na mesma linha de olhos, as tres frentes que
-   a compoem — era isso que faltava quando eram tres cartoes soltos. */
-function pjBlocoPrograma(pr){
-  var box = el('section', 'pj-prog');
-  var h = el('header');
-  h.appendChild(el('span', 'pj-etq', 'Programa'));
-  h.appendChild(el('h3', null, pr.name));
-  var est = pjEstado(pr.status);
-  h.appendChild(pill(est[1], est[2]));
-  h.appendChild(el('div', 'pj-sp'));
-  var filhos = pjFilhos(pr.id);
-  var abertas = pjAbertasDe(pr);
-  h.appendChild(el('span', 'mono',
-    filhos.length + (filhos.length === 1 ? ' projeto' : ' projetos')
-    + ' · ' + abertas + (abertas === 1 ? ' tarefa aberta' : ' tarefas abertas')));
-  if (pr.target_on){
-    var u = urgencia(diasAte(pr.target_on), 'tarefa');
-    var d = el('span', 'mono num', 'fim ' + dataCurta(pr.target_on) + (u.texto ? ' · ' + u.texto : ''));
-    if (u.nivel) d.style.color = 'var(--' + u.nivel + ')';
-    h.appendChild(d);
-  }
-  h.addEventListener('click', function(){ pjAbrir(pr.id); });
-  box.appendChild(h);
 
-  if (pr.description) box.appendChild(el('p', 'pj-desc', pr.description));
-
-  var dentro = el('div', 'pj-filhos');
-  var visiveis = filhos.filter(pjCabe);
-  if (!visiveis.length){
-    dentro.appendChild(el('p', 'vazio', filhos.length
-      ? 'Nenhum projeto deste programa neste filtro.'
-      : 'Programa ainda sem projetos.'));
-  } else {
-    visiveis.forEach(function(f){ dentro.appendChild(pjCard(f)); });
-  }
-  box.appendChild(dentro);
-  return box;
-}
-
-function pjCard(pr){
-  var c = el('article', 'pj-card');
-  c.dataset.id = pr.id;
-
-  var pega = el('span', 'pj-pega');
-  pega.innerHTML = pjSvg('<path d="M9 6h.01M9 12h.01M9 18h.01M15 6h.01M15 12h.01M15 18h.01"/>', 15);
-  pega.title = 'Arrastar para reordenar';
-  pega.draggable = true;
-  c.appendChild(pega);
-
-  c.appendChild(el('h4', null, pr.name));
-  var onde = [areaNome(pr.context_id),
-    pr.status === 'planeado' && pr.depends_on_id ? 'a aguardar ' + projetoNome(pr.depends_on_id) : ''
-  ].filter(Boolean).join(' · ');
-  if (onde) c.appendChild(el('div', 'pj-onde', onde));
-  if (pr.description) c.appendChild(el('p', 'pj-desc', pr.description));
-
-  /* Sem abrir o projeto so se sabe das tarefas que o /api/gestao trouxe: as
-     abertas. E esse o numero que o cartao mostra, e e isso que ele diz. */
-  var abertas = pjAbertasDe(pr);
-  var nomes = (pr.members || []).map(function(m){
-    var p = pessoa(m.person_id);
-    return p ? (m.member_role === 'responsavel' ? p.name + ' (resp.)' : p.name) : null;
-  }).filter(Boolean).join(', ');
-  if (nomes) c.appendChild(el('div', 'pj-onde', nomes));
-
-  var f = el('footer');
-  var est = pjEstado(pr.status);
-  f.appendChild(pill(est[1], est[2]));
-  if (pr.status !== 'concluido'){
-    f.appendChild(pill(abertas + (abertas === 1 ? ' tarefa aberta' : ' tarefas abertas'), abertas ? 'accent' : ''));
-  }
-  var quando = pr.status === 'concluido' ? pr.closed_on : pr.target_on;
-  if (quando){
-    var n = diasAte(quando);
-    var u = urgencia(n, 'tarefa');
-    var d = el('span', 'mono num',
-      (pr.status === 'concluido' ? 'fechado ' : '') + dataCurta(quando)
-      + (pr.status !== 'concluido' && u.texto ? ' · ' + u.texto : ''));
-    if (pr.status !== 'concluido' && u.nivel) d.style.color = 'var(--' + u.nivel + ')';
-    f.appendChild(d);
-  }
-  c.appendChild(f);
-
-  c.addEventListener('click', function(e){
-    if (e.target.closest('.pj-pega')) return;
-    pjAbrir(pr.id);
-  });
-  pjArrastavel(c, pega, pr.id);
-  return c;
-}
 
 /* Arrastar para reordenar. A ordem que se grava e sempre a lista inteira,
    mesmo com um filtro ligado: mexer numa linha muda a posicao das outras, e
@@ -460,7 +398,7 @@ function pjArrastavel(card, pega, id){
   pega.addEventListener('dragend', function(){
     PJ.arrasta = null;
     card.classList.remove('arrastado');
-    var box = $('pjCards');
+    var box = $('pjArvore');
     if (box) box.querySelectorAll('.alvo').forEach(function(x){ x.classList.remove('alvo'); });
   });
   card.addEventListener('dragover', function(e){
@@ -489,6 +427,487 @@ function pjReordenar(origem, destino){
     body: JSON.stringify({ ids: ids })
   }).then(function(){ return loadGestao(); })
     .catch(function(){ toast('Não deu para gravar a ordem.'); });
+}
+
+/* ------------------------------------------------------------------ *
+ * a arvore: programa > projeto > tarefa
+ * ------------------------------------------------------------------ */
+
+/* Um programa esta aberto salvo ordem em contrario; um projeto tem as tarefas
+   recolhidas salvo ordem em contrario. Ao entrar ve-se a estrutura toda e
+   nenhuma tarefa: a lista nunca cresce para la do que se consegue ler. */
+function pjProgAberto(id){ return PJ.progAbertos[id] !== false; }
+function pjProjAberto(id){ return PJ.projAbertos[id] === true; }
+
+function pjEscolher(tipo, id){
+  PJ.sel = { tipo: tipo, id: id };
+  pjRenderArvore();
+  pjRenderPainel();
+}
+function pjEscolhido(tipo, id){
+  return PJ.sel && PJ.sel.tipo === tipo && PJ.sel.id === id;
+}
+
+/* As tarefas por fazer de um projeto, na ordem em que o servidor as mandou
+   (prazo primeiro). Os lembretes e as notas nao sao trabalho por fazer. */
+function pjTarefasDe(id){
+  return (G.tasks || []).filter(function(t){
+    return t.project_id === id && t.status !== 'concluida' && t.status !== 'cancelada';
+  });
+}
+
+function pjSeta(aberto, titulo, aoClicar){
+  var b = el('button', 'pj-seta' + (aberto ? ' on' : ''));
+  b.type = 'button';
+  b.title = titulo;
+  b.setAttribute('aria-expanded', aberto ? 'true' : 'false');
+  b.setAttribute('aria-label', titulo);
+  b.innerHTML = pjSvg('<path d="M9 6l6 6-6 6"/>', 13);
+  b.addEventListener('click', function(e){ e.stopPropagation(); aoClicar(); });
+  return b;
+}
+
+function pjGrip(){
+  var g = el('button', 'pj-grip');
+  g.type = 'button';
+  g.title = 'Arrastar para reordenar';
+  g.setAttribute('aria-label', 'Arrastar para reordenar');
+  g.draggable = true;
+  g.innerHTML = pjSvg('<path d="M9 6h.01M9 12h.01M9 18h.01M15 6h.01M15 12h.01M15 18h.01"/>', 14);
+  return g;
+}
+
+function pjMeta(texto, nivel, classe){
+  var n = el('span', 'pj-meta' + (nivel ? ' ' + nivel : '') + (classe ? ' ' + classe : ''), texto);
+  return n;
+}
+
+/* A barra de progresso de um projeto, com as contagens que vem do servidor.
+   Sem contagem nao se desenha barra nenhuma: melhor nada do que uma barra
+   inventada. */
+function pjBarrinha(c){
+  if (!c || !c.total) return null;
+  var pct = Math.round((c.feitas / c.total) * 100);
+  var b = el('span', 'pj-barra' + (pct === 100 ? ' cheia' : ''));
+  b.style.cssText = 'flex:none;width:6.5rem';
+  var i = el('i');
+  i.style.width = pct + '%';
+  b.appendChild(i);
+  return b;
+}
+function pjProgressoTexto(c){
+  if (!c || !c.total) return 'sem tarefas';
+  return c.feitas + '/' + c.total + ' · ' + Math.round((c.feitas / c.total) * 100) + '%';
+}
+
+function pjRenderArvore(){
+  var box = $('pjArvore');
+  if (!box) return;
+  clear(box);
+  var lista = pjFiltrados();
+  if (!lista.length){
+    box.appendChild(el('p', 'vazio', (G.projects || []).length
+      ? 'Nenhum projeto neste filtro.'
+      : 'Ainda sem programas nem projetos.'));
+    return;
+  }
+  lista.forEach(function(pr){
+    if (pjEhPrograma(pr)) box.appendChild(pjNoPrograma(pr));
+    else box.appendChild(pjNoProjeto(pr, true));
+  });
+}
+
+function pjNoPrograma(pr){
+  var bloco = el('section', 'pj-bloco' + (pjEscolhido('programa', pr.id) ? ' sel' : ''));
+  bloco.dataset.id = pr.id;
+
+  var aberto = pjProgAberto(pr.id);
+  var linha = el('div', 'pj-no n1');
+  var grip = pjGrip();
+  linha.appendChild(grip);
+  linha.appendChild(pjSeta(aberto, 'Abrir ou fechar o programa', function(){
+    PJ.progAbertos[pr.id] = !aberto;
+    pjRenderArvore();
+  }));
+
+  var rot = el('button', 'pj-rot');
+  rot.type = 'button';
+  rot.appendChild(el('span', 'pj-etq', 'Programa'));
+  rot.appendChild(el('span', 't1', pr.name));
+  var est = pjEstado(pr.status);
+  rot.appendChild(pill(est[1], est[2]));
+  rot.addEventListener('click', function(){ pjEscolher('programa', pr.id); });
+  linha.appendChild(rot);
+
+  var filhos = pjFilhos(pr.id);
+  var abertas = pjAbertasDe(pr);
+  linha.appendChild(pjMeta(filhos.length + (filhos.length === 1 ? ' projeto' : ' projetos')
+    + ' · ' + abertas + ' por fazer'));
+  /* Na linha vai quanto falta, nao a data: «em 40 dias» decide-se de relance,
+     «31 out» obriga a fazer a conta. A data exacta esta no painel e no title. */
+  if (pr.target_on){
+    var u = urgencia(diasAte(pr.target_on), 'tarefa');
+    linha.appendChild(pjMeta('fim ' + (u.texto || dataCurta(pr.target_on)), u.nivel, 'data',
+      'Fim em ' + dataCurta(pr.target_on)));
+  } else {
+    linha.appendChild(pjMeta('sem data de fim', 'faint', 'data'));
+  }
+  bloco.appendChild(linha);
+  pjArrastavel(bloco, grip, pr.id);
+
+  if (aberto){
+    var dentro = el('div', 'pj-filhos');
+    var visiveis = filhos.filter(pjCabe);
+    if (!visiveis.length){
+      dentro.appendChild(el('p', 'pj-nada', filhos.length
+        ? 'Nenhum projeto deste programa neste filtro.'
+        : 'Programa ainda sem projetos.'));
+    } else {
+      visiveis.forEach(function(f){ dentro.appendChild(pjNoProjeto(f, false)); });
+    }
+    bloco.appendChild(dentro);
+  }
+  return bloco;
+}
+
+function pjNoProjeto(pr, solto){
+  var caixa = el('div');
+  var aberto = pjProjAberto(pr.id);
+  var tarefas = pjTarefasDe(pr.id);
+
+  var linha = el('div', 'pj-no n2' + (pjEscolhido('projeto', pr.id) ? ' sel' : ''));
+  linha.dataset.id = pr.id;
+  var grip = pjGrip();
+  if (solto) linha.appendChild(grip);
+  linha.appendChild(pjSeta(aberto, 'Abrir ou fechar as tarefas', function(){
+    PJ.projAbertos[pr.id] = !aberto;
+    pjRenderArvore();
+  }));
+
+  var rot = el('button', 'pj-rot');
+  rot.type = 'button';
+  rot.appendChild(el('span', 't2', pr.name));
+  rot.appendChild(el('span', 'onde', areaNome(pr.context_id)));
+  rot.addEventListener('click', function(){ pjEscolher('projeto', pr.id); });
+  linha.appendChild(rot);
+
+  var est = pjEstado(pr.status);
+  linha.appendChild(pill(est[1], est[2]));
+  var barra = pjBarrinha(pr.contagem);
+  if (barra) linha.appendChild(barra);
+  linha.appendChild(pjMeta(pjProgressoTexto(pr.contagem), '', 'conta'));
+
+  if (pr.status === 'planeado' && pr.depends_on_id){
+    linha.appendChild(pjMeta('a aguardar', 'faint', 'data',
+      'A aguardar ' + projetoNome(pr.depends_on_id)));
+  } else if (pr.target_on){
+    var u2 = urgencia(diasAte(pr.target_on), 'tarefa');
+    linha.appendChild(pjMeta(u2.texto || dataCurta(pr.target_on), u2.nivel, 'data',
+      'Para ' + dataCurta(pr.target_on)));
+  } else {
+    linha.appendChild(pjMeta('sem data', 'faint', 'data'));
+  }
+  caixa.appendChild(linha);
+  if (solto) pjArrastavel(linha, grip, pr.id);
+
+  if (aberto){
+    var box = el('div', 'pj-tarefas');
+    if (!tarefas.length){
+      box.appendChild(el('p', 'pj-nada', 'Sem tarefas por fazer neste projeto.'));
+    } else {
+      tarefas.forEach(function(t){ box.appendChild(pjNoTarefa(t)); });
+    }
+    caixa.appendChild(box);
+  }
+  return caixa;
+}
+
+function pjNoTarefa(t){
+  var b = el('button', 'pj-tar' + (pjEscolhido('tarefa', t.id) ? ' sel' : ''));
+  b.type = 'button';
+  var atraso = t.due_on && diasAte(t.due_on) < 0;
+  var perto = t.due_on && !atraso && diasAte(t.due_on) <= 7;
+  b.appendChild(el('span', 'cx' + (atraso ? ' bad' : perto ? ' warn' : '')));
+  b.appendChild(el('span', 'tt', t.title));
+
+  var dono = pessoa(t.owner_id);
+  if (dono){
+    var q = el('span', 'quem');
+    var i = el('i');
+    i.style.background = dono.color || 'var(--c1)';
+    q.appendChild(i);
+    q.appendChild(document.createTextNode(dono.name));
+    b.appendChild(q);
+  }
+  if (t.due_on){
+    var u = urgencia(diasAte(t.due_on), 'tarefa');
+    b.appendChild(pjMeta(u.texto || dataCurta(t.due_on), u.nivel, 'data', 'Prazo ' + dataCurta(t.due_on)));
+  } else {
+    b.appendChild(pjMeta('sem prazo', 'faint', 'data'));
+  }
+  b.addEventListener('click', function(){ pjEscolher('tarefa', t.id); });
+  return b;
+}
+
+/* ------------------------------------------------------------------ *
+ * o painel da direita — sempre o mesmo sitio, seja o que for
+ * ------------------------------------------------------------------ */
+
+function pjRenderPainel(){
+  var box = $('pjPainel');
+  if (!box) return;
+  clear(box);
+  if (!PJ.sel){
+    box.appendChild(el('p', 'vazio', 'Escolhe um programa, um projeto ou uma tarefa para o veres aqui.'));
+    return;
+  }
+  if (PJ.sel.tipo === 'tarefa') return pjPainelTarefa(box);
+  var pr = projeto(PJ.sel.id);
+  if (!pr){
+    PJ.sel = null;
+    return pjRenderPainel();
+  }
+  return pjEhPrograma(pr) ? pjPainelPrograma(box, pr) : pjPainelProjeto(box, pr);
+}
+
+function pjCabecaPainel(box, etiqueta, aoAbrir, rotuloBotao){
+  var h = el('header');
+  h.appendChild(el('span', 'mono', etiqueta));
+  var b = el('button', 'btn small', rotuloBotao || 'Abrir');
+  b.type = 'button';
+  b.style.marginLeft = '0';
+  b.addEventListener('click', aoAbrir);
+  h.appendChild(b);
+  box.appendChild(h);
+}
+
+function pjSubir(texto, aoClicar){
+  var b = el('button', 'pj-subir');
+  b.type = 'button';
+  b.innerHTML = pjSvg('<path d="M12 19V5M5 12l7-7 7 7"/>', 12);
+  b.appendChild(document.createTextNode(' ' + texto));
+  b.addEventListener('click', aoClicar);
+  return b;
+}
+
+function pjNumerosPainel(box, nums){
+  var linha = el('div', 'pj-nums');
+  linha.style.margin = '0';
+  nums.forEach(function(n){
+    if (n[0] === null) return;
+    var d = el('div', 'pj-num' + (n[2] ? ' ' + n[2] : ''));
+    d.appendChild(el('b', null, n[0]));
+    d.appendChild(el('span', null, n[1]));
+    linha.appendChild(d);
+  });
+  box.appendChild(linha);
+}
+
+function pjFichaPainel(box, campos){
+  var g = el('div', 'pj-ficha');
+  g.style.borderTop = '1px solid var(--line-soft)';
+  g.style.paddingTop = '11px';
+  campos.forEach(function(c){
+    if (!c[1]) return;
+    g.appendChild(el('span', null, c[0]));
+    var v = el('span', 'pj-v', c[1]);
+    if (c[2]) v.style.color = 'var(--' + c[2] + ')';
+    g.appendChild(v);
+  });
+  if (g.childNodes.length) box.appendChild(g);
+}
+
+function pjSeccao(box, titulo){
+  var s = el('div', 'pj-sec');
+  s.appendChild(el('span', 'mono', titulo));
+  box.appendChild(s);
+  return s;
+}
+
+function pjPainelPrograma(box, pr){
+  pjCabecaPainel(box, 'Programa', function(){ pjAbrir(pr.id); });
+  var t = el('div');
+  t.appendChild(el('h2', null, pr.name));
+  if (pr.description) t.appendChild(el('p', 'pj-desc', pr.description));
+  box.appendChild(t);
+
+  var filhos = pjFilhos(pr.id);
+  var soma = filhos.reduce(function(a, f){
+    var c = f.contagem || { total: 0, feitas: 0, atrasadas: 0 };
+    return { total: a.total + c.total, feitas: a.feitas + c.feitas, atrasadas: a.atrasadas + c.atrasadas };
+  }, { total: 0, feitas: 0, atrasadas: 0 });
+  var pct = soma.total ? Math.round((soma.feitas / soma.total) * 100) : 0;
+
+  var barra = el('div', 'pj-barra' + (pct === 100 ? ' cheia' : ''));
+  var i = el('i');
+  i.style.width = pct + '%';
+  barra.appendChild(i);
+  box.appendChild(barra);
+
+  pjNumerosPainel(box, [
+    [pct + '%', soma.feitas + ' de ' + soma.total],
+    [String(soma.total - soma.feitas), 'por fazer'],
+    [soma.atrasadas ? String(soma.atrasadas) : null, 'em atraso', 'bad'],
+    [String(filhos.length), filhos.length === 1 ? 'projeto' : 'projetos']
+  ]);
+
+  pjFichaPainel(box, [
+    ['Área', areaNome(pr.context_id)],
+    ['Estado', pjEstado(pr.status)[1]],
+    ['Início', pr.started_on ? dataCurta(pr.started_on) : ''],
+    ['Fim', pr.target_on ? dataCurta(pr.target_on) : 'sem data']
+  ]);
+
+  var eq = (pr.members || []).map(function(m){
+    var p = pessoa(m.person_id);
+    return p ? [p, m.member_role] : null;
+  }).filter(Boolean);
+  if (eq.length){
+    var s = pjSeccao(box, 'Quem anda nisto');
+    eq.forEach(function(x){
+      var l = el('div');
+      l.style.cssText = 'display:flex;align-items:center;gap:8px;padding:3px 0;font-size:.8125rem';
+      var d = el('i');
+      d.style.cssText = 'width:8px;height:8px;border-radius:50%;flex:none;background:' + (x[0].color || 'var(--c1)');
+      l.appendChild(d);
+      l.appendChild(el('span', null, x[0].name));
+      var papel = el('span', null, x[1] === 'responsavel' ? 'Responsável'
+        : x[1] === 'informado' ? 'Informado' : 'Participante');
+      papel.style.cssText = 'margin-left:auto;font-size:.72rem;color:var(--muted)';
+      l.appendChild(papel);
+      s.appendChild(l);
+    });
+  }
+
+  if (filhos.length){
+    var sp = pjSeccao(box, 'Projetos deste programa');
+    filhos.forEach(function(f){
+      var l = el('button');
+      l.type = 'button';
+      l.style.cssText = 'display:flex;align-items:baseline;gap:10px;width:100%;border:0;border-top:1px solid var(--line-soft);background:none;padding:6px 0;font:inherit;font-size:.8125rem;text-align:left;cursor:pointer;color:var(--ink-2)';
+      var n = el('span', null, f.name);
+      n.style.cssText = 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+      l.appendChild(n);
+      l.appendChild(pjMeta(pjProgressoTexto(f.contagem)));
+      l.addEventListener('click', function(){ pjEscolher('projeto', f.id); });
+      sp.appendChild(l);
+    });
+  }
+}
+
+function pjPainelProjeto(box, pr){
+  pjCabecaPainel(box, 'Projeto', function(){ pjAbrir(pr.id); });
+  var t = el('div');
+  if (pr.parent_id){
+    t.appendChild(pjSubir(projetoNome(pr.parent_id), function(){ pjEscolher('programa', pr.parent_id); }));
+  }
+  t.appendChild(el('h2', null, pr.name));
+  if (pr.description) t.appendChild(el('p', 'pj-desc', pr.description));
+  box.appendChild(t);
+
+  var c = pr.contagem || { total: 0, feitas: 0, atrasadas: 0 };
+  var pct = c.total ? Math.round((c.feitas / c.total) * 100) : 0;
+  var barra = el('div', 'pj-barra' + (pct === 100 ? ' cheia' : ''));
+  var i = el('i');
+  i.style.width = pct + '%';
+  barra.appendChild(i);
+  box.appendChild(barra);
+
+  pjNumerosPainel(box, [
+    [pct + '%', c.feitas + ' de ' + c.total],
+    [String(c.total - c.feitas), 'por fazer'],
+    [c.atrasadas ? String(c.atrasadas) : null, 'em atraso', 'bad']
+  ]);
+
+  pjFichaPainel(box, [
+    ['Programa', pr.parent_id ? projetoNome(pr.parent_id) : '— fora de programa —'],
+    ['Área', areaNome(pr.context_id)],
+    ['Estado', pjEstado(pr.status)[1]],
+    ['Para quando', pr.target_on ? dataCurta(pr.target_on) : 'sem data'],
+    ['À espera de', pr.depends_on_id ? projetoNome(pr.depends_on_id) : '']
+  ]);
+
+  var tarefas = pjTarefasDe(pr.id);
+  var s = pjSeccao(box, 'Tarefas por fazer');
+  if (!tarefas.length){
+    s.appendChild(el('p', 'pj-nada', 'Nenhuma.'));
+    return;
+  }
+  tarefas.slice(0, 8).forEach(function(x){
+    var l = el('button');
+    l.type = 'button';
+    l.style.cssText = 'display:flex;align-items:baseline;gap:10px;width:100%;border:0;border-top:1px solid var(--line-soft);background:none;padding:6px 0;font:inherit;font-size:.8125rem;text-align:left;cursor:pointer;color:var(--ink-2)';
+    var n = el('span', null, x.title);
+    n.style.cssText = 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+    l.appendChild(n);
+    var u = x.due_on ? urgencia(diasAte(x.due_on), 'tarefa') : { texto: 'sem prazo', nivel: 'faint' };
+    l.appendChild(pjMeta(u.texto, u.nivel));
+    l.addEventListener('click', function(){
+      PJ.projAbertos[pr.id] = true;
+      pjEscolher('tarefa', x.id);
+    });
+    s.appendChild(l);
+  });
+  if (tarefas.length > 8){
+    s.appendChild(el('p', 'pj-nada', 'e mais ' + (tarefas.length - 8) + '.'));
+  }
+}
+
+function pjPainelTarefa(box){
+  var t = (G.tasks || []).filter(function(x){ return x.id === PJ.sel.id; })[0];
+  if (!t){
+    PJ.sel = null;
+    return pjRenderPainel();
+  }
+  var pr = projeto(t.project_id);
+  pjCabecaPainel(box, 'Tarefa', function(){
+    show('tarefas');
+    if (typeof tfAbrir === 'function') setTimeout(function(){ tfAbrir(t.id); }, 0);
+  }, 'Abrir nas Tarefas');
+
+  var topo = el('div');
+  if (pr){
+    var caminho = (pr.parent_id ? projetoNome(pr.parent_id) + ' › ' : '') + pr.name;
+    topo.appendChild(pjSubir(caminho, function(){ pjEscolher('projeto', pr.id); }));
+  }
+  topo.appendChild(el('h2', null, t.title));
+  if (t.notes) topo.appendChild(el('p', 'pj-desc', t.notes));
+  box.appendChild(topo);
+
+  var chips = el('div');
+  chips.style.cssText = 'display:flex;gap:5px;flex-wrap:wrap';
+  var estado = typeof tfEstado === 'function' ? tfEstado(t.status) : [t.status, t.status, ''];
+  chips.appendChild(pill(estado[1], estado[2]));
+  if (t.priority === 'alta') chips.appendChild(pill('Prioridade alta', 'bad'));
+  if ((t.tipo || 'tarefa') !== 'tarefa') chips.appendChild(pill(t.tipo, ''));
+  box.appendChild(chips);
+
+  var quem = pessoa(t.owner_id);
+  pjFichaPainel(box, [
+    ['De quem', quem ? quem.name : 'sem dono'],
+    ['Início', t.starts_on ? dataCurta(t.starts_on) : ''],
+    ['Prazo', t.due_on ? (dataCurta(t.due_on) + ' · ' + urgencia(diasAte(t.due_on), 'tarefa').texto) : 'sem prazo',
+      t.due_on ? urgencia(diasAte(t.due_on), 'tarefa').nivel : ''],
+    ['Valor', t.amount ? pjEuros(t.amount) : ''],
+    ['Área', areaNome(t.context_id)]
+  ]);
+
+  var itens = t.items || [];
+  if (itens.length){
+    var feitos = itens.filter(function(x){ return x.done; }).length;
+    var s = pjSeccao(box, 'Passos · ' + feitos + ' de ' + itens.length);
+    itens.forEach(function(x){
+      var l = el('div');
+      l.style.cssText = 'display:flex;align-items:center;gap:9px;padding:4px 0;font-size:.8125rem;color:'
+        + (x.done ? 'var(--faint)' : 'var(--ink-2)') + (x.done ? ';text-decoration:line-through' : '');
+      var cx = el('span');
+      cx.style.cssText = 'flex:none;width:14px;height:14px;border-radius:4px;border:1.5px solid '
+        + (x.done ? 'var(--accent)' : 'var(--line)') + ';background:' + (x.done ? 'var(--accent)' : 'var(--surface)');
+      l.appendChild(cx);
+      l.appendChild(el('span', null, x.title));
+      s.appendChild(l);
+    });
+  }
 }
 
 /* ------------------------------------------------------------------ *
@@ -1183,7 +1602,18 @@ function pjRender(){
     return;
   }
   pjRenderFiltros();
-  pjRenderCards();
+  /* Se o que estava escolhido desapareceu (apagado noutro separador, ou fora
+     do filtro), escolhe-se o primeiro da lista em vez de deixar o painel a
+     falar de uma coisa que ja nao existe. */
+  if (PJ.sel && PJ.sel.tipo !== 'tarefa' && !projeto(PJ.sel.id)) PJ.sel = null;
+  if (PJ.sel && PJ.sel.tipo === 'tarefa'
+      && !(G.tasks || []).some(function(t){ return t.id === PJ.sel.id; })) PJ.sel = null;
+  if (!PJ.sel){
+    var primeiro = pjFiltrados()[0];
+    if (primeiro) PJ.sel = { tipo: pjEhPrograma(primeiro) ? 'programa' : 'projeto', id: primeiro.id };
+  }
+  pjRenderArvore();
+  pjRenderPainel();
   if ($('pjArea')) pjEncherAreas($('pjArea'), $('pjArea').value);
   var sp = $('pjProgNovo');
   if (sp){
