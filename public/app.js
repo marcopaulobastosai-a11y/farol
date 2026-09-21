@@ -813,21 +813,6 @@ function wire(){
   $('btnReload').addEventListener('click', function(){ load(true); });
 }
 
-function renderEnvBar(){
-  var env = (D.meta.env || '').trim();
-  var bar = $('envbar'), chip = $('envChip');
-  if (!env || env.toLowerCase() === 'real'){
-    bar.hidden = true; chip.hidden = true;
-    document.body.classList.remove('has-envbar');
-    return;
-  }
-  $('envbarTitle').textContent = 'Ambiente de ' + env;
-  $('envbarNote').textContent = D.meta.env_nota || 'Os dados não são reais — nada aqui aconteceu.';
-  chip.textContent = env;
-  bar.hidden = false; chip.hidden = false;
-  document.body.classList.add('has-envbar');
-}
-
 function renderAll(){
   $('brandSub').textContent = D.meta.household || '';
   $('ownerName').textContent = D.meta.owner || '';
@@ -835,7 +820,6 @@ function renderAll(){
   $('ownerInitials').textContent = me ? me.initials : '—';
   $('ownerMeta').textContent = 'Agregado · ' + D.people.length + ' pessoas';
   $('pageSub').textContent = D.meta.today_label || '';
-  renderEnvBar();
 
   calState.selected = calState.selected || D.meta.today;
   renderHoje();
