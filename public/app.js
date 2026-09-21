@@ -952,47 +952,13 @@ function projetoNome(id){
   return '';
 }
 
-/* O mesmo desenho serve o cartao das Tarefas e o ecra dos Projetos: um
-   projeto e a mesma coisa nos dois sitios. */
+/* O ecra dos Projetos vive no projetos.js: lista, pagina de cada projeto e
+   tudo o que la se edita. Aqui fica so a ponte, para que uma recarga da
+   gestao chegue a esse ecra sem o app.js saber como ele e desenhado. */
 function renderProjetos(){
-  renderProjetosEm($('projects'));
+  if (typeof pjRender === 'function'){ pjRender(); return; }
   var b = $('badgeProjetos');
-  if (b) b.textContent = G.projects.length || '';
-}
-
-function renderProjetosEm(box){
-  if (!box) return;
-  clear(box);
-  if (!G.projects.length){
-    box.appendChild(el('p', 'empty', 'Ainda sem projetos. A mudança de casa e a sociedade nova entram aqui.'));
-    return;
-  }
-  G.projects.forEach(function(pr){
-    var abertas = G.tasks.filter(function(t){
-      return t.project_id === pr.id && t.status !== 'concluida' && t.status !== 'cancelada';
-    }).length;
-    var nomes = (pr.members || []).map(function(m){
-      var p = pessoa(m.person_id);
-      return p ? (m.member_role === 'responsavel' ? p.name + ' (resp.)' : p.name) : null;
-    }).filter(Boolean).join(', ');
-    /* Um projeto planeado nao e um projeto parado: esta a espera de outro, e
-       isso tem de ler-se sem abrir nada. */
-    var espera = pr.status === 'planeado'
-      ? 'a aguardar' + (pr.depends_on_id ? ' ' + projetoNome(pr.depends_on_id) : '')
-      : '';
-    var detalhe = [areaNome(pr.context_id), espera, pr.description, nomes]
-      .filter(Boolean).join(' · ');
-    var right = el('div');
-    right.style.textAlign = 'right';
-    if (pr.status === 'planeado') right.appendChild(pill('planeado', 'warn'));
-    else right.appendChild(pill(abertas + (abertas === 1 ? ' tarefa' : ' tarefas'), abertas ? 'accent' : ''));
-    if (pr.target_on){
-      var d = el('div', 'mono num', dataCurta(pr.target_on));
-      d.style.marginTop = '3px';
-      right.appendChild(d);
-    }
-    box.appendChild(row(pr.name, detalhe, right));
-  });
+  if (b) b.textContent = (G.projects || []).filter(function(p){ return p.status !== 'concluido'; }).length || '';
 }
 
 function encherAreas(id){
@@ -1020,8 +986,6 @@ function docPorId(id){
 
 function renderGestao(){
   renderProjetos();
-  encherAreas('pArea');
-  construirChips('pMembers', G.people);
   /* O numero ao lado de Tarefas conta tarefas: lembretes e notas nao sao
      trabalho por fazer. */
   var abertas = G.tasks.filter(function(t){
@@ -1031,35 +995,6 @@ function renderGestao(){
   if (typeof tfRender === 'function') tfRender();
 }
 
-/* ---------- ligações ---------- */
-function ligarGestao(){
-  $('btnProjeto').addEventListener('click', function(){
-    var f = $('pForm');
-    f.hidden = !f.hidden;
-    if (!f.hidden) f.name.focus();
-  });
-  $('pCancel').addEventListener('click', function(){ $('pForm').hidden = true; });
-  $('pForm').addEventListener('submit', function(e){
-    e.preventDefault();
-    var f = e.target;
-    apiGestao('/api/gestao/projetos', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: f.name.value.trim(),
-        description: f.description.value.trim() || null,
-        context_id: f.context_id.value || null,
-        target_on: f.target_on.value || null,
-        members: chipsSelecionados('pMembers').map(function(id){ return { person_id: id, member_role: 'participante' }; })
-      })
-    }).then(function(){
-      f.reset(); f.hidden = true;
-      return loadGestao();
-    }).then(function(){ toast('Projeto criado.'); })
-      .catch(function(){ toast('Não deu para criar o projeto.'); });
-  });
-}
-
-ligarGestao();
 
 /* =========================================================================
  * ENTRADA — o painel só abre depois do login (quando há login configurado)
