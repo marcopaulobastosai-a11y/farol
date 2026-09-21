@@ -146,7 +146,9 @@ function ibMontar() {
     badge2.id = 'badgeInboxAprovar';
     badge2.title = 'Catalogados, a espera de aprovacao';
     b.appendChild(badge2);
-    var alvo = nav.querySelector('[data-view="tarefas"]');
+    /* Entra depois dos Projetos, que sao o vizinho das Tarefas; se ainda nao
+       estiverem no menu, entra logo a seguir as Tarefas. */
+    var alvo = nav.querySelector('[data-view="projetos"]') || nav.querySelector('[data-view="tarefas"]');
     if (alvo && alvo.nextSibling) nav.insertBefore(b, alvo.nextSibling);
     else nav.appendChild(b);
   }
