@@ -872,6 +872,15 @@ function dataCurta(iso){
 
 function apiGestao(url, opts){
   return fetch(url, opts).then(function(r){
+    /* Uma sessao que caiu nao e uma avaria do ecra onde se carregou. Sem isto
+       cada modulo dizia a sua frase - «nao foi possivel ler este projeto»,
+       «nao foi possivel ler as tarefas» - e a pessoa ficava a olhar para um
+       painel cheio de numeros antigos, a procurar um erro que nao existe. O
+       load() ja fazia isto para o /api/bootstrap; passa a valer para todos. */
+    if (r.status === 401){
+      if (typeof mostrarLogin === 'function') mostrarLogin('A sess\u00e3o terminou. Entra outra vez.');
+      throw new Error('A sess\u00e3o terminou.');
+    }
     if (!r.ok) return r.json().catch(function(){ return {}; }).then(function(e){ throw new Error(e.error || 'erro'); });
     return r.json();
   });
