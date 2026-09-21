@@ -62,24 +62,18 @@ CREATE TABLE IF NOT EXISTS notes (
   id SERIAL PRIMARY KEY, slug TEXT UNIQUE NOT NULL, body TEXT NOT NULL
 );
 
--- Texto da barra de ambiente: garantido em cada arranque, sem apagar nada.
-INSERT INTO settings (key, value) VALUES
-  ('env_nota','Os dados não são reais — nenhum cliente, valor ou compromisso aqui existe.')
-ON CONFLICT (key) DO NOTHING;
-
-
 -- ===========================================================================
 -- GESTÃO DE TAREFAS — pessoas, projetos e tarefas reais
 -- ===========================================================================
--- origin separa os dois mundos: 'qualidade' (dados fictícios do seed, que
--- alimentam os ecrãs de demonstração) e 'real' (o que o Marco escreve na app).
--- O seed só apaga o que é seu; os dados reais nunca passam pelo repositório.
+-- origin marcava de onde vinha cada linha enquanto houve maqueta. A maqueta
+-- acabou e o seed foi apagado: hoje tudo o que está na base é real, e é esse
+-- o valor por omissão. A coluna fica porque as consultas filtram por ela.
 
 ALTER TABLE people ADD COLUMN IF NOT EXISTS full_name     TEXT;
 ALTER TABLE people ADD COLUMN IF NOT EXISTS kind          TEXT NOT NULL DEFAULT 'adulto';
 ALTER TABLE people ADD COLUMN IF NOT EXISTS can_own_tasks BOOLEAN NOT NULL DEFAULT TRUE;
 ALTER TABLE people ADD COLUMN IF NOT EXISTS active        BOOLEAN NOT NULL DEFAULT TRUE;
-ALTER TABLE people ADD COLUMN IF NOT EXISTS origin        TEXT NOT NULL DEFAULT 'qualidade';
+ALTER TABLE people ADD COLUMN IF NOT EXISTS origin        TEXT NOT NULL DEFAULT 'real';
 -- kind: 'adulto' | 'crianca' | 'familiar' | 'animal'
 
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS area       TEXT;
@@ -87,7 +81,7 @@ ALTER TABLE projects ADD COLUMN IF NOT EXISTS status     TEXT NOT NULL DEFAULT '
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS started_on DATE;
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS target_on  DATE;
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS closed_on  DATE;
-ALTER TABLE projects ADD COLUMN IF NOT EXISTS origin     TEXT NOT NULL DEFAULT 'qualidade';
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS origin     TEXT NOT NULL DEFAULT 'real';
 -- status: 'ativo' | 'pausado' | 'concluido' | 'arquivado'
 
 CREATE TABLE IF NOT EXISTS project_members (
@@ -110,7 +104,7 @@ ALTER TABLE tasks ADD COLUMN IF NOT EXISTS repeat_every TEXT;
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS repeat_count INTEGER NOT NULL DEFAULT 1;
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ;
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS created_at   TIMESTAMPTZ NOT NULL DEFAULT now();
-ALTER TABLE tasks ADD COLUMN IF NOT EXISTS origin       TEXT NOT NULL DEFAULT 'qualidade';
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS origin       TEXT NOT NULL DEFAULT 'real';
 ALTER TABLE tasks ALTER COLUMN scope DROP NOT NULL;
 -- status:   'aberta' | 'em_curso' | 'concluida' | 'cancelada'
 -- priority: 'baixa' | 'normal' | 'alta'
@@ -142,8 +136,6 @@ UPDATE tasks SET status = 'concluida' WHERE done AND status = 'aberta';
 -- Captura sem decidir. Um item entra por triar e fica assim até alguém dizer
 -- o que é. O ficheiro vive no volume do Railway; aqui guarda-se só o caminho.
 --
--- origin = 'real' por omissão: a Inbox nunca é alimentada pelo seed.
-
 CREATE TABLE IF NOT EXISTS inbox_items (
   id           SERIAL PRIMARY KEY,
   kind         TEXT NOT NULL DEFAULT 'ficheiro',
@@ -233,7 +225,7 @@ CREATE TABLE IF NOT EXISTS expenses (
   person_id   INTEGER REFERENCES people(id)   ON DELETE SET NULL,
   project_id  INTEGER REFERENCES projects(id) ON DELETE SET NULL,
   note        TEXT,
-  origin      TEXT NOT NULL DEFAULT 'qualidade',
+  origin      TEXT NOT NULL DEFAULT 'real',
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -242,13 +234,13 @@ CREATE INDEX IF NOT EXISTS expenses_origin_idx ON expenses (origin);
 
 
 -- ---------------------------------------------------------------------------
--- 4. PROTEGER OS OUTROS DESTINOS DO SEED
+-- 4. origin TAMBÉM EM events E documents
 -- ---------------------------------------------------------------------------
--- events e documents ainda não distinguem dados reais dos fictícios.
--- Sem isto, um `npm run seed` apaga o que a triagem produziu.
+-- Nasceu para o seed não apagar o que a triagem produzia. O seed já não
+-- existe; a coluna fica porque as consultas filtram por ela.
 
-ALTER TABLE events    ADD COLUMN IF NOT EXISTS origin TEXT NOT NULL DEFAULT 'qualidade';
-ALTER TABLE documents ADD COLUMN IF NOT EXISTS origin TEXT NOT NULL DEFAULT 'qualidade';
+ALTER TABLE events    ADD COLUMN IF NOT EXISTS origin TEXT NOT NULL DEFAULT 'real';
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS origin TEXT NOT NULL DEFAULT 'real';
 
 CREATE INDEX IF NOT EXISTS events_origin_idx    ON events (origin);
 CREATE INDEX IF NOT EXISTS documents_origin_idx ON documents (origin);
@@ -273,17 +265,6 @@ CREATE INDEX IF NOT EXISTS documents_valid_idx ON documents (valid_on);
 
 
 -- ---------------------------------------------------------------------------
--- 6. NOTA PARA O db/seed.sql
--- ---------------------------------------------------------------------------
--- Acrescentar às linhas de limpeza já existentes:
---
---   DELETE FROM events    WHERE origin = 'qualidade';
---   DELETE FROM documents WHERE origin = 'qualidade';
---   DELETE FROM expenses  WHERE origin = 'qualidade';
---
--- inbox_items e inbox_links NÃO entram no seed: não há inbox de demonstração.
-
--- ---------------------------------------------------------------------------
 -- 7. SUGESTAO AUTOMATICA NA INBOX
 -- ---------------------------------------------------------------------------
 -- O modelo le o ficheiro e propoe o que ele e. A proposta fica guardada no
@@ -306,44 +287,6 @@ ALTER TABLE inbox_items ADD COLUMN IF NOT EXISTS ai_erro   TEXT;
 
 CREATE INDEX IF NOT EXISTS inbox_ai_idx ON inbox_items (ai_status) WHERE ai_status = 'pendente';
 
--- ---------------------------------------------------------------------------
--- Limpeza unica dos dados de demonstracao
---
--- A app deixou de filtrar por origin: mostra o que esta mesmo na base. As
--- linhas que sobraram da maqueta (origin = 'qualidade') sao apagadas uma vez
--- so, pela ordem que respeita as chaves estrangeiras. Se alguma coisa real
--- ainda depender de uma linha de demonstracao o bloco desiste sem estragar
--- nada e a app arranca na mesma; o aviso fica no log.
--- ---------------------------------------------------------------------------
-DO $$
-DECLARE
-  t     record;
-  ordem text[] := ARRAY['inbox_links','inbox_items','expenses','documents','events',
-                        'task_subjects','project_members','tasks','projects',
-                        'calendars','people'];
-BEGIN
-  IF EXISTS (SELECT 1 FROM settings WHERE key = 'demo_removida') THEN
-    RETURN;
-  END IF;
-
-  FOR t IN
-    SELECT c.table_name AS nome,
-           COALESCE(array_position(ordem, c.table_name), 99) AS pos
-      FROM information_schema.columns c
-     WHERE c.table_schema = 'public' AND c.column_name = 'origin'
-     ORDER BY pos
-  LOOP
-    EXECUTE format('DELETE FROM %I WHERE origin = %L', t.nome, 'qualidade');
-  END LOOP;
-
-  INSERT INTO settings (key, value)
-  VALUES ('demo_removida', now()::text)
-  ON CONFLICT (key) DO NOTHING;
-
-  RAISE NOTICE '[farol] dados de demonstracao removidos.';
-EXCEPTION WHEN OTHERS THEN
-  RAISE WARNING '[farol] nao foi possivel remover a demonstracao: %', SQLERRM;
-END $$;
 
 -- A caixa de entrada tambem guarda de quem e o ficheiro. A catalogacao
 -- automatica escreve aqui o que leu; o botao Pessoa, na caixa, corrige.
@@ -716,3 +659,37 @@ CREATE INDEX IF NOT EXISTS tasks_pagamentos_idx ON tasks (due_on) WHERE tipo = '
 -- e o recibo, e so quem os ve sabe qual e qual.
 ALTER TABLE task_documents ADD COLUMN IF NOT EXISTS papel TEXT NOT NULL DEFAULT 'anexo';
 -- papel: 'anexo' | 'fatura' | 'comprovativo' | 'recibo'
+
+-- ---------------------------------------------------------------------------
+-- O valor por omissao de origin passa a 'real'
+--
+-- Um ALTER TABLE ... ADD COLUMN IF NOT EXISTS nao mexe numa coluna que ja
+-- existe: as colunas criadas antes continuavam a nascer com 'qualidade', uma
+-- palavra que aqui ja nao quer dizer nada. Isto corrige-as na base que esta
+-- no ar. Nao apaga nem reescreve uma unica linha.
+-- ---------------------------------------------------------------------------
+DO $$
+DECLARE t record;
+BEGIN
+  IF EXISTS (SELECT 1 FROM settings WHERE key = 'origin_por_omissao_real') THEN
+    RETURN;
+  END IF;
+
+  FOR t IN
+    SELECT table_name AS nome
+      FROM information_schema.columns
+     WHERE table_schema = 'public' AND column_name = 'origin'
+  LOOP
+    EXECUTE format('ALTER TABLE %I ALTER COLUMN origin SET DEFAULT %L', t.nome, 'real');
+  END LOOP;
+
+  DELETE FROM settings WHERE key = 'env_nota';
+
+  INSERT INTO settings (key, value)
+  VALUES ('origin_por_omissao_real', now()::text)
+  ON CONFLICT (key) DO NOTHING;
+
+  RAISE NOTICE '[farol] origin passa a nascer real.';
+EXCEPTION WHEN OTHERS THEN
+  RAISE WARNING '[farol] nao foi possivel mudar o valor por omissao de origin: %', SQLERRM;
+END $$;
