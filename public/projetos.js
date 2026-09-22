@@ -150,6 +150,24 @@ var PJ_CSS = [
   "#view-projetos .pj-sec{border-top:1px solid var(--line-soft);padding-top:11px}",
   "#view-projetos .pj-sec > .mono{display:block;margin-bottom:7px}",
   "#view-projetos .pj-ficha > span.pj-v{font-family:var(--sans);font-size:.8125rem;letter-spacing:0;text-transform:none;color:var(--ink)}",
+  /* No painel ve-se e mexe-se no mesmo sitio: o titulo e as notas sao campos
+     que so se notam ao passar por cima. */
+  "#view-projetos .pj-tit{width:100%;box-sizing:border-box;font:inherit;font-family:var(--serif);font-size:1.3125rem;font-weight:600;line-height:1.25;color:var(--ink);border:0;background:none;resize:none;padding:2px 4px;margin:0 -4px;overflow:hidden;border-radius:6px}",
+  "#view-projetos .pj-notas{width:100%;box-sizing:border-box;font:inherit;font-size:.8125rem;line-height:1.5;color:var(--ink-2);border:0;background:none;resize:none;padding:4px;margin:3px -4px 0;overflow:hidden;border-radius:6px}",
+  "#view-projetos .pj-tit:hover,#view-projetos .pj-notas:hover{background:var(--surface-2)}",
+  "#view-projetos .pj-tit:focus,#view-projetos .pj-notas:focus{outline:0;background:var(--surface-2)}",
+  "#view-projetos .pj-notas::placeholder{color:var(--faint)}",
+  "#view-projetos .pj-passo{display:flex;align-items:center;gap:8px;padding:2px 0}",
+  "#view-projetos .pj-passo input[type=text]{flex:1;min-width:0;width:auto;font:inherit;font-size:.8125rem;border:0;background:none;color:var(--ink);padding:3px 0;border-radius:0}",
+  "#view-projetos .pj-passo input[type=text]:focus{outline:0;border-bottom:1px solid var(--accent)}",
+  "#view-projetos .pj-passo.feito input[type=text]{color:var(--faint);text-decoration:line-through}",
+  "#view-projetos .pj-cx{flex:none;width:15px;height:15px;border-radius:4px;border:1.5px solid var(--line);background:var(--surface);cursor:pointer;padding:0;display:flex;align-items:center;justify-content:center;color:#fff;font-size:10px;line-height:1}",
+  "#view-projetos .pj-cx.on{background:var(--accent);border-color:var(--accent)}",
+  "#view-projetos .pj-passo .pj-x{flex:none;border:0;background:none;color:var(--faint);cursor:pointer;padding:2px 4px;border-radius:6px;font-size:.9rem;line-height:1;opacity:0}",
+  "#view-projetos .pj-passo:hover .pj-x,#view-projetos .pj-passo .pj-x:focus{opacity:1}",
+  "#view-projetos .pj-passo .pj-x:hover{background:var(--surface-2);color:var(--bad)}",
+  "#view-projetos .pj-novo{width:100%;box-sizing:border-box;font:inherit;font-size:.8125rem;color:var(--ink);border:0;border-top:1px dashed var(--line-soft);background:none;padding:6px 0 2px;margin-top:2px}",
+  "#view-projetos .pj-novo:focus{outline:0}",
   "@media (max-width:1100px){#view-projetos .pj-lista{grid-template-columns:minmax(0,1fr)}",
   "  #view-projetos .pj-painel{position:static;max-height:none}}",
   "#view-projetos .pj-etq{display:inline-block;font-family:var(--mono);font-size:.5625rem;letter-spacing:.09em;text-transform:uppercase;color:var(--faint);border:1px solid var(--line);border-radius:99px;padding:1px 7px}",
@@ -656,7 +674,9 @@ function pjNoTarefa(t){
 function pjRenderPainel(){
   var box = $('pjPainel');
   if (!box) return;
+  var foco = pjFocoPainel();
   clear(box);
+  setTimeout(function(){ pjDevolverFoco(foco); }, 0);
   if (!PJ.sel){
     box.appendChild(el('p', 'vazio', 'Escolhe um programa, um projeto ou uma tarefa para o veres aqui.'));
     return;
@@ -703,20 +723,6 @@ function pjNumerosPainel(box, nums){
   box.appendChild(linha);
 }
 
-function pjFichaPainel(box, campos){
-  var g = el('div', 'pj-ficha');
-  g.style.borderTop = '1px solid var(--line-soft)';
-  g.style.paddingTop = '11px';
-  campos.forEach(function(c){
-    if (!c[1]) return;
-    g.appendChild(el('span', null, c[0]));
-    var v = el('span', 'pj-v', c[1]);
-    if (c[2]) v.style.color = 'var(--' + c[2] + ')';
-    g.appendChild(v);
-  });
-  if (g.childNodes.length) box.appendChild(g);
-}
-
 function pjSeccao(box, titulo){
   var s = el('div', 'pj-sec');
   s.appendChild(el('span', 'mono', titulo));
@@ -724,11 +730,142 @@ function pjSeccao(box, titulo){
   return s;
 }
 
+/* ------------------------------------------------------------------ *
+ * o painel edita
+ *
+ * Ver e mexer sao a mesma coisa: os valores do painel sao campos e gravam
+ * quando se sai deles. Um botao «Editar» so adiava o que a pessoa ja tinha
+ * decidido fazer, e um segundo formulario era mais um sitio onde a mesma
+ * regra podia passar a divergir da pagina do projeto e da lista das tarefas.
+ * ------------------------------------------------------------------ */
+
+/* Gravar redesenha o painel inteiro. Sem isto, escrever o titulo e carregar
+   em Tab dava um campo em branco e o cursor no principio. */
+function pjFocoPainel(){
+  var a = document.activeElement;
+  var box = $('pjPainel');
+  if (!a || !box || !box.contains(a) || !a.dataset.pjk) return null;
+  var f = { k: a.dataset.pjk, ini: null, fim: null };
+  try { f.ini = a.selectionStart; f.fim = a.selectionEnd; } catch (e) {}
+  return f;
+}
+function pjDevolverFoco(f){
+  if (!f) return;
+  var n = document.querySelector('#pjPainel [data-pjk="' + f.k + '"]');
+  if (!n) return;
+  n.focus();
+  if (f.ini != null && n.setSelectionRange){ try { n.setSelectionRange(f.ini, f.fim); } catch (e) {} }
+}
+
+function pjFichaEditavel(box){
+  var g = el('div', 'pj-ficha');
+  g.style.borderTop = '1px solid var(--line-soft)';
+  g.style.paddingTop = '11px';
+  box.appendChild(g);
+  return g;
+}
+function pjCampo(g, rotulo, no, chave){
+  if (chave) no.dataset.pjk = chave;
+  g.appendChild(el('span', null, rotulo));
+  g.appendChild(no);
+  return no;
+}
+function pjEscolha(opcoes, valor, aoMudar){
+  var s = el('select');
+  opcoes.forEach(function(o){ s.appendChild(new Option(o[1], o[0])); });
+  s.value = valor == null ? '' : String(valor);
+  s.addEventListener('change', function(){ aoMudar(s.value); });
+  return s;
+}
+function pjCampoData(valor, aoMudar){
+  var i = el('input');
+  i.type = 'date';
+  i.value = valor || '';
+  i.addEventListener('change', function(){ aoMudar(i.value || null); });
+  return i;
+}
+function pjCampoTexto(valor, dica, aoMudar){
+  var i = el('input');
+  i.type = 'text';
+  i.value = valor == null ? '' : String(valor);
+  if (dica) i.placeholder = dica;
+  i.addEventListener('change', function(){ aoMudar(i.value); });
+  return i;
+}
+function pjCampoArea(valor, aoMudar){
+  var s = el('select');
+  pjEncherAreas(s, valor);
+  s.addEventListener('change', function(){ aoMudar(s.value ? Number(s.value) : null); });
+  return s;
+}
+/* Os projetos aparecem debaixo do programa a que pertencem, e um programa e
+   so o cabecalho do grupo: uma tarefa nao pode pendurar-se num programa, e
+   oferecer-lha para depois o servidor recusar era enganar duas vezes. */
+function pjCampoProjeto(valor, aoMudar){
+  var s = el('select');
+  s.appendChild(new Option('\u2014 sem projeto \u2014', ''));
+  var soltos = (G.projects || []).filter(function(x){ return !pjEhPrograma(x) && !x.parent_id; });
+  soltos.forEach(function(x){ s.appendChild(new Option(x.name, x.id)); });
+  pjProgramas().forEach(function(pg){
+    var filhos = pjFilhos(pg.id).filter(function(x){ return !pjEhPrograma(x); });
+    if (!filhos.length) return;
+    var g = document.createElement('optgroup');
+    g.label = pg.name;
+    filhos.forEach(function(x){ g.appendChild(new Option(x.name, x.id)); });
+    s.appendChild(g);
+  });
+  s.value = valor == null ? '' : String(valor);
+  s.addEventListener('change', function(){ aoMudar(s.value ? Number(s.value) : null); });
+  return s;
+}
+function pjTextoAuto(no, guardar){
+  var v0 = no.value;
+  var ajusta = function(){ no.style.height = 'auto'; no.style.height = no.scrollHeight + 'px'; };
+  no.addEventListener('input', ajusta);
+  setTimeout(ajusta, 0);
+  no.addEventListener('blur', function(){ if (no.value !== v0){ v0 = no.value; guardar(no.value); } });
+}
+function pjTitulo(box, valor, chave, guardar){
+  var t = el('textarea', 'pj-tit');
+  t.rows = 1;
+  t.value = valor || '';
+  t.dataset.pjk = chave;
+  t.addEventListener('keydown', function(e){ if (e.key === 'Enter'){ e.preventDefault(); t.blur(); } });
+  /* Um nome em branco nao e uma correccao, e um engano: fica o que la estava. */
+  pjTextoAuto(t, function(v){
+    if (v.trim()) return guardar(v.trim());
+    t.value = valor || '';
+    toast('Um nome em branco não dá: fica o que lá estava.');
+  });
+  box.appendChild(t);
+  return t;
+}
+function pjNotasCampo(box, valor, chave, dica, guardar){
+  var n = el('textarea', 'pj-notas');
+  n.rows = 1;
+  n.value = valor || '';
+  n.placeholder = dica;
+  n.dataset.pjk = chave;
+  pjTextoAuto(n, function(v){ guardar(v.trim() || null); });
+  box.appendChild(n);
+  return n;
+}
+/* Fechar poe a data de fecho e reabrir tira-a: sem isto ficava um projeto
+   «a andar» com data de conclusao, que e a mesma mentira ao contrario. */
+function pjCampoEstado(pr){
+  return pjEscolha(PJ_ESTADOS.map(function(x){ return [x[0], x[1]]; }), pr.status || 'ativo', function(v){
+    pjGuardarProjeto(pr.id, v === 'concluido'
+      ? { status: v, closed_on: pr.closed_on || new Date().toISOString().slice(0, 10) }
+      : { status: v, closed_on: null });
+  });
+}
+
 function pjPainelPrograma(box, pr){
   pjCabecaPainel(box, 'Programa', function(){ pjAbrir(pr.id); });
   var t = el('div');
-  t.appendChild(el('h2', null, pr.name));
-  if (pr.description) t.appendChild(el('p', 'pj-desc', pr.description));
+  pjTitulo(t, pr.name, 'nome', function(v){ pjGuardarProjeto(pr.id, { name: v }); });
+  pjNotasCampo(t, pr.description, 'desc', 'Para que serve este programa\u2026',
+    function(v){ pjGuardarProjeto(pr.id, { description: v }); });
   box.appendChild(t);
 
   var filhos = pjFilhos(pr.id);
@@ -751,12 +888,11 @@ function pjPainelPrograma(box, pr){
     [String(filhos.length), filhos.length === 1 ? 'projeto' : 'projetos']
   ]);
 
-  pjFichaPainel(box, [
-    ['Área', areaNome(pr.context_id)],
-    ['Estado', pjEstado(pr.status)[1]],
-    ['Início', pr.started_on ? dataCurta(pr.started_on) : ''],
-    ['Fim', pr.target_on ? dataCurta(pr.target_on) : 'sem data']
-  ]);
+  var gp = pjFichaEditavel(box);
+  pjCampo(gp, 'Área', pjCampoArea(pr.context_id, function(v){ pjGuardarProjeto(pr.id, { context_id: v }); }), 'area');
+  pjCampo(gp, 'Estado', pjCampoEstado(pr), 'estado');
+  pjCampo(gp, 'Início', pjCampoData(pr.started_on, function(v){ pjGuardarProjeto(pr.id, { started_on: v }); }), 'inicio');
+  pjCampo(gp, 'Fim', pjCampoData(pr.target_on, function(v){ pjGuardarProjeto(pr.id, { target_on: v }); }), 'fim');
 
   var eq = (pr.members || []).map(function(m){
     var p = pessoa(m.person_id);
@@ -801,8 +937,9 @@ function pjPainelProjeto(box, pr){
   if (pr.parent_id){
     t.appendChild(pjSubir(projetoNome(pr.parent_id), function(){ pjEscolher('programa', pr.parent_id); }));
   }
-  t.appendChild(el('h2', null, pr.name));
-  if (pr.description) t.appendChild(el('p', 'pj-desc', pr.description));
+  pjTitulo(t, pr.name, 'nome', function(v){ pjGuardarProjeto(pr.id, { name: v }); });
+  pjNotasCampo(t, pr.description, 'desc', 'O que e este projeto\u2026',
+    function(v){ pjGuardarProjeto(pr.id, { description: v }); });
   box.appendChild(t);
 
   var c = pr.contagem || { total: 0, feitas: 0, atrasadas: 0 };
@@ -819,13 +956,22 @@ function pjPainelProjeto(box, pr){
     [c.atrasadas ? String(c.atrasadas) : null, 'em atraso', 'bad']
   ]);
 
-  pjFichaPainel(box, [
-    ['Programa', pr.parent_id ? projetoNome(pr.parent_id) : '— fora de programa —'],
-    ['Área', areaNome(pr.context_id)],
-    ['Estado', pjEstado(pr.status)[1]],
-    ['Para quando', pr.target_on ? dataCurta(pr.target_on) : 'sem data'],
-    ['À espera de', pr.depends_on_id ? projetoNome(pr.depends_on_id) : '']
-  ]);
+  var gj = pjFichaEditavel(box);
+  var progs = [['', '\u2014 fora de programa \u2014']].concat(
+    pjProgramas().map(function(x){ return [String(x.id), x.name]; }));
+  pjCampo(gj, 'Programa', pjEscolha(progs, pr.parent_id || '', function(v){
+    pjGuardarProjeto(pr.id, { parent_id: v ? Number(v) : null });
+  }), 'pai');
+  pjCampo(gj, 'Área', pjCampoArea(pr.context_id, function(v){ pjGuardarProjeto(pr.id, { context_id: v }); }), 'area');
+  pjCampo(gj, 'Estado', pjCampoEstado(pr), 'estado');
+  pjCampo(gj, 'Início', pjCampoData(pr.started_on, function(v){ pjGuardarProjeto(pr.id, { started_on: v }); }), 'inicio');
+  pjCampo(gj, 'Para quando', pjCampoData(pr.target_on, function(v){ pjGuardarProjeto(pr.id, { target_on: v }); }), 'fim');
+  var deps = [['', '\u2014 de nenhum \u2014']].concat(
+    (G.projects || []).filter(function(x){ return x.id !== pr.id && !pjEhPrograma(x); })
+      .map(function(x){ return [String(x.id), x.name]; }));
+  pjCampo(gj, 'À espera de', pjEscolha(deps, pr.depends_on_id || '', function(v){
+    pjGuardarProjeto(pr.id, { depends_on_id: v ? Number(v) : null });
+  }), 'dep');
 
   var tarefas = pjTarefasDe(pr.id);
   var s = pjSeccao(box, 'Tarefas por fazer');
@@ -860,6 +1006,7 @@ function pjPainelTarefa(box){
     return pjRenderPainel();
   }
   var pr = projeto(t.project_id);
+  var tipo = (t.tipo || 'tarefa');
   pjCabecaPainel(box, 'Tarefa', function(){
     show('tarefas');
     if (typeof tfAbrir === 'function') setTimeout(function(){ tfAbrir(t.id); }, 0);
@@ -870,44 +1017,101 @@ function pjPainelTarefa(box){
     var caminho = (pr.parent_id ? projetoNome(pr.parent_id) + ' › ' : '') + pr.name;
     topo.appendChild(pjSubir(caminho, function(){ pjEscolher('projeto', pr.id); }));
   }
-  topo.appendChild(el('h2', null, t.title));
-  if (t.notes) topo.appendChild(el('p', 'pj-desc', t.notes));
+  pjTitulo(topo, t.title, 'titulo', function(v){ tfGravar(t.id, { title: v }); });
+  pjNotasCampo(topo, t.notes, 'notas', 'Notas…', function(v){ tfGravar(t.id, { notes: v }); });
   box.appendChild(topo);
 
-  var chips = el('div');
-  chips.style.cssText = 'display:flex;gap:5px;flex-wrap:wrap';
-  var estado = typeof tfEstado === 'function' ? tfEstado(t.status) : [t.status, t.status, ''];
-  chips.appendChild(pill(estado[1], estado[2]));
-  if (t.priority === 'alta') chips.appendChild(pill('Prioridade alta', 'bad'));
-  if ((t.tipo || 'tarefa') !== 'tarefa') chips.appendChild(pill(t.tipo, ''));
-  box.appendChild(chips);
+  var g = pjFichaEditavel(box);
 
-  var quem = pessoa(t.owner_id);
-  pjFichaPainel(box, [
-    ['De quem', quem ? quem.name : 'sem dono'],
-    ['Início', t.starts_on ? dataCurta(t.starts_on) : ''],
-    ['Prazo', t.due_on ? (dataCurta(t.due_on) + ' · ' + urgencia(diasAte(t.due_on), 'tarefa').texto) : 'sem prazo',
-      t.due_on ? urgencia(diasAte(t.due_on), 'tarefa').nivel : ''],
-    ['Valor', t.amount ? pjEuros(t.amount) : ''],
-    ['Área', areaNome(t.context_id)]
-  ]);
+  /* Concluir e reabrir passam pelo mesmo caminho da lista das Tarefas: uma
+     rotina tem de andar para a data seguinte, venha a ordem de onde vier. */
+  var estados = TF_ESTADOS.concat(TF_ESTADOS_FIM).map(function(e){ return [e[0], e[1]]; });
+  pjCampo(g, 'Estado', pjEscolha(estados, t.status || 'aberta', function(v){
+    if (v !== t.status) tfMudarEstado(t, v);
+  }), 'estado');
 
-  var itens = t.items || [];
-  if (itens.length){
-    var feitos = itens.filter(function(x){ return x.done; }).length;
-    var s = pjSeccao(box, 'Passos · ' + feitos + ' de ' + itens.length);
-    itens.forEach(function(x){
-      var l = el('div');
-      l.style.cssText = 'display:flex;align-items:center;gap:9px;padding:4px 0;font-size:.8125rem;color:'
-        + (x.done ? 'var(--faint)' : 'var(--ink-2)') + (x.done ? ';text-decoration:line-through' : '');
-      var cx = el('span');
-      cx.style.cssText = 'flex:none;width:14px;height:14px;border-radius:4px;border:1.5px solid '
-        + (x.done ? 'var(--accent)' : 'var(--line)') + ';background:' + (x.done ? 'var(--accent)' : 'var(--surface)');
-      l.appendChild(cx);
-      l.appendChild(el('span', null, x.title));
-      s.appendChild(l);
-    });
+  pjCampo(g, 'De quem', pjEscolha(
+    [['', '— de ninguém —']].concat((G.people || [])
+      .filter(function(x){ return x.can_own_tasks && x.active !== false; })
+      .map(function(x){ return [String(x.id), x.name]; })),
+    t.owner_id || '', function(v){ tfGravar(t.id, { owner_id: v ? Number(v) : null }); }), 'quem');
+
+  pjCampo(g, 'Prazo', pjCampoData(t.due_on, function(v){ tfGravar(t.id, { due_on: v }); }), 'prazo');
+  if (t.due_on){
+    var u = urgencia(diasAte(t.due_on), 'tarefa');
+    var quando = el('span', 'pj-v', u.texto);
+    if (u.nivel) quando.style.color = 'var(--' + u.nivel + ')';
+    g.appendChild(el('span', null, ''));
+    g.appendChild(quando);
   }
+
+  pjCampo(g, 'Prioridade', pjEscolha(TF_PRIO, t.priority || 'normal',
+    function(v){ tfGravar(t.id, { priority: v }); }), 'prio');
+
+  pjCampo(g, 'Tipo', pjEscolha(TF_TIPOS.map(function(x){ return [x[0], x[1].replace(/s$/, '')]; }),
+    tipo, function(v){ tfGravar(t.id, { tipo: v }); }), 'tipo');
+
+  pjCampo(g, 'Projeto', pjCampoProjeto(t.project_id, function(v){
+    var novo = projeto(v);
+    var dados = { project_id: v };
+    /* Uma tarefa que chega a um projeto sem area sua herda a dele: e quase
+       sempre a certa, e uma tarefa sem area nao aparece em lado nenhum. */
+    if (novo && novo.context_id && !t.context_id) dados.context_id = novo.context_id;
+    tfGravar(t.id, dados);
+  }), 'projeto');
+
+  pjCampo(g, 'Área', pjCampoArea(t.context_id, function(v){ tfGravar(t.id, { context_id: v }); }), 'area');
+
+  if (tipo === 'pagamento'){
+    pjCampo(g, 'Valor', pjCampoTexto(t.amount != null ? String(t.amount).replace('.', ',') : '', '0,00',
+      function(v){ tfGravar(t.id, { amount: v }); }), 'valor');
+    pjCampo(g, 'A quem', pjCampoTexto(t.payee, 'a quem se paga',
+      function(v){ tfGravar(t.id, { payee: v.trim() || null }); }), 'aquem');
+    if (t.paid_on){
+      var pago = el('div');
+      pago.appendChild(pill('pago a ' + dataCurta(t.paid_on), 'good'));
+      if (typeof tfSemProva === 'function' && tfSemProva(t)) pago.appendChild(pill('falta comprovativo', 'warn'));
+      pjCampo(g, 'Pagamento', pago);
+    }
+  }
+
+  /* Passos: riscam-se aqui em vez de obrigar a saltar para as Tarefas so para
+     marcar uma linha. */
+  var itens = t.items || [];
+  var feitos = itens.filter(function(x){ return x.done; }).length;
+  var sp = pjSeccao(box, 'Passos' + (itens.length ? ' · ' + feitos + ' de ' + itens.length : ''));
+  itens.forEach(function(x){
+    var l = el('div', 'pj-passo' + (x.done ? ' feito' : ''));
+    var cx = el('button', 'pj-cx' + (x.done ? ' on' : ''));
+    cx.type = 'button';
+    cx.title = x.done ? 'Desmarcar' : 'Marcar como feito';
+    if (x.done) cx.textContent = '✓';
+    cx.addEventListener('click', function(){ tfItem('PATCH', x.id, { done: !x.done }); });
+    l.appendChild(cx);
+    var i = el('input');
+    i.type = 'text';
+    i.value = x.title;
+    i.dataset.pjk = 'passo' + x.id;
+    i.addEventListener('keydown', function(e){ if (e.key === 'Enter'){ e.preventDefault(); i.blur(); } });
+    i.addEventListener('blur', function(){
+      if (i.value.trim() && i.value !== x.title) tfItem('PATCH', x.id, { title: i.value.trim() });
+    });
+    l.appendChild(i);
+    var xx = el('button', 'pj-x', '×');
+    xx.type = 'button';
+    xx.title = 'Tirar passo';
+    xx.addEventListener('click', function(){ tfItem('DELETE', x.id); });
+    l.appendChild(xx);
+    sp.appendChild(l);
+  });
+  var ni = el('input', 'pj-novo');
+  ni.type = 'text';
+  ni.placeholder = '+ passo';
+  ni.dataset.pjk = 'novopasso';
+  ni.addEventListener('keydown', function(e){
+    if (e.key === 'Enter' && ni.value.trim()){ e.preventDefault(); tfItemNovo(t.id, ni.value.trim()); }
+  });
+  sp.appendChild(ni);
 
   /* Os documentos de uma tarefa sao os mesmos vistos de qualquer lado: o
      bloco vem do anexos.js, com o mesmo enviar e o mesmo ligar ao arquivo. */
@@ -980,8 +1184,9 @@ function pjCarregarDetalhe(){
   });
 }
 
-function pjGuardar(campos){
-  var id = PJ.aberto;
+/* Gravar um projeto nao depende de estar aberto em pagina inteira: o painel
+   da direita edita o mesmo projeto e grava pelo mesmo caminho. */
+function pjGuardarProjeto(id, campos){
   return apiGestao('/api/gestao/projetos/' + id, {
     method: 'PATCH', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(campos)
@@ -991,6 +1196,8 @@ function pjGuardar(campos){
     if (PJ.aberto === id) return pjCarregarDetalhe();
   }).catch(function(){ toast('Não deu para gravar.'); });
 }
+
+function pjGuardar(campos){ return pjGuardarProjeto(PJ.aberto, campos); }
 
 function pjRenderPagina(){
   var box = $('pjPagina');
