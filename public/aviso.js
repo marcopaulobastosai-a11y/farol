@@ -50,6 +50,9 @@ function avFechar(){
 /* ---------------- pecas ---------------- */
 
 function avPrazoPill(a){
+  /* Uma tarefa aberta a partir do ecra de uma area pode nao ter prazo: sem
+     data nao ha urgencia a calcular, e o parseDay rebentava com a janela. */
+  if (!a.quando) return pill('sem prazo', '');
   var n = typeof diasAte === 'function' ? diasAte(a.quando) : null;
   var u = typeof urgencia === 'function' ? urgencia(n, a.origem) : { texto: '', nivel: '' };
   return pill(u.texto || a.quando || '—', u.nivel);
