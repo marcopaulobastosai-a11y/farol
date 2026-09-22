@@ -1326,8 +1326,13 @@ function tfItem(metodo, id, dados){
 function tfItemNovo(taskId, titulo){
   apiGestao('/api/tarefas/' + taskId + '/itens', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: titulo })
-  }).then(function(t){ tfTarefaVoltou(t); var q = document.querySelector('[data-tfk=novoitem]'); if (q) q.focus(); })
-    .catch(function(){ toast('Não deu para gravar o passo.'); });
+  }).then(function(t){
+    tfTarefaVoltou(t);
+    /* O campo «+ passo» existe nos dois ecras; volta-se para aquele de onde o
+       passo foi escrito, para se poder escrever o seguinte. */
+    var q = document.querySelector('[data-tfk=novoitem]') || document.querySelector('[data-pjk=novopasso]');
+    if (q) q.focus();
+  }).catch(function(){ toast('Não deu para gravar o passo.'); });
 }
 function tfTarefaVoltou(t){
   if (!t) return;
@@ -1337,6 +1342,11 @@ function tfTarefaVoltou(t){
     tfRenderDetalhe(TF.detalhe);
   }
   tfRenderLista();
+  /* O painel dos Projetos mostra a mesma tarefa e tambem edita os passos: se
+     ficasse com a copia antiga, a mesma tarefa dizia duas coisas em dois
+     ecras. */
+  if (typeof pjRender === 'function' && typeof PJ === 'object'
+      && PJ && PJ.sel && PJ.sel.tipo === 'tarefa' && PJ.sel.id === t.id) pjRender();
 }
 
 function tfDuplicar(t){
