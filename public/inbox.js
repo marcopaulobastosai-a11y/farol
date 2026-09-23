@@ -484,9 +484,84 @@ function ibPessoaPorNome(nome) {
   return null;
 }
 
+/* Os campos dos cinco destinos falam da mesma coisa com nomes diferentes: o
+   titulo da tarefa e o nome do documento e a descricao da despesa. Aqui cada
+   campo aponta para um valor comum, para que mudar de destino na triagem nao
+   deite fora o que ja estava escrito - nem o que a IA leu. */
+var IB_COMUM = {
+  tarefa: { title: 'titulo', due_on: 'prazo', owner_id: 'pessoa', project_id: 'projeto' },
+  pagamento: { title: 'titulo', amount: 'valor', due_on: 'prazo', payee: 'entidade',
+    payment_ref: 'ref', context_id: 'area', owner_id: 'pessoa' },
+  evento: { title: 'titulo', day: 'dia', at: 'hora', person_id: 'pessoa' },
+  documento: { name: 'titulo', entity: 'entidade', issued_on: 'data', valid_on: 'validade',
+    person_id: 'pessoa', context_id: 'area' },
+  despesa: { description: 'titulo', amount: 'valor', spent_on: 'data', merchant: 'entidade',
+    context_id: 'area' }
+};
+/* Quando o destino nao tem o seu proprio valor, vai buscar o mais parecido:
+   o vencimento de uma fatura e o dia do evento sao a mesma data. */
+var IB_PERTO = { prazo: ['validade', 'dia'], dia: ['prazo', 'validade', 'data'], data: ['dia'] };
+
+function ibDataCurta(v) {
+  var m = /^(\d{4}-\d{2}-\d{2})/.exec(String(v || ''));
+  return m ? m[1] : '';
+}
+
+/* O que a IA leu, junto num sitio so. Vale o primeiro destino proposto; os
+   outros so preenchem o que ele deixou vazio. */
+function ibValoresIniciais(item) {
+  var v = {};
+  var pos = function (k, x) {
+    if (x === null || x === undefined || x === '') return;
+    if (v[k] === undefined || v[k] === '') v[k] = String(x);
+  };
+  var j = ibProposta(item);
+  (j ? j.destinos : []).forEach(function (d) {
+    var x = (d && d.dados) || {};
+    pos('titulo', x.name || x.title || x.description);
+    if (x.amount !== null && x.amount !== undefined && x.amount !== '') {
+      var n = Number(String(x.amount).replace(/\s/g, '').replace(',', '.'));
+      if (!isNaN(n)) pos('valor', n);
+    }
+    pos('prazo', ibDataCurta(x.due_on));
+    pos('dia', ibDataCurta(x.day));
+    pos('hora', x.at);
+    pos('data', ibDataCurta(x.spent_on) || ibDataCurta(x.issued_on));
+    pos('validade', ibDataCurta(x.valid_on));
+    pos('entidade', x.payee || x.entity || x.merchant);
+    pos('ref', x.payment_ref);
+    if (x.pessoa) pos('pessoa', ibPessoaPorNome(x.pessoa));
+    if (x.area) pos('area', ibContextoPorNome(x.area));
+  });
+  pos('titulo', ibNomeBonito(item));
+  pos('pessoa', item.person_id);
+  return v;
+}
+
+/* Os valores de um destino, tirados do conjunto comum. */
+function ibValoresDe(tipo) {
+  var mapa = IB_COMUM[tipo] || {};
+  var out = {};
+  Object.keys(mapa).forEach(function (k) {
+    var c = mapa[k];
+    var x = IB.val[c];
+    if (x === undefined || x === '') {
+      (IB_PERTO[c] || []).some(function (o) {
+        if (IB.val[o] !== undefined && IB.val[o] !== '') { x = IB.val[o]; return true; }
+        return false;
+      });
+    }
+    out[k] = x === undefined ? '' : x;
+  });
+  return out;
+}
+
 function ibAbrirTriagem(item) {
   IB.triando = item;
   IB.prop = ibPorTipo(item);
+  IB.val = ibValoresIniciais(item);
+  var j0 = ibProposta(item);
+  IB.escolhido = j0 && j0.destinos[0] && IB_COMUM[j0.destinos[0].tipo] ? j0.destinos[0].tipo : null;
   if (typeof gState !== 'undefined' && !gState.loaded && typeof loadGestao === 'function') {
     loadGestao().then(function () { ibDesenharTriagem(); });
   }
@@ -511,7 +586,7 @@ function ibDesenharTriagem() {
 
   ibCabecalho(p, 'No que e que isto se transforma?', null);
   p.appendChild(el('div', 'ib-alvo', IB.triando.file_name || ibNomeBonito(IB.triando) || 'Nota sem ficheiro'));
-  p.appendChild(el('p', 'ib-note', 'Pode ser mais do que uma coisa. O tal\u00e3o da m\u00e1quina \u00e9 despesa e \u00e9 garantia; uma fatura por pagar \u00e9 pagamento e \u00e9 documento.'));
+  p.appendChild(el('p', 'ib-note', 'Escolhe o que isto \u00e9. Se mudares de ideias, o que j\u00e1 est\u00e1 escrito vem contigo.'));
 
   var jp = ibProposta(IB.triando);
   if (jp) {
@@ -521,38 +596,56 @@ function ibDesenharTriagem() {
     p.appendChild(sug0);
   }
 
+  var blocos = {};
+  var mostrar = function (tipo) {
+    IB.escolhido = tipo;
+    IB_DESTINOS.forEach(function (d) {
+      var b = blocos[d.tipo];
+      var on = d.tipo === tipo;
+      b.cx.checked = on;
+      b.bloco.classList.toggle('is-on', on);
+      clear(b.campos);
+      b.campos.hidden = !on;
+      if (!on) return;
+      /* Os campos nascem de novo a cada escolha, a partir do que ja se sabe. */
+      var valores = ibValoresDe(d.tipo);
+      var par = null;
+      d.campos.forEach(function (c, i) {
+        if (i % 2 === 0) { par = el('div', 'field-row'); b.campos.appendChild(par); }
+        var f = ibCampo(d.tipo, c, valores);
+        var inp = f.querySelector('input, select');
+        var comum = (IB_COMUM[d.tipo] || {})[c.k];
+        if (inp && comum) {
+          var guardar = function () { IB.val[comum] = inp.value === '-' ? '' : inp.value; };
+          inp.addEventListener('input', guardar);
+          inp.addEventListener('change', guardar);
+        }
+        par.appendChild(f);
+      });
+    });
+  };
+
   IB_DESTINOS.forEach(function (d) {
     var bloco = el('div', 'ib-dest');
     var cab = el('label', 'ib-desth');
     var cx = el('input');
-    cx.type = 'checkbox'; cx.id = 'ibUsar_' + d.tipo;
+    cx.type = 'radio'; cx.name = 'ibDestino'; cx.id = 'ibUsar_' + d.tipo;
     cab.appendChild(cx);
     cab.appendChild(el('span', null, d.nome));
     bloco.appendChild(cab);
-
     var campos = el('div', 'ib-destc');
     campos.hidden = true;
-    var par = null;
-    d.campos.forEach(function (c, i) {
-      if (i % 2 === 0) { par = el('div', 'field-row'); campos.appendChild(par); }
-      par.appendChild(ibCampo(d.tipo, c));
-    });
-    cx.onchange = function () {
-      campos.hidden = !cx.checked;
-      bloco.classList.toggle('is-on', cx.checked);
-    };
+    cx.onchange = function () { if (cx.checked) mostrar(d.tipo); };
 
-    /* O que a IA propos ja vem marcado e preenchido, por confirmar. */
     var sugd = IB.prop && IB.prop[d.tipo];
-    if (sugd) {
-      cx.checked = true;
-      campos.hidden = false;
-      bloco.classList.add('is-on');
-      if (sugd.confianca) cab.appendChild(el('span', 'ib-conf' + (sugd.confianca === 'alta' ? ' alta' : ''), sugd.confianca));
+    if (sugd && sugd.confianca && d.tipo === IB.escolhido) {
+      cab.appendChild(el('span', 'ib-conf' + (sugd.confianca === 'alta' ? ' alta' : ''), sugd.confianca));
     }
     bloco.appendChild(campos);
     p.appendChild(bloco);
+    blocos[d.tipo] = { bloco: bloco, cx: cx, campos: campos };
   });
+  if (IB.escolhido) mostrar(IB.escolhido);
 
   var acoes = el('div', 'form-actions');
   var ok = el('button', 'btn primary', 'Catalogar');
@@ -666,7 +759,7 @@ function ibSubmeterTriagem() {
   var destinos = [];
   IB_DESTINOS.forEach(function (d) {
     var cx = $('ibUsar_' + d.tipo);
-    if (!cx || !cx.checked) return;
+    if (!cx || !cx.checked || destinos.length) return;
     var dados = {};
     d.campos.forEach(function (c) {
       var v = ($('ibC_' + d.tipo + '_' + c.k) || {}).value;
@@ -674,7 +767,7 @@ function ibSubmeterTriagem() {
     });
     destinos.push({ tipo: d.tipo, dados: dados });
   });
-  if (!destinos.length) { toast('Escolhe pelo menos um destino.'); return; }
+  if (!destinos.length) { toast('Escolhe no que \u00e9 que isto se transforma.'); return; }
 
   apiGestao('/api/inbox/' + IB.triando.id + '/triagem?estado=' + IB.estado, {
     method: 'POST',
