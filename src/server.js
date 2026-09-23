@@ -185,7 +185,17 @@ app.get('/api/bootstrap', async (_req, res) => {
                     ORDER BY l.inbox_id DESC LIMIT 1) AS inbox_id,
                   ARRAY(SELECT l.inbox_id FROM inbox_links l
                          WHERE l.target_type = 'documento' AND l.target_id = d.id
-                         ORDER BY l.inbox_id) AS ficheiros
+                         ORDER BY l.inbox_id) AS ficheiros,
+                  /* As tarefas a que o papel ja esta agarrado: o seletor da
+                     prova de um pagamento avisa quando o documento ja serviu
+                     outro. */
+                  COALESCE((SELECT json_agg(json_build_object(
+                                     'task_id', t.id, 'title', t.title, 'tipo', t.tipo,
+                                     'papel', td.papel,
+                                     'paid_on', to_char(t.paid_on, 'YYYY-MM-DD'))
+                                   ORDER BY t.paid_on DESC NULLS LAST, t.id DESC)
+                              FROM task_documents td JOIN tasks t ON t.id = td.task_id
+                             WHERE td.document_id = d.id), '[]'::json) AS tarefas
              FROM documents d
             WHERE d.aprovado
             ORDER BY d.sort, d.id DESC`),
