@@ -1540,17 +1540,103 @@ function tfPopData(t, ancora){
  * pagar
  * ------------------------------------------------------------------ */
 
-function tfEscolherDoc(rotulo, escolhidos){
+/* A que tarefas um documento ja esta agarrado. Vem do /api/bootstrap
+   (d.tarefas, que inclui os pagamentos ja fechados); as tarefas que o ecra
+   tem em memoria completam, para o caso de a lista ser mais velha. */
+function tfUsosDoc(doc){
+  var usos = (doc.tarefas || []).slice();
+  var vistos = {};
+  usos.forEach(function(u){ if (u.task_id) vistos[u.task_id] = true; });
+  ((window.G && G.tasks) || []).forEach(function(x){
+    (x.papeis || []).forEach(function(pp){
+      if (pp.id === doc.id && !vistos[x.id]){
+        vistos[x.id] = true;
+        usos.push({ task_id: x.id, title: x.title, tipo: x.tipo, papel: pp.papel, paid_on: x.paid_on || null });
+      }
+    });
+  });
+  return usos;
+}
+function tfDataCurta(iso){
+  if (!iso) return '';
+  var d = parseDay(iso);
+  return d.getDate() + ' ' + MESES[d.getMonth()].slice(0, 3) + (d.getFullYear() !== new Date().getFullYear() ? ' ' + d.getFullYear() : '');
+}
+function tfUsoTxt(u){
+  return (u.tipo === 'pagamento' ? 'pagamento' : 'tarefa') + ' «' + u.title + '»' +
+    (u.papel && u.papel !== 'anexo' ? ' como ' + u.papel : '') +
+    (u.paid_on ? ', pago a ' + tfDataCurta(u.paid_on) : '');
+}
+
+/* A prova de um pagamento escolhe-se entre os papeis do sitio a que ele
+   pertence: primeiro os da sub-area (a Cupula Arejada paga com papeis da
+   Cupula), depois os do resto da area, e so no fim os outros todos. Um papel
+   que ja serviu outro pagamento diz-o, na lista e por baixo dela: pode ser
+   de proposito (a fatura de origem de uma rotina), mas nao pode ser por
+   engano. */
+function tfEscolherDoc(rotulo, escolhidos, t){
   var box = el('div');
   box.appendChild(el('label', null, rotulo));
   var s = el('select');
   s.appendChild(new Option('— nenhum —', ''));
+
+  var ctx = null, cs = (window.G && G.contextos) || [];
+  cs.forEach(function(c){ if (t && c.id === t.context_id) ctx = c; });
+  var areaId = ctx ? (ctx.parent_id || ctx.id) : null;
+  var area = null;
+  cs.forEach(function(c){ if (c.id === areaId) area = c; });
+  var daArea = {};
+  cs.forEach(function(c){ if (c.id === areaId || c.parent_id === areaId) daArea[c.id] = true; });
+
+  var grupos = [];
+  if (ctx && ctx.parent_id) grupos.push({ nome: ctx.name, docs: [], teste: function(d){ return d.context_id === ctx.id; } });
+  if (area) grupos.push({ nome: ctx && ctx.parent_id ? 'Resto de ' + area.name : area.name, docs: [], teste: function(d){ return daArea[d.context_id]; } });
+  grupos.push({ nome: grupos.length ? 'Outros documentos' : null, docs: [], teste: function(){ return true; } });
+
+  var usosDe = {};
   ((window.D && D.documents) || []).forEach(function(doc){
-    var dono = pessoa(doc.person_id);
-    s.appendChild(new Option(doc.name + (dono ? ' (' + dono.name + ')' : ''), doc.id));
+    var outros = tfUsosDoc(doc).filter(function(u){ return !t || u.task_id !== t.id; });
+    usosDe[doc.id] = outros;
+    for (var i = 0; i < grupos.length; i++){
+      if (grupos[i].teste(doc)){ grupos[i].docs.push(doc); break; }
+    }
+  });
+
+  grupos.forEach(function(g){
+    if (!g.docs.length) return;
+    /* Os que ainda nao serviram nada primeiro: e ai que costuma estar a prova
+       que falta. A ordem de dentro fica a do arquivo (mais recentes primeiro). */
+    var livres = g.docs.filter(function(d){ return !usosDe[d.id].length; });
+    var usados = g.docs.filter(function(d){ return usosDe[d.id].length; });
+    var alvo = s;
+    if (g.nome){ alvo = document.createElement('optgroup'); alvo.label = g.nome + ' (' + g.docs.length + ')'; s.appendChild(alvo); }
+    livres.concat(usados).forEach(function(doc){
+      var dono = pessoa(doc.person_id);
+      var extra = [doc.entity, dono ? dono.name : null].filter(Boolean).join(', ');
+      var u = usosDe[doc.id];
+      var txt = doc.name + (extra ? ' (' + extra + ')' : '') + (u.length ? ' — já em «' + u[0].title + '»' : '');
+      var o = new Option(txt, doc.id);
+      if (u.length) o.title = 'Já associado a ' + u.map(tfUsoTxt).join('; ');
+      alvo.appendChild(o);
+    });
   });
   if (escolhidos && escolhidos.length) s.value = escolhidos[0];
   box.appendChild(s);
+
+  var aviso = el('div');
+  aviso.style.cssText = 'font-size:.7rem;line-height:1.45;margin-top:4px;color:var(--warn);background:var(--warn-soft);border-radius:6px;padding:5px 7px';
+  function avisar(){
+    var u = s.value ? (usosDe[Number(s.value)] || []) : [];
+    aviso.hidden = !u.length;
+    clear(aviso);
+    if (!u.length) return;
+    aviso.appendChild(document.createTextNode('Este documento já está associado a ' + tfUsoTxt(u[0]) +
+      (u.length > 1 ? ' e a mais ' + (u.length - 1) : '') + '.'));
+  }
+  s.addEventListener('change', avisar);
+  avisar();
+  box.appendChild(aviso);
+
   box.valor = function(){ return s.value ? Number(s.value) : null; };
   return box;
 }
@@ -1558,7 +1644,19 @@ function tfEscolherDoc(rotulo, escolhidos){
 function tfPopPagar(t, ancora){
   tfFecharPop();
   var p = el('div', 'tf-pop');
-  p.style.width = '330px';
+  p.style.width = '360px';
+
+  /* A janela pode abrir fora das Tarefas (no ecra de uma area): diz de que
+     pagamento se trata, para nao se pagar o que nao se queria. */
+  var cab = el('div', null, t.title);
+  cab.style.cssText = 'font-weight:500;font-size:.8125rem;color:var(--ink);line-height:1.35';
+  p.appendChild(cab);
+  var onde = [areaNome(t.context_id), t.payee].filter(Boolean).join(' · ');
+  if (onde){
+    var od = el('div', null, onde);
+    od.style.cssText = 'font-size:.7rem;color:var(--muted);margin-top:2px';
+    p.appendChild(od);
+  }
 
   p.appendChild(el('label', null, 'Pago a'));
   var iD = el('input'); iD.type = 'date'; iD.value = t.paid_on || tfISO(tfHoje());
@@ -1576,8 +1674,8 @@ function tfPopPagar(t, ancora){
   linha.appendChild(iV); linha.appendChild(sM);
   p.appendChild(linha);
 
-  var comp = tfEscolherDoc('Comprovativo de pagamento', tfPapel(t, 'comprovativo'));
-  var rec = tfEscolherDoc('Recibo ou fatura', tfPapel(t, 'recibo').concat(tfPapel(t, 'fatura')));
+  var comp = tfEscolherDoc('Comprovativo de pagamento', tfPapel(t, 'comprovativo'), t);
+  var rec = tfEscolherDoc('Recibo ou fatura', tfPapel(t, 'recibo').concat(tfPapel(t, 'fatura')), t);
   p.appendChild(comp); p.appendChild(rec);
   var ajuda = el('div', null, 'Sem eles o pagamento fica pago na mesma, marcado como «falta comprovativo». Os ficheiros que chegam pela Caixa de entrada aparecem aqui depois de catalogados.');
   ajuda.style.cssText = 'font-size:.7rem;color:var(--muted);margin-top:6px;line-height:1.45';
@@ -1607,6 +1705,15 @@ function tfPopPagar(t, ancora){
         payment_method: sM.value || null, criar_despesa: cx.checked, documentos: docs
       })
     }).then(function(d){
+      /* O documento passa a estar agarrado a este pagamento ja, sem esperar
+         pelo proximo /api/bootstrap. Numa rotina a prova fica com a copia que
+         se fechou, por isso o id nao e o desta tarefa. */
+      docs.forEach(function(x){
+        var doc = (window.D && D.documents || []).filter(function(y){ return y.id === x.id; })[0];
+        if (!doc) return;
+        doc.tarefas = (doc.tarefas || []).concat([{ task_id: rotina ? null : t.id, title: t.title, tipo: 'pagamento',
+          papel: x.papel, paid_on: iD.value || null }]);
+      });
       G = d;
       renderGestao();
       var n = tfPorId(t.id);
