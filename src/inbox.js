@@ -878,7 +878,15 @@ function instalar(app) {
                   ORDER BY l.inbox_id DESC LIMIT 1) AS inbox_id,
                 ARRAY(SELECT l.inbox_id FROM inbox_links l
                        WHERE l.target_type = 'documento' AND l.target_id = d.id
-                       ORDER BY l.inbox_id) AS ficheiros
+                       ORDER BY l.inbox_id) AS ficheiros,
+                /* As mesmas colunas do /api/bootstrap, incluindo a quem ja serve. */
+                COALESCE((SELECT json_agg(json_build_object(
+                                   'task_id', t.id, 'title', t.title, 'tipo', t.tipo,
+                                   'papel', td.papel,
+                                   'paid_on', to_char(t.paid_on, 'YYYY-MM-DD'))
+                                 ORDER BY t.paid_on DESC NULLS LAST, t.id DESC)
+                            FROM task_documents td JOIN tasks t ON t.id = td.task_id
+                           WHERE td.document_id = d.id), '[]'::json) AS tarefas
            FROM documents d WHERE d.id = $1`, [docId]))[0];
       res.status(201).json({ ok: true, documento: doc, papel, repetido });
     } catch (err) { falhaDoc(res, err, 'POST anexo da tarefa'); }
