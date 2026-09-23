@@ -769,10 +769,19 @@ function ibSubmeterTriagem() {
   });
   if (!destinos.length) { toast('Escolhe no que \u00e9 que isto se transforma.'); return; }
 
-  apiGestao('/api/inbox/' + IB.triando.id + '/triagem?estado=' + IB.estado, {
+  var idTriado = IB.triando.id;
+  var tituloNovo = ibTituloDe(destinos[0].dados);
+  var tituloVelho = IB.triando.title;
+  apiGestao('/api/inbox/' + idTriado + '/triagem?estado=' + IB.estado, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ destinos: destinos })
+  }).then(function (d) {
+    /* O titulo muda depois de catalogar, e nao antes: se a triagem falhar, o
+       item fica como estava. Se so o titulo falhar, a triagem ja esta feita e
+       vale mais mostra-la do que esconde-la atras de um erro. */
+    if (!tituloNovo || tituloNovo === tituloVelho) return d;
+    return ibRenomear(idTriado, tituloNovo).then(function (d2) { return d2 || d; }, function () { return d; });
   }).then(function (d) {
     ibFecharTriagem();
     IB.itens = d.itens || []; IB.porTriar = d.porTriar || 0; IB.porAprovar = d.porAprovar || 0;
@@ -940,6 +949,23 @@ function ibEditarAlvo(item, link) {
   dlg.showModal();
 }
 
+/* O nome que se ve no cartao da caixa e o titulo do item, e so a IA o
+   escrevia. Quem corrige a descricao ao catalogar ou no Editar esta a dizer
+   como a coisa se chama: o cartao passa a dizer o mesmo. */
+function ibTituloDe(dados) {
+  var t = dados && (dados.name || dados.title || dados.description);
+  return t ? String(t).trim() : '';
+}
+
+function ibRenomear(id, titulo) {
+  if (!titulo) return Promise.resolve();
+  return apiGestao('/api/inbox/' + id + '?estado=' + IB.estado, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title: titulo })
+  });
+}
+
 function ibGravarAlvo(item, link, d, dlg) {
   var corpo = {};
   d.campos.forEach(function (c) {
@@ -953,6 +979,9 @@ function ibGravarAlvo(item, link, d, dlg) {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(corpo)
+  }).then(function () {
+    var t = ibTituloDe(corpo);
+    return t && t !== item.title ? ibRenomear(item.id, t) : null;
   }).then(function () {
     dlg.close(); dlg.remove();
     toast('Gravado.');
