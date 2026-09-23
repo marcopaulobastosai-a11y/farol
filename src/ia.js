@@ -44,7 +44,7 @@ const ESQUEMA = {
     resumo: texto('Uma linha a dizer o que e o ficheiro.'),
     destinos: {
       type: 'array',
-      description: 'Um ou mais destinos. Vazio se nao for possivel perceber.',
+      description: 'Exactamente um destino: o que o ficheiro e. Vazio se nao for possivel perceber.',
       items: {
         type: 'object',
         properties: {
@@ -71,7 +71,8 @@ const ESQUEMA = {
               area: texto('Area ou sub-area onde isto se arruma, escrita tal como vem na lista de areas.'),
               kind: texto('Que tipo de papel e: cartao, contrato, apolice, declaracao, certidao, fatura, recibo, exame.'),
               notes: texto('Qualquer coisa util que nao caiba nos outros campos.')
-            }
+            },
+            required: ['area']
           }
         },
         required: ['tipo', 'dados']
@@ -95,8 +96,13 @@ const SISTEMA = [
   '  pagamento, prestacao, mensalidade. Preenche title, amount, due_on, payee e,',
   '  se o papel os trouxer, payment_ref (IBAN ou entidade e referencia).',
   '',
-  'Um ficheiro pode ser mais do que um destino ao mesmo tempo. O talao de uma',
-  'maquina de lavar e despesa e e documento de garantia.',
+  'Escolhe UM destino so: o que melhor descreve o ficheiro. Quem o arruma pode',
+  'mudar de ideias e escolher outro, por isso preenche em dados TUDO o que',
+  'conseguires ler no papel, mesmo os campos que nao sao do destino escolhido:',
+  'valor (amount), datas (issued_on, spent_on, due_on, valid_on), quem emitiu',
+  '(entity, payee, merchant), referencia de pagamento, pessoa e area.',
+  'Numa fatura, o valor a pagar e o total com IVA, e o prazo e a data de',
+  'vencimento (due_on) - nao e valid_on.',
   '',
   'Despesa ou pagamento, a diferenca e o tempo: um talao ou um recibo e dinheiro',
   'que ja saiu - despesa. Uma fatura por pagar ou um aviso com prazo e dinheiro',
@@ -184,7 +190,12 @@ async function perguntar(buffer, mime, nome, modelo) {
          'mais precisa: se o papel e do carro, e Patrimonio > Carro, nao Patrimonio.']
       : [])
     .concat(['',
-      'Antes de responder, se isto for um documento, confere quatro coisas:',
+      'Antes de responder, confere se preencheste, sempre que o papel os traga:',
+      'amount (o total, como numero), due_on (vencimento, limite de pagamento),',
+      'payee e entity (quem emitiu), payment_ref (IBAN, ou entidade e referencia)',
+      'e area. Esquecer o valor de uma fatura e o erro mais caro.',
+      '',
+      'Se isto for um documento, confere tambem quatro coisas:',
       '1. entity - quem o emitiu. Esta quase sempre no topo ou no rodape, no',
       '   cabecalho, no carimbo ou na assinatura. Procura antes de desistir.',
       '   Num documento de identificacao (cartao de cidadao, passaporte, carta',
@@ -263,6 +274,14 @@ async function perguntar(buffer, mime, nome, modelo) {
   let proposta;
   try { proposta = JSON.parse(cru); }
   catch (e) { throw new Error('proposta ilegivel'); }
+  /* Um ficheiro e uma coisa so. Se o modelo propuser mais do que uma, vale a
+     primeira - mas os campos que leu nas outras nao se perdem: juntam-se a
+     ela, para quem mudar de destino na triagem os encontrar ja escritos. */
+  if (proposta && Array.isArray(proposta.destinos) && proposta.destinos.length > 1) {
+    const [primeiro, ...resto] = proposta.destinos;
+    const dados = Object.assign({}, ...resto.map((d) => (d && d.dados) || {}), primeiro.dados || {});
+    proposta.destinos = [Object.assign({}, primeiro, { dados })];
+  }
 
   const uso = j.usage || j.usageMetadata || {};
   return Object.assign({}, proposta, {
