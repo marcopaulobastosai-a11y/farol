@@ -16,11 +16,16 @@ const { query } = require('./db');
 const CHAVE = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '';
 const MODELO = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
 
-/* O escalao gratuito responde 503 quando o modelo esta com muita procura.
-   Nao e falha do ficheiro nem do pedido: e so esperar. Tenta-se tres vezes,
-   com pausas maiores de cada vez, e so depois se pede a outro modelo. */
+/* O modelo responde 503 quando esta com muita procura. Nao e falha do
+   ficheiro nem do pedido: e so esperar. Tenta-se tres vezes, com pausas
+   maiores de cada vez.
+   Deixou de haver modelo de recurso por omissao (23 set): o 3.6 Flash cumpria
+   mal as instrucoes e devolvia leituras quase vazias - uma fatura sem valor,
+   sem a quem, sem area - que pareciam boas. Um erro honesto de «ocupado» e
+   melhor do que uma leitura pobre que ninguem nota. Quem quiser um recurso
+   poe-no em GEMINI_MODELOS (lista separada por virgulas). */
 const MODELOS = [MODELO]
-  .concat((process.env.GEMINI_MODELOS || 'gemini-3.6-flash')
+  .concat((process.env.GEMINI_MODELOS || '')
     .split(',').map((m) => m.trim()).filter(Boolean))
   .filter((m, i, todos) => todos.indexOf(m) === i);
 const ESPERAS = [3000, 12000, 25000];
@@ -294,9 +299,9 @@ async function perguntar(buffer, mime, nome, modelo) {
 }
 
 /**
- * Insiste. O 503 do escalao gratuito e passageiro, por isso nao pode ser
- * tratado como ficheiro ilegivel: tres tentativas ao mesmo modelo, com
- * pausas maiores de cada vez, e so depois o modelo seguinte da lista.
+ * Insiste. O 503 e passageiro, por isso nao pode ser tratado como ficheiro
+ * ilegivel: tres tentativas ao mesmo modelo, com pausas maiores de cada vez,
+ * e so depois o modelo seguinte da lista, se houver algum.
  */
 async function insistir(buffer, mime, nome) {
   let ultimo = new Error('nao houve resposta do modelo');
