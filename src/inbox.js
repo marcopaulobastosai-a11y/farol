@@ -324,6 +324,31 @@ async function executarTriagem(id, destinos) {
          ON CONFLICT DO NOTHING`, [id, d.tipo, novoId]);
       criados.push({ tipo: d.tipo, id: novoId });
     }
+    /* Uma despesa tambem e um papel. Sem isto, o comprovativo catalogado como
+       despesa so aparecia na linha do dinheiro: quem o procurasse pelo nome
+       nos Documentos nao o encontrava. O ficheiro e um so, ligado aos dois. */
+    const despesas = criados.filter((c) => c.tipo === 'despesa');
+    if (despesas.length && item.file_path) {
+      for (const dp of despesas) {
+        const linha = (await all(
+          `SELECT description, merchant, context_id, person_id,
+                  to_char(spent_on,'YYYY-MM-DD') AS spent_on
+             FROM expenses WHERE id = $1`, [dp.id]))[0];
+        let docId = criados.filter((c) => c.tipo === 'documento').map((c) => c.id)[0];
+        if (!docId) {
+          docId = await CRIAR.documento({
+            name: linha.description, entity: linha.merchant, kind: 'comprovativo',
+            context_id: linha.context_id, person_id: linha.person_id, issued_on: linha.spent_on
+          });
+          await query(
+            `INSERT INTO inbox_links (inbox_id, target_type, target_id) VALUES ($1,'documento',$2)
+             ON CONFLICT DO NOTHING`, [id, docId]);
+          criados.push({ tipo: 'documento', id: docId });
+        }
+        await query('UPDATE expenses SET document_id = $2 WHERE id = $1', [dp.id, docId]);
+      }
+    }
+
     /* Se o mesmo ficheiro deu um pagamento e um documento, o documento e a
        fatura desse pagamento: fica agarrado, sem ninguem ter de o ir buscar. */
     const pag = criados.filter((c) => c.tipo === 'pagamento');
