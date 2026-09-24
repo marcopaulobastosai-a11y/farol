@@ -709,3 +709,58 @@ END $$;
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS tipo      TEXT NOT NULL DEFAULT 'projeto';
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS parent_id INTEGER REFERENCES projects(id) ON DELETE SET NULL;
 CREATE INDEX IF NOT EXISTS projects_parent_idx ON projects (parent_id);
+
+
+-- ---------------------------------------------------------------------------
+-- 16. UMA DESPESA TAMBEM TEM PAPEL
+-- ---------------------------------------------------------------------------
+-- Um comprovativo que a caixa cataloga como despesa desaparecia dos
+-- Documentos: o ficheiro ficava guardado, mas so a linha do dinheiro o
+-- mostrava, e quem o fosse procurar pelo nome nao o encontrava em lado nenhum.
+-- A despesa passa a ter o seu documento, ligado ao mesmo ficheiro.
+ALTER TABLE expenses ADD COLUMN IF NOT EXISTS document_id INTEGER REFERENCES documents(id) ON DELETE SET NULL;
+
+DO $$
+DECLARE r record; novo integer;
+BEGIN
+  IF EXISTS (SELECT 1 FROM settings WHERE key = 'despesas_com_papel') THEN
+    RETURN;
+  END IF;
+
+  -- Ja havia um documento do mesmo ficheiro: liga-se, nao se cria outro.
+  UPDATE expenses e
+     SET document_id = (
+       SELECT d.target_id FROM inbox_links l
+         JOIN inbox_links d ON d.inbox_id = l.inbox_id AND d.target_type = 'documento'
+        WHERE l.target_type = 'despesa' AND l.target_id = e.id
+        ORDER BY d.target_id LIMIT 1)
+   WHERE e.document_id IS NULL;
+
+  -- As que so tinham a linha do dinheiro ganham o papel, com o que se sabe.
+  FOR r IN
+    SELECT e.id AS despesa, l.inbox_id, e.description, e.merchant,
+           e.context_id, e.person_id, e.spent_on
+      FROM expenses e
+      JOIN inbox_links l ON l.target_type = 'despesa' AND l.target_id = e.id
+      JOIN inbox_items i ON i.id = l.inbox_id AND i.file_path IS NOT NULL
+     WHERE e.document_id IS NULL
+  LOOP
+    INSERT INTO documents (name, entity, kind, context_id, person_id, issued_on,
+                           origin, aprovado, sort)
+    VALUES (r.description, r.merchant, 'comprovativo', r.context_id, r.person_id,
+            r.spent_on, 'real', TRUE, 0)
+    RETURNING id INTO novo;
+
+    INSERT INTO inbox_links (inbox_id, target_type, target_id)
+    VALUES (r.inbox_id, 'documento', novo) ON CONFLICT DO NOTHING;
+
+    UPDATE expenses SET document_id = novo WHERE id = r.despesa;
+  END LOOP;
+
+  INSERT INTO settings (key, value) VALUES ('despesas_com_papel', now()::text)
+  ON CONFLICT (key) DO NOTHING;
+
+  RAISE NOTICE '[farol] despesas antigas passaram a ter papel nos Documentos.';
+EXCEPTION WHEN OTHERS THEN
+  RAISE WARNING '[farol] nao foi possivel dar papel as despesas: %', SQLERRM;
+END $$;
