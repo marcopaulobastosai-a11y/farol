@@ -40,8 +40,7 @@ function dpMontar() {
   document.head.appendChild(estilo);
 
   /* As Financas deixaram de ter separadores: o que restava neles era maqueta.
-     As despesas passam a ser o conteudo do ecra, acima da nota do que ainda
-     nao existe. */
+     As despesas sao o dinheiro que ja saiu - o primeiro cartao do ecra. */
   var pane = el('div');
   pane.dataset.pane = 'despesas';
 
@@ -68,9 +67,16 @@ function dpMontar() {
   scroll.appendChild(tab);
   card.appendChild(scroll);
   pane.appendChild(card);
-  var nota = document.getElementById('finVazio');
-  if (nota) vista.insertBefore(pane, nota);
-  else vista.appendChild(pane);
+  vista.insertBefore(pane, vista.firstChild);
+}
+
+/* O bloco da area (area-tarefas.js) mete-se sempre no topo do ecra, e os dois
+   montam-se em alturas diferentes: quem chegar depois fica em cima. As
+   despesas voltam ao primeiro lugar sempre que se desenham. */
+function dpAoTopo() {
+  var vista = document.getElementById('view-financas');
+  var pane = document.querySelector('[data-pane="despesas"]');
+  if (vista && pane && vista.firstChild !== pane) vista.insertBefore(pane, vista.firstChild);
 }
 
 function dpCarregar() {
@@ -84,6 +90,7 @@ function dpCarregar() {
 function dpRender() {
   var tb = document.getElementById('dpLinhas');
   if (!tb) return;
+  dpAoTopo();
   clear(tb);
 
   var total = 0;
@@ -107,7 +114,22 @@ function dpRender() {
   DP.linhas.forEach(function (x) {
     var tr = el('tr');
     tr.appendChild(el('td', 'n', dpDia(x.spent_on)));
-    tr.appendChild(el('td', null, x.description || ''));
+    /* O papel que deu origem a despesa abre-se aqui: e a prova de que o
+       dinheiro saiu, e ate agora nao havia maneira nenhuma de chegar a ele. */
+    var tdd = el('td');
+    if (x.inbox_id) {
+      var a = el('a', null, x.description || 'ficheiro');
+      a.href = '/api/inbox/' + x.inbox_id + '/ficheiro';
+      a.target = '_blank'; a.rel = 'noopener';
+      a.title = 'Abrir o ficheiro';
+      tdd.appendChild(a);
+    } else {
+      tdd.appendChild(document.createTextNode(x.description || ''));
+      var sem = el('span', null, 'sem ficheiro');
+      sem.style.cssText = 'margin-left:.5rem;font-size:.6875rem;color:var(--warn)';
+      tdd.appendChild(sem);
+    }
+    tr.appendChild(tdd);
     tr.appendChild(el('td', 'dp-quem', x.pessoa || ''));
     tr.appendChild(el('td', null, x.merchant || ''));
     tr.appendChild(el('td', 'dp-val', dpEuros(x.amount)));
@@ -139,11 +161,24 @@ function dpApagar(x) {
   });
 }
 
-/* Arranque preguiçoso: só lê as despesas quando alguém abre o separador. */
+/* Arranque preguiçoso: só lê as despesas quando alguém abre as Finanças.
+   O clique sozinho não chegava — quem entrasse por outro caminho (um link do
+   Hoje, um show('financas') de outro módulo) ficava com a tabela vazia e a
+   despesa parecia não existir em lado nenhum. */
 document.addEventListener('click', function (e) {
   var b = e.target.closest && e.target.closest('button[data-view="financas"]');
   if (b && !DP.carregado) dpCarregar();
 });
+
+(function apanharShow() {
+  if (typeof window.show !== 'function') { setTimeout(apanharShow, 300); return; }
+  var antes = window.show;
+  window.show = function (view) {
+    var r = antes.apply(this, arguments);
+    if (view === 'financas' && !DP.carregado) dpCarregar();
+    return r;
+  };
+})();
 
 (function esperarApp() {
   if (document.getElementById('view-financas')) { dpMontar(); return; }
