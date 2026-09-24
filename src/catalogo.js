@@ -127,8 +127,18 @@ function instalar(app) {
       const linhas = await all(
         `SELECT e.id, e.description, e.amount::float AS amount,
                 to_char(e.spent_on, 'YYYY-MM-DD') AS spent_on,
-                e.merchant, e.category, e.person_id, e.note,
-                p.name AS pessoa
+                e.merchant, e.category, e.person_id, e.note, e.document_id,
+                p.name AS pessoa,
+                /* O ficheiro da despesa: o do papel dela, ou o que a caixa
+                   guardou quando a catalogou. Sem isto a linha do dinheiro
+                   nao abria nada. */
+                COALESCE(
+                  (SELECT l.inbox_id FROM inbox_links l
+                    WHERE l.target_type = 'documento' AND l.target_id = e.document_id
+                    ORDER BY l.inbox_id LIMIT 1),
+                  (SELECT l.inbox_id FROM inbox_links l
+                    WHERE l.target_type = 'despesa' AND l.target_id = e.id
+                    ORDER BY l.inbox_id LIMIT 1)) AS inbox_id
            FROM expenses e
            LEFT JOIN people p ON p.id = e.person_id
           WHERE e.aprovado
