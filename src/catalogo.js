@@ -128,6 +128,9 @@ function instalar(app) {
         `SELECT e.id, e.description, e.amount::float AS amount,
                 to_char(e.spent_on, 'YYYY-MM-DD') AS spent_on,
                 e.merchant, e.category, e.person_id, e.note, e.document_id,
+                /* A area vai junto: os ecras das areas mostram as despesas
+                   que sao delas, e sem isto nao ha como saber quais sao. */
+                e.context_id, e.project_id,
                 p.name AS pessoa,
                 /* O ficheiro da despesa: o do papel dela, ou o que a caixa
                    guardou quando a catalogou. Sem isto a linha do dinheiro
