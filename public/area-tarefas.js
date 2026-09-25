@@ -975,8 +975,16 @@ function aeRenderArea(a){
   }));
 }
 
+var AE_ESPERA = 0;
 function aeRender(){
-  if (!window.G || !G.contextos || typeof tfCaixa !== 'function') return;
+  /* Se o desenho apanhar a app a meio do arranque - sem areas ainda, ou sem o
+     tarefas.js pronto - nao ha segunda chamada que o salve: o ecra ficava
+     vazio ate se carregar em Actualizar. Volta-se a tentar sozinho. */
+  if (!window.G || !G.contextos || !G.contextos.length || typeof tfCaixa !== 'function'){
+    if (AE_ESPERA++ < 40) setTimeout(aeRender, 350);
+    return;
+  }
+  AE_ESPERA = 0;
   aeMontar();
   aeArrumarNav();
   AE_AREAS.forEach(function(a){
