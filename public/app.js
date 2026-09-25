@@ -451,6 +451,7 @@ function eur(n){ return num(n) + ' €'; }
    se faz mesmo: mostra-me tudo o que e da Sofia. So aparecem as pessoas que
    tem documentos - uma fila de chips vazios nao ajuda ninguem. */
 var DOCS_PESSOA = null;
+var DOCS_AREA = null;   /* id de area/sub-area, 'sem' para os que nao tem, null para todas */
 
 function pessoaDoc(id){
   if (!id || !D.people) return null;
@@ -586,6 +587,92 @@ function apagarDocumento(d){
     });
 }
 
+/* A que area pertence um documento, subindo a sub-area ao pai: filtrar por
+   «Casa» tem de trazer também o que está em «Casa › Quinta do Anjo». */
+function docsAreaDe(d){
+  var c = null, cs = (window.G && G.contextos) || [];
+  for (var i = 0; i < cs.length; i++) if (cs[i].id === d.context_id) { c = cs[i]; break; }
+  if (!c) return null;
+  return { id: c.id, pai: c.parent_id || c.id };
+}
+
+function docsPassaArea(d){
+  if (!DOCS_AREA) return true;
+  var a = docsAreaDe(d);
+  if (DOCS_AREA === 'sem') return !a;
+  if (!a) return false;
+  return a.id === DOCS_AREA || a.pai === DOCS_AREA;
+}
+
+/* Os papeis arrumados por area, para se poder ver só os de uma. As áreas de
+   topo contam o que está nelas e nas suas sub-áreas; «Sem área» só aparece
+   quando há papéis por arrumar, que hoje são a maioria. */
+function renderDocsAreas(){
+  var box = $('docsAreas');
+  if (!box){
+    var ref = $('docsFiltro');
+    if (!ref) return;
+    box = el('div', 'who-filter');
+    box.id = 'docsAreas';
+    box.style.marginBottom = '6px';
+    ref.parentNode.insertBefore(box, ref);
+  }
+  clear(box);
+  var cs = (window.G && G.contextos) || [];
+  if (!cs.length) return;
+
+  var conta = {}, sem = 0;
+  (D.documents || []).forEach(function(d){
+    var a = docsAreaDe(d);
+    if (!a) { sem++; return; }
+    conta[a.pai] = (conta[a.pai] || 0) + 1;
+    if (a.id !== a.pai) conta[a.id] = (conta[a.id] || 0) + 1;
+  });
+
+  var chip = function(rotulo, valor, n){
+    var b = el('button', 'chip' + (DOCS_AREA && DOCS_AREA !== valor ? ' off' : ''));
+    b.type = 'button';
+    b.appendChild(document.createTextNode(rotulo));
+    if (n){
+      var s = el('small', null, String(n));
+      s.style.cssText = 'margin-left:6px;font-family:var(--mono);font-size:.68rem;color:var(--faint)';
+      b.appendChild(s);
+    }
+    b.addEventListener('click', function(){
+      DOCS_AREA = DOCS_AREA === valor ? null : valor;
+      renderDocumentos();
+    });
+    box.appendChild(b);
+    return b;
+  };
+
+  var topo = cs.filter(function(c){ return !c.parent_id && conta[c.id]; });
+  topo.forEach(function(c){ chip(c.name, c.id, conta[c.id]); });
+  if (sem) chip('Sem \u00e1rea', 'sem', sem);
+  if (box.children.length){
+    var todas = el('button', 'chip' + (DOCS_AREA ? ' off' : ''));
+    todas.type = 'button';
+    todas.textContent = 'Todas as \u00e1reas';
+    todas.addEventListener('click', function(){ DOCS_AREA = null; renderDocumentos(); });
+    box.appendChild(todas);
+
+    /* Escolhida uma area de topo, as sub-areas dela aparecem a seguir: a
+       lista inteira de sub-areas de todas as areas seria um muro de chips. */
+    var pai = topo.filter(function(c){ return c.id === DOCS_AREA; })[0];
+    if (!pai && DOCS_AREA && DOCS_AREA !== 'sem'){
+      var sel = cs.filter(function(c){ return c.id === DOCS_AREA; })[0];
+      if (sel && sel.parent_id) pai = cs.filter(function(c){ return c.id === sel.parent_id; })[0];
+    }
+    if (pai){
+      var subs = cs.filter(function(c){ return c.parent_id === pai.id && conta[c.id]; });
+      subs.forEach(function(c){
+        var b = chip('\u203a ' + c.name, c.id, conta[c.id]);
+        b.title = pai.name + ' \u203a ' + c.name;
+      });
+    }
+  }
+}
+
 function renderDocsFiltro(){
   var box = $('docsFiltro');
   if (!box) return;
@@ -650,12 +737,15 @@ function docsConjuntos(){
 function renderDocumentos(){
   var tb = $('documents');
   clear(tb);
+  renderDocsAreas();
   renderDocsFiltro();
 
   var porLer = 0;
   D.documents.forEach(function(d){ if (!d.lido) porLer++; });
 
-  var passa = function(d){ return !DOCS_PESSOA || d.person_id === DOCS_PESSOA; };
+  var passa = function(d){
+    return (!DOCS_PESSOA || d.person_id === DOCS_PESSOA) && docsPassaArea(d);
+  };
   var CJ = docsConjuntos();
   var visivel = {};
   D.documents.forEach(function(d){ if (passa(d)) visivel[d.id] = true; });
@@ -786,7 +876,9 @@ function renderDocumentos(){
 
   if (!lista.length){
     var vazio = el('tr');
-    var c = el('td', 'empty', DOCS_PESSOA ? 'Nada em nome desta pessoa.' : 'Ainda n\u00e3o h\u00e1 documentos.');
+    var c = el('td', 'empty', (DOCS_PESSOA || DOCS_AREA)
+      ? 'Nada com este filtro.'
+      : 'Ainda n\u00e3o h\u00e1 documentos.');
     c.colSpan = 6;
     vazio.appendChild(c);
     tb.appendChild(vazio);
@@ -1048,6 +1140,10 @@ function renderGestao(){
     return t.status !== 'concluida' && t.status !== 'cancelada' && (t.tipo || 'tarefa') === 'tarefa';
   }).length;
   $('badgeTarefas').textContent = abertas || '';
+  /* Os filtros por area vivem no ecra dos Documentos mas os contextos vem do
+     /api/gestao, que chega depois do bootstrap: sem isto, os chips so
+     apareciam ao mudar de filtro. */
+  if (D && D.documents) renderDocumentos();
   if (typeof tfRender === 'function') tfRender();
 }
 
