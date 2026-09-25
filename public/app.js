@@ -384,62 +384,10 @@ function renderLoad(){
 }
 
 /* ---------------- FAMÍLIA ---------------- */
-function renderFamilia(){
-  /* Oito cartoes com iniciais, papel e nota ocupavam meia pagina para dizer
-     quem mora ca. Ficam oito nomes seguidos ao lado do titulo; o que cada um
-     tem para fazer esta na ficha dele, a um clique. */
-  var box = $('famFila');
-  if (box){
-    clear(box);
-    D.people.forEach(function(p){
-      var d = el('button', 'fam-p');
-      d.type = 'button';
-      /* O ficha.js escuta este data-ficha em qualquer sitio da pagina. */
-      d.dataset.ficha = p.id;
-      d.title = [p.name, p.role].filter(Boolean).join(' · ');
-      var av = el('span', 'avatar', p.tem_avatar ? '' : p.initials);
-      if (p.tem_avatar) {
-        var img = document.createElement('img');
-        img.src = '/api/pessoas/' + p.id + '/avatar';
-        img.alt = '';
-        av.appendChild(img);
-      }
-      d.appendChild(av);
-      d.appendChild(el('b', null, p.name));
-      box.appendChild(d);
-    });
-  }
-
-  var grid = $('weekGrid');
-  clear(grid);
-  var start = mondayOf(parseDay(D.meta.today));
-  for (var i = 0; i < 7; i++){
-    var dt = addDays(start, i);
-    var key = iso(dt);
-    var cell = el('div', 'd' + (key === D.meta.today ? ' today' : ''));
-    cell.appendChild(el('h5', null, DIAS_CURTO[i] + ' ' + dt.getDate()));
-    D.events.filter(function(e){ return e.day === key; }).slice(0, 4).forEach(function(e){
-      var ev = el('div', 'ev');
-      var dot = el('i');
-      dot.style.background = calColor(e.calendar);
-      ev.appendChild(dot);
-      ev.appendChild(document.createTextNode(e.title));
-      cell.appendChild(ev);
-    });
-    grid.appendChild(cell);
-  }
-  $('weekLabel').textContent = D.meta.week_label || '';
-
-  var leg = $('weekLegend');
-  clear(leg);
-  D.calendars.forEach(function(c){
-    var p = pill(c.name);
-    var dot = el('i', 'dot');
-    dot.style.background = c.color;
-    p.insertBefore(dot, p.firstChild);
-    leg.appendChild(p);
-  });
-}
+/* O ecra da Familia e igual ao das outras areas e e desenhado pelo
+   area-tarefas.js: os mesmos cinco widgets e os mesmos filtros. A fila com os
+   nomes do agregado saiu da topbar - os nomes estao no filtro «Quem» - e a
+   Semana saiu daqui: a agenda tem ecra proprio. */
 
 /* ---------------- FINANÇAS ---------------- */
 function num(n){ return n.toLocaleString('pt-PT', { minimumFractionDigits: 0, maximumFractionDigits: 0 }); }
@@ -939,10 +887,6 @@ function show(view){
   for (var j = 0; j < btns.length; j++){
     btns[j].classList.toggle('is-active', btns[j].dataset.view === view);
   }
-  /* A fila das pessoas vive na topbar e e so da Familia. */
-  var fila = $('famFila');
-  if (fila) fila.hidden = view !== 'familia';
-
   var t = TITLES[view];
   if (t){
     $('pageTitle').textContent = t[0];
@@ -983,7 +927,6 @@ function renderAll(){
   renderHoje();
   renderAgendaShell();
   renderMonth(); renderDay(); renderUpcoming(); renderLoad();
-  renderFamilia();
   renderDocumentos();
 }
 

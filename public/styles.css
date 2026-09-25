@@ -151,12 +151,15 @@ main{min-width:0;padding:0 clamp(16px,3vw,34px) 60px;}
   position:sticky;top:0;z-index:5;
   background:color-mix(in srgb, var(--ground) 88%, transparent);
   backdrop-filter:blur(8px);
-  display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap;
-  padding:22px 0 14px;margin-bottom:18px;
+  display:flex;align-items:baseline;gap:8px 14px;flex-wrap:wrap;
+  padding:12px 0 10px;margin-bottom:12px;
   border-bottom:1px solid var(--line);
 }
-.topbar h1{font-size:1.7rem;}
-.topbar .sub{color:var(--muted);font-size:.8125rem;margin-top:2px;}
+/* O titulo e o que ele quer dizer na mesma linha: dois andares de cabecalho
+   em cima de cada ecra comiam o espaco do que interessa. */
+.topbar > div:first-child{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;min-width:0;}
+.topbar h1{font-size:1.375rem;}
+.topbar .sub{color:var(--muted);font-size:.8125rem;margin-top:0;}
 .topbar .right{margin-left:auto;display:flex;align-items:center;gap:8px;}
 .btn{
   border:1px solid var(--line);background:var(--surface);
@@ -320,20 +323,6 @@ td.n{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:.75rem;
 /* people */
 /* A casa inteira numa linha, ao lado do titulo da Familia. Rola de lado
    quando nao cabe, para nunca crescer para baixo. */
-.fam-fila{display:flex;align-items:center;gap:6px;overflow-x:auto;scrollbar-width:none;
-  /* Fica na linha do titulo e encolhe ate rolar de lado, em vez de empurrar
-     a topbar para baixo. */
-  flex:1 1 220px;min-width:0;padding-bottom:2px;margin-bottom:2px;}
-.fam-fila::-webkit-scrollbar{display:none;}
-.fam-p{display:inline-flex;align-items:center;gap:7px;flex:0 0 auto;white-space:nowrap;
-  background:var(--surface);border:1px solid var(--line-soft);border-radius:999px;
-  padding:3px 11px 3px 3px;cursor:pointer;
-  transition:border-color .15s ease,box-shadow .15s ease;}
-.fam-p:hover,.fam-p:focus-visible{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft);outline:none;}
-.fam-p .avatar{width:26px;height:26px;font-size:.625rem;flex:0 0 auto;overflow:hidden;padding:0;}
-.fam-p .avatar img{width:100%;height:100%;object-fit:cover;display:block;}
-.fam-p b{font-weight:500;font-size:.8125rem;color:var(--ink);}
-
 /* week grid */
 .week{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px;}
 .week .d{background:var(--surface-2);border:1px solid var(--line-soft);border-radius:8px;padding:8px 7px;min-height:96px;}

@@ -95,10 +95,6 @@
         <h1 id="pageTitle">Hoje</h1>
         <div class="sub" id="pageSub">A carregar…</div>
       </div>
-      <!-- Quem ha em casa, numa linha so, ao lado do titulo. So aparece na
-           Familia (o show() trata disso): oito cartoes a ocupar meia pagina
-           diziam menos do que oito nomes seguidos. -->
-      <div class="fam-fila" id="famFila" hidden></div>
       <div class="right">
         <button class="btn" id="btnReload">Actualizar</button>
       </div>
@@ -180,29 +176,10 @@
 
     <!-- FAMÍLIA -->
     <section class="view" id="view-familia">
-      <div class="grid split">
-        <div class="stack">
-          <div class="card">
-            <header><h3>Semana</h3><span class="mono" id="weekLabel"></span></header>
-            <div class="week" id="weekGrid"></div>
-            <div style="display:flex;gap:14px;margin-top:12px;flex-wrap:wrap" id="weekLegend"></div>
-          </div>
-        </div>
-        <div class="stack">
-          <div class="card">
-            <header><h3>Tarefas, apoio e datas</h3></header>
-            <p class="vazio">Ainda não há nada aqui. As tarefas de cada pessoa estão na ficha dela — clica num nome ao lado.</p>
-          </div>
-        </div>
-      </div>
     </section>
 
     <!-- CASA -->
     <section class="view" id="view-casa">
-        <div class="card">
-          <header><h3>Casa</h3></header>
-          <p class="vazio">Manutenção, consumos, avarias e equipamentos. Ainda não há nada aqui — o ecrã será construído a partir do que a casa precisar mesmo, não do que a maqueta imaginou.</p>
-        </div>
       </section>
 
     <!-- PROJETOS -->
@@ -212,18 +189,10 @@
 
     <!-- FINANÇAS -->
     <section class="view" id="view-financas">
-        <div class="card" id="finVazio">
-          <header><h3>Orçamento, subscrições e créditos</h3></header>
-          <p class="vazio">Ainda não há nada aqui. As despesas já cá estão, em cima.</p>
-        </div>
       </section>
 
     <!-- SAÚDE -->
     <section class="view" id="view-saude">
-        <div class="card">
-          <header><h3>Saúde &amp; rotinas</h3></header>
-          <p class="vazio">Hábitos da semana, marcações e actividade. Ainda não há nada aqui.</p>
-        </div>
       </section>
 
     <!-- DOCUMENTOS -->

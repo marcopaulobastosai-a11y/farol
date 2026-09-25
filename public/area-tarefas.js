@@ -124,6 +124,10 @@ var AE_CSS =
   '.ae-barra i.bad{background:var(--bad)}' +
   '.ae-dic{flex:none;width:22px;height:22px;border-radius:6px;display:flex;align-items:center;justify-content:center;background:var(--surface-2);color:var(--muted);margin-top:1px}' +
   '.ae-mais{margin:2px 16px 14px}' +
+  '.ae-apagar{flex:none;border:0;background:none;color:var(--faint);cursor:pointer;padding:2px;border-radius:6px;opacity:0;display:flex}' +
+  '.tf-row:hover .ae-apagar{opacity:1}' +
+  '.ae-apagar:hover{color:var(--bad);background:var(--bad-soft)}' +
+  '.ae-ficha{border-style:dashed;color:var(--accent-ink)}' +
   '.ae-topo{display:flex;justify-content:flex-end;margin-bottom:8px}';
 
 var AE = { filtro: {}, fechados: {}, despesas: null, aLerDespesas: false };
@@ -185,6 +189,27 @@ var AE_I = {
 function aeIcone(d, w){
   return '<svg width="' + w + '" height="' + w + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
     'stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' + d + '</svg>';
+}
+
+/* Os Documentos nao sao uma area, sao o arquivo de todas elas: vao para a
+   Administracao. O rotulo e posto pelos modulos da administracao, que podem
+   chegar depois - por isso isto tenta outra vez a cada desenho. */
+var AE_NAV = { tentativas: 0 };
+function aeArrumarNav(){
+  var nav = document.getElementById('nav');
+  if (!nav) return;
+  var b = nav.querySelector('button[data-view="documentos"]');
+  if (!b) return;
+  var admin = null;
+  nav.querySelectorAll('.nav-label').forEach(function(l){ if (/Administra/.test(l.textContent)) admin = l; });
+  if (!admin){
+    /* O rotulo e posto pelos modulos da administracao, que podem chegar
+       depois de nos. Espera-se por ele, sem insistir para sempre. */
+    if (AE_NAV.tentativas++ < 25) setTimeout(aeArrumarNav, 300);
+    return;
+  }
+  if (b.previousElementSibling === admin) return;
+  admin.parentNode.insertBefore(b, admin.nextSibling);
 }
 
 function aeNorm(s){ return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase(); }
@@ -251,11 +276,7 @@ function aeCaixa(a){
   var sec = document.getElementById('view-' + a.view);
   if (!sec) return null;
   box = el('div', 'stack ae'); box.id = id;
-  /* Na Familia a semana fica em cima e o bloco por baixo, a largura toda:
-     cinco widgets numa coluna estreita nao se leem. Nas outras areas o bloco
-     e a primeira coisa do ecra. */
-  if (a.view === 'familia') sec.appendChild(box);
-  else sec.insertBefore(box, sec.firstChild);
+  sec.insertBefore(box, sec.firstChild);
   return box;
 }
 
@@ -485,6 +506,20 @@ function aeLinhaDespesa(x){
   r.appendChild(corpo);
   r.appendChild(el('div', 'tf-val', tfEuros(x.amount)));
   r.appendChild(el('div', 'tf-r', tfDataCurta(x.spent_on)));
+  /* Uma despesa que nasceu de uma leitura errada tem de poder sair. Era o que
+     a tabela das Financas fazia e o widget nao sabia. */
+  if (typeof dpApagar === 'function'){
+    var x0 = el('button', 'ae-apagar');
+    x0.type = 'button';
+    x0.title = 'Apagar a despesa';
+    x0.setAttribute('aria-label', 'Apagar «' + nome + '»');
+    x0.innerHTML = aeIcone('<path d="M6 6l12 12"/><path d="M18 6L6 18"/>', 12);
+    x0.addEventListener('click', function(e){
+      e.stopPropagation();
+      dpApagar(x, aeRecarregarDespesas);
+    });
+    r.appendChild(x0);
+  }
   return r;
 }
 
@@ -665,6 +700,12 @@ function aeCorpoProjetos(card, pjs, tudo){
  * as despesas (o ecra das Financas le-as so quando la se entra)
  * ------------------------------------------------------------------ */
 
+function aeRecarregarDespesas(){
+  AE.despesas = null;
+  AE.aLerDespesas = false;
+  aeRender();
+}
+
 function aeDespesas(){
   if (AE.despesas) return AE.despesas;
   if (!AE.aLerDespesas){
@@ -727,7 +768,12 @@ function aeRenderArea(a){
     return p.tipo !== 'programa' && p.status !== 'concluido' && idsTodos.indexOf(p.context_id) >= 0;
   });
   var docsTodos = ((window.D && D.documents) || []).filter(function(d){ return idsTodos.indexOf(d.context_id) >= 0; });
-  var despTodas = (aeDespesas() || []).filter(function(x){ return idsTodos.indexOf(x.context_id) >= 0; });
+  /* As Financas sao a casa do dinheiro sem area: uma despesa que a caixa de
+     entrada catalogou sem area nao pode ficar invisivel em lado nenhum. */
+  var orfas = a.view === 'financas';
+  var despTodas = (aeDespesas() || []).filter(function(x){
+    return idsTodos.indexOf(x.context_id) >= 0 || (orfas && !x.context_id);
+  });
 
   /* Onde: Tudo, cada sub-area, e «Geral» so quando a area tem coisas suas.
      Um filtro guardado que deixou de existir volta a Tudo. */
@@ -746,6 +792,7 @@ function aeRenderArea(a){
 
   var j = aeJanela(f.periodo);
   function naArea(x){ return ids.indexOf(x.context_id) >= 0; }
+  function naAreaDesp(x){ return naArea(x) || (orfas && tudo && !x.context_id); }
   function passaTarefa(t){
     if (!naArea(t)) return false;
     if (!aePassaPessoa(f, t.owner_id, t.subjects)) return false;
@@ -762,7 +809,7 @@ function aeRenderArea(a){
   var outras = soltas.filter(function(t){ return tfTipo(t) !== 'pagamento'; }).sort(aeOrdem);
 
   var despesas = despTodas.filter(function(x){
-    if (!naArea(x)) return false;
+    if (!naAreaDesp(x)) return false;
     if (!aePassaPessoaSo(f, [x.person_id])) return false;
     if (!j) return true;
     if (j === 'atraso') return false;
@@ -817,6 +864,16 @@ function aeRenderArea(a){
     fl2.chips.appendChild(aeChip(p.name, f.quem === String(p.id), function(){ aePor(a, 'quem', String(p.id)); },
       { cor: p.color || 'var(--c1)' }));
   });
+  if (f.quem !== 'todos'){
+    var quem = pessoa(Number(f.quem));
+    if (quem){
+      var bf = el('button', 'ae-chip ae-ficha', 'Ficha de ' + quem.name.split(' ')[0]);
+      bf.type = 'button';
+      bf.dataset.ficha = quem.id;
+      bf.title = 'Abrir a ficha de ' + quem.name;
+      fl2.chips.appendChild(bf);
+    }
+  }
   barra.appendChild(fl2);
 
   var fl3 = aeFila('Quando');
@@ -921,6 +978,7 @@ function aeRenderArea(a){
 function aeRender(){
   if (!window.G || !G.contextos || typeof tfCaixa !== 'function') return;
   aeMontar();
+  aeArrumarNav();
   AE_AREAS.forEach(function(a){
     /* Um ecra que rebenta nao cala os outros. */
     try { aeRenderArea(a); } catch (e) { console.error('[farol] area ' + a.view, e); }
