@@ -209,6 +209,21 @@ function avTarefa(a){
       notes: iNotas.value.trim() || null
     }, true);
   });
+  /* Apagar mora aqui tambem: e nesta janela que se olha para uma tarefa a
+     partir do Hoje e dos ecras das areas. Fica ao lado da saida, longe do
+     Gravar, para nao se carregar nele por engano. */
+  if (typeof tfApagarJa === 'function'){
+    var bApagar = el('button', 'btn danger', 'Apagar');
+    bApagar.type = 'button';
+    bApagar.addEventListener('click', function(){
+      tfApagarJa(t, function(){ avFechar(); load(); });
+    });
+    /* Encostado a saida, a esquerda: a margem que empurra o resto para a
+       direita passa para ele. */
+    var esq = s.acoes.querySelector('.esq');
+    if (esq){ esq.style.marginRight = '0'; bApagar.style.marginRight = 'auto'; }
+    s.acoes.insertBefore(bApagar, esq ? esq.nextSibling : s.acoes.firstChild);
+  }
   iPrazo.focus();
 }
 
