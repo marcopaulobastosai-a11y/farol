@@ -488,7 +488,7 @@ function aeLinha(t){
   return li;
 }
 
-function aeLinhaDespesa(x){
+function aeLinhaDespesa(x, comArea){
   var r = el('div', 'tf-row');
   var ic = el('span', 'ae-dic'); ic.innerHTML = aeIcone(AE_I.ficheiro, 12);
   r.appendChild(ic);
@@ -511,6 +511,7 @@ function aeLinhaDespesa(x){
     s.appendChild(dot); s.appendChild(document.createTextNode(p.name)); m.appendChild(s);
   }
   if (x.merchant) m.appendChild(el('span', null, x.merchant));
+  if (comArea) m.appendChild(el('span', null, x.context_id ? areaNome(x.context_id) : 'sem área'));
   if (x.category) m.appendChild(el('span', null, x.category));
   if (!url) m.appendChild(el('span', null, 'sem ficheiro'));
   if (m.childNodes.length) corpo.appendChild(m);
@@ -549,6 +550,7 @@ function aeLinhaEvento(x){
   var m = el('div', 'tf-m');
   if (x.at) m.appendChild(el('span', null, x.at));
   if (x.detail) m.appendChild(el('span', null, x.detail));
+  if (x.onde) m.appendChild(el('span', null, x.onde));
   if (x.tipo === 'lembrete') m.appendChild(el('span', null, 'lembrete'));
   if (x.repete) m.appendChild(el('span', null, x.repete));
   if (x.dono){
@@ -1184,6 +1186,10 @@ function aeRender(){
     /* Um ecra que rebenta nao cala os outros. */
     try { aeRenderArea(a); } catch (e) { console.error('[farol] area ' + a.view, e); }
   });
+  /* As paginas gerais dos Eventos e das Despesas bebem dos mesmos dados: ou
+     se desenham aqui, ou ficavam a espera de um clique. */
+  try { if (typeof evRender === 'function') evRender(); } catch (e) { console.error('[farol] eventos', e); }
+  try { if (typeof dpRender === 'function') dpRender(); } catch (e) { console.error('[farol] despesas', e); }
 }
 
 var _aeRenderGestao = renderGestao;
