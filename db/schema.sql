@@ -764,3 +764,21 @@ BEGIN
 EXCEPTION WHEN OTHERS THEN
   RAISE WARNING '[farol] nao foi possivel dar papel as despesas: %', SQLERRM;
 END $$;
+
+
+-- ---------------------------------------------------------------------------
+-- EVENTOS DE UMA AREA
+--
+-- Um evento passa a poder pertencer a uma area: e o que a area tem marcado no
+-- calendario (uma vistoria, uma reuniao, uma entrega). Aparece no widget da
+-- area, no Hoje e na Agenda, como qualquer outro evento.
+--
+-- O calendario «areas» existe para eles terem onde cair: a coluna calendar e
+-- obrigatoria e aponta para calendars(code).
+-- ---------------------------------------------------------------------------
+ALTER TABLE events ADD COLUMN IF NOT EXISTS context_id INTEGER REFERENCES contexts(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS events_context_idx ON events (context_id);
+
+INSERT INTO calendars (code, name, color, sort)
+VALUES ('areas', 'Áreas', 'var(--c2)', 50)
+ON CONFLICT (code) DO NOTHING;
