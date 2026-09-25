@@ -1004,3 +1004,10 @@ renderAll = function(){
   _aeRenderAll();
   aeRender();
 };
+
+/* Este ficheiro e o ultimo da pagina e os pedidos nao esperam por ele: com o
+   cache desligado, o /api/bootstrap e o /api/gestao chegam muitas vezes antes
+   de estes embrulhos existirem, e a primeira - e unica - chamada passava ao
+   lado. Desenha-se aqui tambem; se os dados ainda nao chegaram, o aeRender
+   espera por eles. */
+aeRender();
