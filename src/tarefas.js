@@ -275,14 +275,15 @@ async function fechar(id, estado) {
        FROM tasks WHERE id = $1
      RETURNING id`, [id, estado]))[0];
   await query('INSERT INTO task_subjects (task_id, person_id) SELECT $2, person_id FROM task_subjects WHERE task_id = $1', [id, copia.id]);
-  /* A prova do pagamento fica com a vez que foi paga, nao com a rotina: o
-     comprovativo de setembro nao serve para outubro. A fatura de origem, essa,
-     fica nos dois. */
+  /* Os papeis do pagamento ficam com a vez que foi paga, nao com a rotina: a
+     fatura, o comprovativo e o recibo de setembro nao servem para outubro
+     (decisao do Marco, 25 set: cada pagamento tem os seus tres). O resto dos
+     anexos fica nos dois. */
   await query(
     `INSERT INTO task_documents (task_id, document_id, papel)
      SELECT $2, document_id, papel FROM task_documents WHERE task_id = $1`, [id, copia.id]);
   await query(
-    "DELETE FROM task_documents WHERE task_id = $1 AND papel IN ('comprovativo','recibo')", [id]);
+    "DELETE FROM task_documents WHERE task_id = $1 AND papel IN ('fatura','comprovativo','recibo')", [id]);
   await query(
     `INSERT INTO task_items (task_id, title, done, sort, completed_at)
      SELECT $2, title, done, sort, completed_at FROM task_items WHERE task_id = $1`, [id, copia.id]);
