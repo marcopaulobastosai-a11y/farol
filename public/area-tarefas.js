@@ -9,9 +9,13 @@
  * Todos os ecras das areas sao agora iguais: a mesma barra de filtros e os
  * mesmos cinco widgets, pela ordem que o Marco escolheu.
  *
- *   linha 1: Tarefas        | Despesas      (abertos)
- *   linha 2: Pagamentos     | Documentos    (recolhidos)
- *   linha 3: Projetos                       (aberto)
+ *   linha 1: Tarefas    | Pagamentos   (abertos)
+ *   linha 2: Eventos    | Documentos   (abertos)
+ *   linha 3: Despesas                  (recolhido)
+ *   linha 4: Projetos                  (recolhido)
+ *
+ * Os Eventos sao o que a area tem marcado no calendario - e um aniversario e
+ * um evento, nao uma tarefa: os lembretes aparecem aqui, nao nas Tarefas.
  *
  * Cada widget recolhe-se pelo cabecalho e, recolhido, continua a dizer o
  * essencial - a contagem e o dinheiro. E o que faz valer a pena recolher:
@@ -56,7 +60,7 @@ var AE_AREAS = [
 
 var AE_CSS =
   '.ae{margin-bottom:14px}' +
-  '.ae-filtros{padding:10px 14px;display:flex;flex-direction:column;gap:8px;margin-bottom:12px}' +
+  '.ae-filtros{padding:10px 14px;display:flex;flex-direction:column;gap:8px}' +
   '.ae-fl{display:flex;align-items:flex-start;gap:10px}' +
   '.ae-fl > .ae-lbl{flex:none;width:58px;padding-top:7px}' +
   '.ae-lbl{font-family:var(--mono);font-size:.625rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}' +
@@ -73,7 +77,7 @@ var AE_CSS =
   '.ae-seg button{border:0;background:none;font:inherit;font-size:.72rem;color:var(--muted);padding:3px 10px;border-radius:99px;cursor:pointer}' +
   '.ae-seg button.on{background:var(--surface);color:var(--ink);box-shadow:var(--shadow)}' +
   '.ae-seg.ae-off{opacity:.55}' +
-  '.ae-kpis{display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap}' +
+  '.ae-kpis{display:flex;gap:10px;flex-wrap:wrap}' +
   '.ae-kpi{flex:1;min-width:150px;display:flex;flex-direction:column;gap:1px;align-items:flex-start;text-align:left;padding:10px 14px;border:1px solid var(--line);background:var(--surface);border-radius:var(--radius);cursor:pointer;font:inherit}' +
   '.ae-kpi:hover{border-color:var(--accent)}' +
   '.ae-kpi b{font-family:var(--mono);font-size:1.25rem;font-weight:500;line-height:1.15;font-variant-numeric:tabular-nums;color:var(--ink)}' +
@@ -86,6 +90,7 @@ var AE_CSS =
   '.ae-wi.tarefas,.ae-wi.projetos{background:var(--accent-soft);color:var(--accent-ink)}' +
   '.ae-wi.pagamentos{background:var(--warn-soft);color:var(--warn)}' +
   '.ae-wi.despesas{background:var(--good-soft);color:var(--good)}' +
+  '.ae-wi.eventos{background:var(--c4-soft,var(--surface-2));color:var(--ink-2)}' +
   '.ae-wt{font-size:.9375rem;font-weight:600;color:var(--ink);letter-spacing:-.01em}' +
   '.ae-wn{font-family:var(--mono);font-size:.6875rem;color:var(--muted);background:var(--surface-2);border:1px solid var(--line-soft);border-radius:99px;padding:1px 7px}' +
   '.ae-ws{margin-left:auto;display:flex;align-items:center;gap:10px;font-family:var(--mono);font-size:.75rem;color:var(--ink-2);font-variant-numeric:tabular-nums}' +
@@ -94,7 +99,7 @@ var AE_CSS =
   '.ae-fechado .ae-seta{transform:rotate(-90deg)}' +
   '.ae-w .tf-rows{padding:0 10px}' +
   '.ae-w .tf-row{padding:8px 6px}' +
-  '.ae-cols{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;align-items:start;margin-bottom:14px}' +
+  '.ae-cols{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;align-items:start}' +
   '@media (max-width:980px){.ae-cols{grid-template-columns:minmax(0,1fr)}}' +
   '.ae{container-type:inline-size}' +
   '@container (max-width:860px){.ae-cols{grid-template-columns:minmax(0,1fr)}}' +
@@ -128,6 +133,11 @@ var AE_CSS =
   '.tf-row:hover .ae-apagar{opacity:1}' +
   '.ae-apagar:hover{color:var(--bad);background:var(--bad-soft)}' +
   '.ae-ficha{border-style:dashed;color:var(--accent-ink)}' +
+  '.ae-ev-dia{flex:none;width:46px;text-align:center;font-family:var(--mono);line-height:1.1;padding-top:1px}' +
+  '.ae-ev-dia b{display:block;font-size:1rem;font-weight:500;color:var(--ink)}' +
+  '.ae-ev-dia span{display:block;font-size:.625rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}' +
+  '.ae-ev-dia.hoje b,.ae-ev-dia.hoje span{color:var(--accent-ink)}' +
+  '.ae-ev-dia.passou b,.ae-ev-dia.passou span{color:var(--faint)}' +
   '.ae-topo{display:flex;justify-content:flex-end;margin-bottom:8px}';
 
 var AE = { filtro: {}, fechados: {}, despesas: null, aLerDespesas: false };
@@ -138,9 +148,9 @@ function aeGuardar(chave, v){ try { localStorage.setItem(chave, JSON.stringify(v
 AE.filtro = aeLerGuardado('aeFiltro');
 AE.fechados = aeLerGuardado('aeFechados');
 
-/* Os widgets da segunda linha comecam recolhidos: o que a area tem de mais
-   urgente esta na primeira. */
-var AE_INICIO_FECHADO = { pagamentos: true, documentos: true };
+/* O que a area tem por fazer e o que tem marcado ficam a vista; o dinheiro ja
+   gasto e os projetos abrem-se quando se quiserem. */
+var AE_INICIO_FECHADO = { despesas: true, projetos: true };
 
 function aeF(view){
   var f = AE.filtro[view];
@@ -182,6 +192,7 @@ var AE_I = {
   despesas: '<path d="M4 18V9"/><path d="M10 18V5"/><path d="M16 18v-6"/><path d="M3 21h18"/>',
   documentos: '<path d="M6 3h8l5 5v13H6z"/><path d="M14 3v5h5"/><path d="M9 13h6"/><path d="M9 17h4"/>',
   projetos: '<path d="M4 6h10"/><path d="M4 12h16"/><path d="M4 18h7"/><circle cx="18" cy="6" r="2"/><circle cx="15" cy="18" r="2"/>',
+  eventos: '<rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/>',
   seta: '<path d="M6 9l6 6 6-6"/>',
   ficheiro: '<path d="M6 3h9l4 4v14H6z"/><path d="M15 3v4h4"/>',
   dobrar: '<path d="M5 9l7-5 7 5"/><path d="M5 15l7 5 7-5"/>'
@@ -523,6 +534,127 @@ function aeLinhaDespesa(x){
   return r;
 }
 
+/* Um evento da area, ou um lembrete - que e a mesma coisa vista de outro lado:
+   uma data que aparece e nao se «faz». Os aniversarios sao disto. */
+function aeLinhaEvento(x){
+  var r = el('div', 'tf-row');
+  var hoje = tfISO(tfHoje());
+  var d = parseDay(x.day);
+  var cx = el('div', 'ae-ev-dia' + (x.day === hoje ? ' hoje' : (x.day < hoje ? ' passou' : '')));
+  cx.appendChild(el('b', null, String(d.getDate())));
+  cx.appendChild(el('span', null, MESES[d.getMonth()].slice(0, 3)));
+  r.appendChild(cx);
+  var corpo = el('div', 'tf-body');
+  corpo.appendChild(el('span', 'tf-t', x.title));
+  var m = el('div', 'tf-m');
+  if (x.at) m.appendChild(el('span', null, x.at));
+  if (x.detail) m.appendChild(el('span', null, x.detail));
+  if (x.tipo === 'lembrete') m.appendChild(el('span', null, 'lembrete'));
+  if (x.repete) m.appendChild(el('span', null, x.repete));
+  if (x.dono){
+    var dn = el('span'); var dot = el('i', 'dot'); dot.style.background = x.dono.color || 'var(--c1)';
+    dn.appendChild(dot); dn.appendChild(document.createTextNode(x.dono.name)); m.appendChild(dn);
+  }
+  if (d.getFullYear() !== tfHoje().getFullYear()) m.appendChild(el('span', null, String(d.getFullYear())));
+  if (m.childNodes.length) corpo.appendChild(m);
+  r.appendChild(corpo);
+  if (x.tarefa){
+    r.style.cursor = 'pointer';
+    r.addEventListener('click', function(){
+      if (typeof avAbrir === 'function') avAbrir({ origem: 'tarefa', id: x.tarefa, quando: x.day, detail: areaNome(x.context_id) });
+      else { show('tarefas'); tfAbrir(x.tarefa); }
+    });
+  }
+  if (x.apagavel){
+    var bx = el('button', 'ae-apagar');
+    bx.type = 'button';
+    bx.title = 'Apagar o evento';
+    bx.setAttribute('aria-label', 'Apagar «' + x.title + '»');
+    bx.innerHTML = aeIcone('<path d="M6 6l12 12"/><path d="M18 6L6 18"/>', 12);
+    bx.addEventListener('click', function(e){ e.stopPropagation(); aeApagarEvento(x); });
+    r.appendChild(bx);
+  }
+  return r;
+}
+
+function aeApagarEvento(x){
+  if (!window.confirm('Apagar «' + x.title + '»?\n\nSai do Hoje, da Agenda e desta área.')) return;
+  apiGestao('/api/gestao/eventos/' + x.id, { method: 'DELETE' }).then(function(){
+    D.events = (D.events || []).filter(function(e){ return e.id !== x.id; });
+    toast('Evento apagado.');
+    renderAll();
+  }).catch(function(e){ toast(e.message || 'Não deu para apagar o evento.'); });
+}
+
+/* Marcar uma data nesta area. Fica um evento como os outros: aparece no Hoje e
+   na Agenda, e aqui. */
+function aePopEvento(a, ancora, area, subs){
+  tfFecharPop();
+  var p = el('div', 'tf-pop');
+  p.style.width = '300px';
+
+  p.appendChild(el('label', null, 'O que é'));
+  var iT = el('input'); iT.type = 'text'; iT.placeholder = 'ex.: vistoria do gás';
+  p.appendChild(iT);
+
+  var lin = el('div', 'tf-linha');
+  lin.style.marginTop = '8px';
+  var cd = el('div'); cd.style.flex = '1';
+  cd.appendChild(el('label', null, 'Dia'));
+  var iD = el('input'); iD.type = 'date'; iD.value = tfISO(tfHoje());
+  cd.appendChild(iD);
+  var ch = el('div'); ch.style.width = '96px';
+  ch.appendChild(el('label', null, 'Hora'));
+  var iH = el('input'); iH.type = 'time';
+  ch.appendChild(iH);
+  lin.appendChild(cd); lin.appendChild(ch);
+  p.appendChild(lin);
+
+  var sC = null;
+  if (subs.length){
+    p.appendChild(el('label', null, 'Onde'));
+    sC = el('select');
+    var o0 = el('option', null, area.name + ' · geral'); o0.value = String(area.id);
+    sC.appendChild(o0);
+    subs.forEach(function(c){ var o = el('option', null, c.name); o.value = String(c.id); sC.appendChild(o); });
+    var f = aeF(a.view);
+    if (f.sub !== 'tudo' && f.sub !== 'geral') sC.value = f.sub;
+    p.appendChild(sC);
+  }
+
+  p.appendChild(el('label', null, 'Nota (opcional)'));
+  var iN = el('input'); iN.type = 'text'; iN.placeholder = 'onde, com quem, o que levar';
+  p.appendChild(iN);
+
+  var ac = el('div', 'tf-acoes');
+  var bC = el('button', 'btn small', 'Cancelar'); bC.type = 'button';
+  bC.addEventListener('click', tfFecharPop);
+  var bOk = el('button', 'btn small primary', 'Marcar'); bOk.type = 'button';
+  bOk.addEventListener('click', function(){
+    var titulo = iT.value.trim();
+    if (!titulo) return iT.focus();
+    if (!iD.value) return iD.focus();
+    apiGestao('/api/gestao/eventos', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: titulo, day: iD.value, at: iH.value || null,
+        detail: iN.value.trim() || null,
+        context_id: sC ? Number(sC.value) : area.id
+      })
+    }).then(function(ev){
+      tfFecharPop();
+      D.events = (D.events || []).concat([ev]);
+      D.events.sort(function(x, y){ return x.day < y.day ? -1 : (x.day > y.day ? 1 : 0); });
+      toast('Marcado para ' + tfDataTxt(ev.day, ev.at) + '.');
+      renderAll();
+    }).catch(function(e){ toast(e.message || 'Não deu para marcar.'); });
+  });
+  ac.appendChild(bC); ac.appendChild(bOk);
+  p.appendChild(ac);
+  tfPosicionar(p, ancora);
+  iT.focus();
+}
+
 function aeLinhaDoc(d, filhos){
   var r = el('div', 'ae-doc');
   var g = el('div');
@@ -691,6 +823,13 @@ function aeCorpoDocs(card, docs, area, grupos, havia){
   });
 }
 
+function aeCorpoEventos(card, lista, vazio){
+  if (!lista.length){ card.appendChild(el('p', 'ae-vazio', vazio)); return; }
+  var rows = el('div', 'tf-rows');
+  lista.forEach(function(x){ rows.appendChild(aeLinhaEvento(x)); });
+  card.appendChild(rows);
+}
+
 function aeCorpoProjetos(card, pjs, tudo){
   if (!pjs.length){ card.appendChild(el('p', 'ae-vazio', 'Nenhum projeto aberto com este filtro.')); return; }
   pjs.forEach(function(p){ card.appendChild(aeLinhaProjeto(p, tudo)); });
@@ -802,11 +941,43 @@ function aeRenderArea(a){
     return !t.due_on || aeNaJanela(j, t.due_on);
   }
 
-  var soltas = abertas.filter(passaTarefa);
-  var notas = soltas.filter(function(t){ return tfTipo(t) === 'nota'; }).length;
-  soltas = soltas.filter(function(t){ return tfTipo(t) !== 'nota'; });
+  var filtradas = abertas.filter(passaTarefa);
+  var notas = filtradas.filter(function(t){ return tfTipo(t) === 'nota'; }).length;
+  /* Um aniversario e um evento, nao uma tarefa: os lembretes saem daqui e vao
+     para o widget dos Eventos, que e onde uma data que so aparece pertence. */
+  var lembretes = filtradas.filter(function(t){ return tfTipo(t) === 'lembrete'; });
+  var soltas = filtradas.filter(function(t){ return tfTipo(t) === 'tarefa' || tfTipo(t) === 'pagamento'; });
   var pags = soltas.filter(function(t){ return tfTipo(t) === 'pagamento'; }).sort(aeOrdem);
-  var outras = soltas.filter(function(t){ return tfTipo(t) !== 'pagamento'; }).sort(aeOrdem);
+  var outras = soltas.filter(function(t){ return tfTipo(t) === 'tarefa'; }).sort(aeOrdem);
+
+  /* Os eventos da area e os lembretes, na mesma lista: sao a mesma coisa vista
+     de dois lados - uma data que chega. */
+  function passaDia(dia){
+    if (!j) return true;
+    if (j === 'atraso') return false;
+    return aeNaJanela(j, dia);
+  }
+  var eventos = [];
+  ((window.D && D.events) || []).forEach(function(e){
+    var meu = typeof e.id === 'number' && naArea(e);
+    /* Os aniversarios nao tem area: sao da Familia, e e la que aparecem. */
+    var aniv = a.view === 'familia' && e.calendar === 'aniversarios';
+    if ((!meu && !aniv) || !passaDia(e.day)) return;
+    eventos.push({ id: e.id, title: e.title, day: e.day, at: e.at, detail: e.detail,
+                   context_id: e.context_id, apagavel: typeof e.id === 'number' });
+  });
+  var semData = 0;
+  lembretes.forEach(function(t){
+    if (!t.due_on){ semData++; return; }
+    if (!passaDia(t.due_on)) return;
+    eventos.push({ title: t.title, day: t.due_on, at: t.due_time, tipo: 'lembrete',
+                   tarefa: t.id, context_id: t.context_id, dono: pessoa(t.owner_id),
+                   repete: t.repeat_rule ? (t.repeat_label || 'repete') : null });
+  });
+  eventos.sort(function(x, y){
+    if (x.day !== y.day) return x.day < y.day ? -1 : 1;
+    return String(x.at || '').localeCompare(String(y.at || ''));
+  });
 
   var despesas = despTodas.filter(function(x){
     if (!naAreaDesp(x)) return false;
@@ -901,13 +1072,15 @@ function aeRenderArea(a){
   kpis.appendChild(aeKpi(String(atrasadas), 'em atraso', atrasadas ? 'bad' : '', function(){ aePor(a, 'periodo', 'atraso'); }));
   kpis.appendChild(aeKpi(tfEuros(aPagar), 'a pagar', '', abrirW('pagamentos')));
   kpis.appendChild(aeKpi(tfEuros(gasto), 'já gasto', '', abrirW('despesas')));
+  kpis.appendChild(aeKpi(String(eventos.length), eventos.length === 1 ? 'marcado' : 'marcados', '', abrirW('eventos')));
   kpis.appendChild(aeKpi(String(docs.length), docs.length === 1 ? 'papel' : 'papéis', '', abrirW('documentos')));
   box.appendChild(kpis);
 
-  /* ---- os cinco widgets, pela ordem escolhida ---- */
+  /* ---- os seis widgets, pela ordem escolhida:
+         tarefas | pagamentos · eventos | documentos · despesas · projetos ---- */
   /* Uma lista vazia diz coisas diferentes conforme a area nao ter nada, ou
      ter e o filtro estar a tapar. */
-  var temTarefas = abertas.some(function(t){ return tfTipo(t) !== 'nota' && tfTipo(t) !== 'pagamento'; });
+  var temTarefas = abertas.some(function(t){ return tfTipo(t) === 'tarefa'; });
   var temPagamentos = abertas.some(function(t){ return tfTipo(t) === 'pagamento'; });
   var MAXT = 12, MAXD = 8;
 
@@ -926,20 +1099,7 @@ function aeRenderArea(a){
         function(){ show('tarefas'); });
     }
   }));
-  cols1.appendChild(aeWidget(a, 'despesas', {
-    titulo: 'Despesas',
-    n: despesas.length,
-    resumo: despesas.length ? tfEuros(gasto) : '',
-    corpo: function(card){
-      aeCorpoDespesas(card, despesas.slice(0, MAXD), despTodas.length > 0);
-      aeRodape(card, despesas.length > MAXD ? 'Ver as ' + despesas.length + ' nas Finanças' : 'Abrir as Finanças',
-        function(){ show('financas'); });
-    }
-  }));
-  box.appendChild(cols1);
-
-  var cols2 = el('div', 'ae-cols');
-  cols2.appendChild(aeWidget(a, 'pagamentos', {
+  cols1.appendChild(aeWidget(a, 'pagamentos', {
     titulo: 'Pagamentos',
     n: pags.length,
     resumo: pags.length ? tfEuros(aPagar) : '',
@@ -949,6 +1109,28 @@ function aeRenderArea(a){
         temPagamentos ? 'Nenhum pagamento no que está filtrado.' : 'Nenhum pagamento por fazer.');
       aeRodape(card, pags.length > MAXT ? 'Ver os ' + pags.length + ' nos Pagamentos' : 'Abrir os Pagamentos',
         function(){ show('tarefas'); });
+    }
+  }));
+  box.appendChild(cols1);
+
+  var cols2 = el('div', 'ae-cols');
+  cols2.appendChild(aeWidget(a, 'eventos', {
+    titulo: 'Eventos',
+    n: eventos.length,
+    resumo: (function(){
+      var h = tfISO(tfHoje());
+      var prox = eventos.filter(function(x){ return x.day >= h; })[0];
+      return prox ? (prox.day === h ? 'hoje' : tfDataCurta(prox.day)) : '';
+    })(),
+    corpo: function(card){
+      aeCorpoEventos(card, eventos.slice(0, MAXT), 'Nada marcado nesta área no que está filtrado.');
+      if (semData) card.appendChild(el('p', 'ae-nota', semData + (semData === 1 ? ' lembrete sem data' : ' lembretes sem data') + ', nas Tarefas › Lembretes.'));
+      var b = el('button', 'btn small ae-mais', 'Marcar uma data');
+      b.type = 'button';
+      b.style.marginLeft = '16px';
+      b.dataset.tfpop = '1';
+      b.addEventListener('click', function(){ aePopEvento(a, b, area, subs); });
+      card.appendChild(b);
     }
   }));
   cols2.appendChild(aeWidget(a, 'documentos', {
@@ -962,6 +1144,17 @@ function aeRenderArea(a){
     }
   }));
   box.appendChild(cols2);
+
+  box.appendChild(aeWidget(a, 'despesas', {
+    titulo: 'Despesas',
+    n: despesas.length,
+    resumo: despesas.length ? tfEuros(gasto) : '',
+    corpo: function(card){
+      aeCorpoDespesas(card, despesas.slice(0, MAXD), despTodas.length > 0);
+      aeRodape(card, despesas.length > MAXD ? 'Ver as ' + despesas.length + ' nas Finanças' : 'Abrir as Finanças',
+        function(){ show('financas'); });
+    }
+  }));
 
   box.appendChild(aeWidget(a, 'projetos', {
     titulo: 'Projetos',
