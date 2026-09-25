@@ -107,7 +107,7 @@ app.get('/api/bootstrap', async (_req, res) => {
                   (avatar IS NOT NULL) AS tem_avatar
              FROM people WHERE active ORDER BY sort`),
       all('SELECT code, name, color FROM calendars ORDER BY sort'),
-      all("SELECT id, to_char(day,'YYYY-MM-DD') AS day, at, title, calendar, detail FROM events ORDER BY day, at NULLS FIRST, id"),
+      all("SELECT id, to_char(day,'YYYY-MM-DD') AS day, at, title, calendar, detail, context_id FROM events ORDER BY day, at NULLS FIRST, id"),
       all(`SELECT * FROM (
              SELECT 'tarefa' AS origem, t.id,
                     t.title AS title,
@@ -604,6 +604,51 @@ app.delete('/api/gestao/projetos/:id', async (req, res) => {
   } catch (err) {
     console.error('[farol] DELETE projeto:', err.message);
     res.status(500).json({ error: 'Não foi possível apagar o projeto.' });
+  }
+});
+
+/* ---------------------------------------------------------------------------
+ * EVENTOS DE UMA AREA
+ *
+ * O que a area tem marcado no calendario: uma vistoria, uma reuniao, uma
+ * entrega. Sao eventos como os outros - aparecem no Hoje e na Agenda - so que
+ * sabem de que area sao.
+ * ------------------------------------------------------------------------- */
+
+const DIA_ISO = /^\d{4}-\d{2}-\d{2}$/;
+const HORA = /^\d{2}:\d{2}$/;
+
+app.post('/api/gestao/eventos', async (req, res) => {
+  const b = req.body || {};
+  const title = String(b.title || '').trim();
+  const day = String(b.day || '').trim();
+  if (!title) return res.status(400).json({ error: 'O evento tem de ter uma descrição.' });
+  if (!DIA_ISO.test(day)) return res.status(400).json({ error: 'O evento tem de ter uma data.' });
+  const at = String(b.at || '').trim();
+  if (at && !HORA.test(at)) return res.status(400).json({ error: 'A hora não está bem escrita.' });
+  try {
+    const rows = await all(
+      `INSERT INTO events (day, at, title, calendar, detail, context_id, origin, sort)
+       VALUES ($1,$2,$3,'areas',$4,$5,'real',0)
+       RETURNING id, to_char(day,'YYYY-MM-DD') AS day, at, title, calendar, detail, context_id`,
+      [day, limpar(at), title, limpar(String(b.detail || '').trim()), limpar(b.context_id)]);
+    res.status(201).json(rows[0]);
+  } catch (err) {
+    console.error('[farol] POST evento:', err.message);
+    res.status(500).json({ error: 'Não foi possível guardar o evento.' });
+  }
+});
+
+app.delete('/api/gestao/eventos/:id', async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'id inválido' });
+  try {
+    const rows = await all("DELETE FROM events WHERE id = $1 AND origin = 'real' RETURNING id", [id]);
+    if (!rows.length) return res.status(404).json({ error: 'Evento não encontrado.' });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[farol] DELETE evento:', err.message);
+    res.status(500).json({ error: 'Não foi possível apagar o evento.' });
   }
 });
 
