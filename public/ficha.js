@@ -850,11 +850,10 @@ function fiGravar(p, botao) {
 }
 
 /* ---------------- como se chega la ---------------- */
-/* Os cartoes da Familia sao desenhados pelo app.js; aqui so se escuta o
-   clique. Assim este modulo continua a nao ter de mexer naquele ficheiro. */
+/* Qualquer coisa com data-ficha abre a ficha: a fila de pessoas ao lado do
+   titulo da Familia, uma linha de tarefa, um nome numa lista. Assim este
+   modulo nao tem de saber quem o chama. */
 document.addEventListener('click', function (e) {
-  var alvo = e.target.closest && e.target.closest('#view-familia .person[data-id]');
-  if (alvo) { fiAbrir(alvo.dataset.id); return; }
   var linha = e.target.closest && e.target.closest('[data-ficha]');
   if (linha) fiAbrir(linha.dataset.ficha);
 });
