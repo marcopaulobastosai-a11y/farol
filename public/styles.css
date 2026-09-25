@@ -318,12 +318,21 @@ td.n{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:.75rem;
 .check .meta{margin-left:auto;flex:none;padding-left:8px;}
 
 /* people */
-.people{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;}
-.person{background:var(--surface-2);border:1px solid var(--line-soft);border-radius:var(--radius);padding:12px;}
-.person .avatar{width:34px;height:34px;font-size:.6875rem;margin-bottom:8px;}
-.person b{display:block;font-weight:600;font-size:.875rem;}
-.person .role{font-size:.75rem;color:var(--faint);}
-.person .next{margin-top:8px;font-size:.75rem;color:var(--muted);border-top:1px dashed var(--line);padding-top:7px;}
+/* A casa inteira numa linha, ao lado do titulo da Familia. Rola de lado
+   quando nao cabe, para nunca crescer para baixo. */
+.fam-fila{display:flex;align-items:center;gap:6px;overflow-x:auto;scrollbar-width:none;
+  /* Fica na linha do titulo e encolhe ate rolar de lado, em vez de empurrar
+     a topbar para baixo. */
+  flex:1 1 220px;min-width:0;padding-bottom:2px;margin-bottom:2px;}
+.fam-fila::-webkit-scrollbar{display:none;}
+.fam-p{display:inline-flex;align-items:center;gap:7px;flex:0 0 auto;white-space:nowrap;
+  background:var(--surface);border:1px solid var(--line-soft);border-radius:999px;
+  padding:3px 11px 3px 3px;cursor:pointer;
+  transition:border-color .15s ease,box-shadow .15s ease;}
+.fam-p:hover,.fam-p:focus-visible{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft);outline:none;}
+.fam-p .avatar{width:26px;height:26px;font-size:.625rem;flex:0 0 auto;overflow:hidden;padding:0;}
+.fam-p .avatar img{width:100%;height:100%;object-fit:cover;display:block;}
+.fam-p b{font-weight:500;font-size:.8125rem;color:var(--ink);}
 
 /* week grid */
 .week{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px;}
@@ -530,10 +539,6 @@ td.vazio{padding:12px 6px;text-align:left;}
 
 /* Os cartoes do agregado abrem a ficha da pessoa: se clicam, tem de parecer
    que clicam - e a fotografia, quando existe, vale mais do que as iniciais. */
-.person{cursor:pointer;transition:border-color .15s ease,box-shadow .15s ease;}
-.person:hover,.person:focus-visible{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft);outline:none;}
-.person .avatar{overflow:hidden;padding:0;}
-.person .avatar img{width:100%;height:100%;object-fit:cover;display:block;}
 
 /* Uma bolha sem numero nao e uma bolha: e uma mancha. */
 .badge:empty{display:none;}
