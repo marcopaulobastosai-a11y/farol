@@ -385,31 +385,30 @@ function renderLoad(){
 
 /* ---------------- FAMÍLIA ---------------- */
 function renderFamilia(){
-  var box = $('people');
-  clear(box);
-  D.people.forEach(function(p){
-    /* O cartao passa a abrir a ficha: quem clica num nome quer ver a pessoa,
-       nao ficar a olhar para as iniciais. O modulo ficha.js escuta o clique
-       por este data-id. */
-    var d = el('div', 'person');
-    d.dataset.id = p.id;
-    d.tabIndex = 0;
-    d.setAttribute('role', 'button');
-    d.onkeydown = function(e){ if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); d.click(); } };
-    var av = el('div', 'avatar', p.tem_avatar ? '' : p.initials);
-    if (p.tem_avatar) {
-      var img = document.createElement('img');
-      img.src = '/api/pessoas/' + p.id + '/avatar';
-      img.alt = p.name || '';
-      av.appendChild(img);
-    }
-    d.appendChild(av);
-    d.appendChild(el('b', null, p.name));
-    d.appendChild(el('span', 'role', p.role || ''));
-    if (p.note) d.appendChild(el('div', 'next', p.note));
-    box.appendChild(d);
-  });
-  $('peopleCount').textContent = D.people.length + ' pessoas';
+  /* Oito cartoes com iniciais, papel e nota ocupavam meia pagina para dizer
+     quem mora ca. Ficam oito nomes seguidos ao lado do titulo; o que cada um
+     tem para fazer esta na ficha dele, a um clique. */
+  var box = $('famFila');
+  if (box){
+    clear(box);
+    D.people.forEach(function(p){
+      var d = el('button', 'fam-p');
+      d.type = 'button';
+      /* O ficha.js escuta este data-ficha em qualquer sitio da pagina. */
+      d.dataset.ficha = p.id;
+      d.title = [p.name, p.role].filter(Boolean).join(' · ');
+      var av = el('span', 'avatar', p.tem_avatar ? '' : p.initials);
+      if (p.tem_avatar) {
+        var img = document.createElement('img');
+        img.src = '/api/pessoas/' + p.id + '/avatar';
+        img.alt = '';
+        av.appendChild(img);
+      }
+      d.appendChild(av);
+      d.appendChild(el('b', null, p.name));
+      box.appendChild(d);
+    });
+  }
 
   var grid = $('weekGrid');
   clear(grid);
@@ -940,6 +939,10 @@ function show(view){
   for (var j = 0; j < btns.length; j++){
     btns[j].classList.toggle('is-active', btns[j].dataset.view === view);
   }
+  /* A fila das pessoas vive na topbar e e so da Familia. */
+  var fila = $('famFila');
+  if (fila) fila.hidden = view !== 'familia';
+
   var t = TITLES[view];
   if (t){
     $('pageTitle').textContent = t[0];
