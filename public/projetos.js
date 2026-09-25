@@ -1116,6 +1116,20 @@ function pjPainelTarefa(box){
   /* Os documentos de uma tarefa sao os mesmos vistos de qualquer lado: o
      bloco vem do anexos.js, com o mesmo enviar e o mesmo ligar ao arquivo. */
   pjSeccao(box, 'Documentos').appendChild(axBloco(t));
+
+  /* Apagar sem ter de ir as Tarefas: a mesma pergunta e o mesmo caminho. */
+  if (typeof tfApagarJa === 'function'){
+    var bx = el('button', 'btn danger', tipo === 'pagamento' ? 'Apagar pagamento' : 'Apagar tarefa');
+    bx.type = 'button';
+    bx.style.marginTop = '14px';
+    bx.addEventListener('click', function(){
+      tfApagarJa(t, function(){
+        PJ.sel = pr ? { tipo: 'projeto', id: pr.id } : null;
+        if (PJ.aberto) pjCarregarDetalhe();
+      });
+    });
+    box.appendChild(bx);
+  }
 }
 
 /* ------------------------------------------------------------------ *
