@@ -615,6 +615,38 @@ function renderDocsFiltro(){
   }
 }
 
+/* Os papeis de um pagamento sao um conjunto: a declaracao ou fatura, o
+   comprovativo e o recibo. Na lista dos Documentos aparecem numa linha so, a
+   da fatura, com os outros pendurados por baixo - soltos perdiam o contexto
+   (um comprovativo de 14 euros nao diz a que se refere). Sem fatura, a
+   cabeca e o comprovativo. A ligacao vem de d.tarefas (/api/bootstrap). */
+var DOCS_ORDEM_PAPEL = { fatura: 0, comprovativo: 1, recibo: 2 };
+function docsConjuntos(){
+  var porTarefa = {};
+  (D.documents || []).forEach(function(d){
+    (d.tarefas || []).forEach(function(u){
+      if (!u.task_id || !(u.papel in DOCS_ORDEM_PAPEL)) return;
+      (porTarefa[u.task_id] = porTarefa[u.task_id] || { u: u, docs: [] }).docs.push({ d: d, papel: u.papel });
+    });
+  });
+  var filhos = {}, cabecas = {}, pendurado = {};
+  Object.keys(porTarefa).forEach(function(k){
+    var g = porTarefa[k];
+    if (g.docs.length < 2) return;
+    g.docs.sort(function(a, b){ return DOCS_ORDEM_PAPEL[a.papel] - DOCS_ORDEM_PAPEL[b.papel]; });
+    var cab = g.docs[0].d;
+    cabecas[cab.id] = true;
+    g.docs.slice(1).forEach(function(x){
+      if (x.d.id === cab.id) return;
+      (filhos[cab.id] = filhos[cab.id] || []).push({ d: x.d, papel: x.papel, u: g.u });
+      (pendurado[x.d.id] = pendurado[x.d.id] || []).push(cab.id);
+    });
+  });
+  /* Um documento que e cabeca de algum conjunto nunca se esconde. */
+  Object.keys(cabecas).forEach(function(id){ delete pendurado[id]; });
+  return { filhos: filhos, pendurado: pendurado };
+}
+
 function renderDocumentos(){
   var tb = $('documents');
   clear(tb);
@@ -623,8 +655,15 @@ function renderDocumentos(){
   var porLer = 0;
   D.documents.forEach(function(d){ if (!d.lido) porLer++; });
 
+  var passa = function(d){ return !DOCS_PESSOA || d.person_id === DOCS_PESSOA; };
+  var CJ = docsConjuntos();
+  var visivel = {};
+  D.documents.forEach(function(d){ if (passa(d)) visivel[d.id] = true; });
   var lista = D.documents.filter(function(d){
-    return !DOCS_PESSOA || d.person_id === DOCS_PESSOA;
+    if (!passa(d)) return false;
+    /* Pendurado numa fatura que esta a vista: aparece dentro dela. */
+    var cabs = CJ.pendurado[d.id];
+    return !(cabs && cabs.some(function(c){ return visivel[c]; }));
   });
 
   lista.forEach(function(d){
@@ -680,6 +719,30 @@ function renderDocumentos(){
       var sub = el('div', null, onde);
       sub.style.cssText = 'font-size:.6875rem;color:var(--muted);margin-top:2px';
       tdn.appendChild(sub);
+    }
+    /* Os outros papeis do mesmo pagamento, por baixo da fatura. */
+    (CJ.filhos[d.id] || []).forEach(function(f){
+      var linha = el('div');
+      linha.style.cssText = 'font-size:.75rem;margin-top:3px;color:var(--ink-2);display:flex;gap:6px;align-items:baseline;flex-wrap:wrap';
+      var rot = el('span', null, '\u21b3 ' + f.papel);
+      rot.style.color = 'var(--muted)';
+      linha.appendChild(rot);
+      var ff = (f.d.ficheiros && f.d.ficheiros.length) ? f.d.ficheiros[0] : f.d.inbox_id;
+      var nm = el(ff ? 'a' : 'span', null, f.d.name);
+      if (ff){ nm.href = '/api/inbox/' + ff + '/ficheiro'; nm.target = '_blank'; nm.rel = 'noopener'; }
+      linha.appendChild(nm);
+      var ed = el('button', null, 'editar');
+      ed.type = 'button';
+      ed.style.cssText = 'border:0;background:none;padding:0;font:inherit;font-size:.6875rem;color:var(--faint);cursor:pointer';
+      ed.addEventListener('click', function(){ editarDocumento(f.d); });
+      linha.appendChild(ed);
+      tdn.appendChild(linha);
+    });
+    var umPag = (CJ.filhos[d.id] || [])[0];
+    if (umPag){
+      var pg = el('div', null, 'pagamento \u00ab' + umPag.u.title + '\u00bb' + (umPag.u.paid_on ? ', pago a ' + dataCurta(umPag.u.paid_on) : ''));
+      pg.style.cssText = 'font-size:.6875rem;color:var(--accent-ink);margin-top:3px';
+      tdn.appendChild(pg);
     }
     tr.appendChild(tdn);
 
