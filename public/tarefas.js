@@ -828,9 +828,24 @@ function tfCaixa(t, onclick){
 }
 
 /* O estado vive na linha: ve-se sem abrir nada e muda-se ali mesmo. */
+/* O nome do estado muda com o tipo: um pagamento nao fica «concluido», fica
+   pago - e dar por pago pede a janela do dinheiro, nao um clique seco. */
+function tfNomeEstado(t, estado){
+  var e = tfEstado(estado);
+  if (tfTipo(t) === 'pagamento' && estado === 'concluida') return 'Pago';
+  return e[1];
+}
+
+function tfEstadoEscolhido(t, estado, ancora){
+  if (tfTipo(t) === 'pagamento' && estado === 'concluida' && !tfFechada(t)){
+    return tfPopPagar(tfPorId(t.id) || t, ancora || $('tfLista') || document.body);
+  }
+  return tfMudarEstado(t, estado);
+}
+
 function tfEtiquetaEstado(t){
   var e = tfEstado(t.status);
-  var b = el('button', 'tf-est' + (e[2] ? ' ' + e[2] : ''), e[1]);
+  var b = el('button', 'tf-est' + (e[2] ? ' ' + e[2] : ''), tfNomeEstado(t, t.status));
   b.type = 'button';
   b.dataset.tfpop = '1';
   b.title = 'Mudar o estado';
@@ -838,7 +853,7 @@ function tfEtiquetaEstado(t){
     ev.stopPropagation();
     var ops = TF_ESTADOS.concat(TF_ESTADOS_FIM).filter(function(x){ return x[0] !== t.status; })
       .map(function(x){
-        return [x[1], function(){ tfMudarEstado(t, x[0]); }];
+        return [tfNomeEstado(t, x[0]), function(){ tfEstadoEscolhido(t, x[0], b); }];
       });
     tfMenu(b, ops);
   });
@@ -866,7 +881,7 @@ function tfLinha(t, sub){
   }
   (t.subjects || []).forEach(function(pid){ var p = pessoa(pid); if (p) m.appendChild(el('span', null, '→ ' + p.name)); });
   /* Um lembrete nao tem ciclo de vida: ou ja apareceu ou ainda vem. */
-  if (tfTipo(t) === 'tarefa') m.appendChild(tfEtiquetaEstado(t));
+  if (tfTipo(t) === 'tarefa' || tfTipo(t) === 'pagamento') m.appendChild(tfEtiquetaEstado(t));
   if (t.tipo === 'pagamento' && t.payee) m.appendChild(el('span', null, t.payee));
   if (tfSemProva(t)) m.appendChild(pill('falta comprovativo', 'warn'));
   var pr = projeto(t.project_id);
@@ -1157,7 +1172,7 @@ function tfRenderDetalhe(base){
   });
   campo('Tipo', sTipo);
 
-  if (!fechada && tfTipo(t) === 'tarefa'){
+  if (!fechada && (tfTipo(t) === 'tarefa' || tfTipo(t) === 'pagamento')){
     var sEst = el('select');
     TF_ESTADOS.forEach(function(e){ sEst.appendChild(new Option(e[1], e[0])); });
     sEst.value = t.status;

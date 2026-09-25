@@ -197,6 +197,9 @@ function aeLinha(t){
     d.appendChild(dot); d.appendChild(document.createTextNode(dono.name)); m.appendChild(d);
   }
   (t.subjects || []).forEach(function(pid){ var p = pessoa(pid); if (p) m.appendChild(el('span', null, '→ ' + p.name)); });
+  /* O estado ve-se e muda-se aqui, sem sair da area: e a mesma etiqueta da
+     pagina das Tarefas, e num pagamento «Pago» abre a janela do dinheiro. */
+  if (tfTipo(t) === 'tarefa' || tfTipo(t) === 'pagamento') m.appendChild(tfEtiquetaEstado(t));
   if (tfTipo(t) === 'pagamento' && t.payee) m.appendChild(el('span', null, t.payee));
   if (tfTipo(t) === 'lembrete') m.appendChild(el('span', null, 'lembrete'));
   if (t.repeat_rule){
