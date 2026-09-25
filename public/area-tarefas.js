@@ -255,7 +255,7 @@ function aeCartaoTarefas(titulo, lista, grupos, area, vazio){
   return card;
 }
 
-function aeLinhaDoc(d){
+function aeLinhaDoc(d, filhos){
   var r = el('div', 'ae-doc');
   var g = el('div');
   var url = aeFicheiro(d);
@@ -271,6 +271,16 @@ function aeLinhaDoc(d){
     g.appendChild(el('small', 'uso', '↳ ' + (usos[0].papel && usos[0].papel !== 'anexo' ? usos[0].papel + ' de ' : '') +
       '«' + usos[0].title + '»' + (usos.length > 1 ? ' e mais ' + (usos.length - 1) : '')));
   }
+  /* Comprovativo e recibo do mesmo pagamento, pendurados na fatura. */
+  (filhos || []).forEach(function(f){
+    g.appendChild(document.createElement('br'));
+    var url2 = aeFicheiro(f.d);
+    var sm = el('small', null, '↳ ' + f.papel + ': ');
+    var n2 = el(url2 ? 'a' : 'span', null, f.d.name);
+    if (url2){ n2.href = url2; n2.target = '_blank'; n2.rel = 'noopener'; n2.style.color = 'var(--accent-ink)'; }
+    sm.appendChild(n2);
+    g.appendChild(sm);
+  });
   r.appendChild(g);
   var dt = d.valid_on || d.issued_on;
   if (dt) r.appendChild(el('span', 'mono', (d.valid_on ? 'até ' : '') + (typeof tfDataCurta === 'function' ? tfDataCurta(dt) : dt)));
@@ -287,6 +297,15 @@ function aeCartaoDocs(docs, area, grupos){
   card.appendChild(h);
   if (!window.D || !D.documents){ card.appendChild(el('p', 'ae-vazio', 'A ler os documentos…')); return card; }
   if (!docs.length){ card.appendChild(el('p', 'ae-vazio', 'Nenhum documento arrumado aqui.')); return card; }
+  /* Os papeis de um pagamento contam como um: o comprovativo e o recibo vao
+     dentro da fatura (docsConjuntos, no app.js). */
+  var CJ = typeof docsConjuntos === 'function' ? docsConjuntos() : { filhos: {}, pendurado: {} };
+  var aqui = {};
+  docs.forEach(function(d){ aqui[d.id] = true; });
+  docs = docs.filter(function(d){
+    var cabs = CJ.pendurado[d.id];
+    return !(cabs && cabs.some(function(c){ return aqui[c]; }));
+  });
   var ordem = grupos.filter(function(c){ return c.id !== area.id; })
     .concat(grupos.filter(function(c){ return c.id === area.id; }));
   var gs = ordem.map(function(c){ return { c: c, lista: docs.filter(function(d){ return d.context_id === c.id; }) }; })
@@ -300,7 +319,7 @@ function aeCartaoDocs(docs, area, grupos){
       h4.appendChild(el('span', null, String(g.lista.length)));
       gr.appendChild(h4);
     }
-    g.lista.slice(0, MAX).forEach(function(d){ gr.appendChild(aeLinhaDoc(d)); });
+    g.lista.slice(0, MAX).forEach(function(d){ gr.appendChild(aeLinhaDoc(d, CJ.filhos[d.id])); });
     if (g.lista.length > MAX){
       cortados += g.lista.length - MAX;
       gr.appendChild(el('p', 'ae-nota', 'e mais ' + (g.lista.length - MAX) + '.'));
