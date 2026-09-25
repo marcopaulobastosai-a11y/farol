@@ -1360,13 +1360,35 @@ function tfDuplicar(t){
     .catch(function(){ toast('Não deu para duplicar.'); });
 }
 
-function tfApagar(t){
+/* Apagar, venha de onde vier: a lista das Tarefas, a janela do aviso (Hoje,
+   Agenda, ecras das areas) ou o painel dos Projetos. A pergunta diz o que se
+   perde: numa rotina vai a rotina inteira - as vezes ja pagas ficam no
+   historico, e para saltar so esta vez ha o «Não farei». Os documentos
+   agarrados nao se apagam: soltam-se e ficam no arquivo. */
+function tfApagarPergunta(t){
   var subs = (G.tasks || []).filter(function(x){ return x.parent_id === t.id; }).length;
-  if (!window.confirm('Apagar «' + t.title + '»' + (subs ? ' e as ' + subs + ' subtarefas' : '') + '? Não dá para desfazer.')) return;
-  apiGestao('/api/gestao/tarefas/' + t.id, { method: 'DELETE' })
-    .then(function(d){ G = d; tfFecharDetalhe(); renderGestao(); toast('Tarefa apagada.'); })
-    .catch(function(){ toast('Não deu para apagar.'); });
+  var oque = tfTipo(t) === 'pagamento' ? 'o pagamento' : (tfTipo(t) === 'lembrete' ? 'o lembrete' : (tfTipo(t) === 'nota' ? 'a nota' : 'a tarefa'));
+  var txt = 'Apagar ' + oque + ' «' + t.title + '»' + (subs ? ' e as ' + subs + ' subtarefas' : '') + '?';
+  if (t.repeat_rule) txt += '\n\nÉ uma rotina (' + (t.repeat_label || 'repete') + '): apaga-se a rotina inteira, não só esta vez. ' +
+    'As vezes já feitas ficam no histórico. Para saltar só esta vez, usa «Não farei».';
+  if ((t.papeis || []).length) txt += '\n\nOs documentos agarrados ficam nos Documentos.';
+  txt += '\n\nNão dá para desfazer.';
+  return txt;
 }
+function tfApagarJa(t, depois){
+  if (!window.confirm(tfApagarPergunta(t))) return;
+  var oque = tfTipo(t) === 'pagamento' ? 'Pagamento apagado.' : 'Tarefa apagada.';
+  apiGestao('/api/gestao/tarefas/' + t.id, { method: 'DELETE' })
+    .then(function(d){
+      G = d;
+      if (TF.detalhe && TF.detalhe.id === t.id) tfFecharDetalhe();
+      if (depois) depois();
+      renderGestao();
+      toast(oque);
+    })
+    .catch(function(e){ toast((e && e.message) || 'Não deu para apagar.'); });
+}
+function tfApagar(t){ tfApagarJa(t); }
 
 /* ------------------------------------------------------------------ *
  * janelinhas: menu e datas
