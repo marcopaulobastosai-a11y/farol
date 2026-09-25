@@ -1696,10 +1696,16 @@ function tfPopPagar(t, ancora){
   linha.appendChild(iV); linha.appendChild(sM);
   p.appendChild(linha);
 
+  /* Tres papeis por pagamento, cada um no seu campo: o que se pagou (a
+     declaracao ou a fatura), a prova de que saiu o dinheiro (comprovativo) e
+     a quitacao (recibo). Nos Documentos os tres ficam juntos, pendurados na
+     fatura. Antes havia «Recibo ou fatura» num campo so, e uma fatura
+     escolhida la ficava gravada como recibo. */
+  var fat = tfEscolherDoc('Declaração ou fatura', tfPapel(t, 'fatura'), t);
   var comp = tfEscolherDoc('Comprovativo de pagamento', tfPapel(t, 'comprovativo'), t);
-  var rec = tfEscolherDoc('Recibo ou fatura', tfPapel(t, 'recibo').concat(tfPapel(t, 'fatura')), t);
-  p.appendChild(comp); p.appendChild(rec);
-  var ajuda = el('div', null, 'Sem eles o pagamento fica pago na mesma, marcado como «falta comprovativo». Os ficheiros que chegam pela Caixa de entrada aparecem aqui depois de catalogados.');
+  var rec = tfEscolherDoc('Recibo', tfPapel(t, 'recibo'), t);
+  p.appendChild(fat); p.appendChild(comp); p.appendChild(rec);
+  var ajuda = el('div', null, 'Sem comprovativo nem recibo o pagamento fica pago na mesma, marcado como «falta comprovativo». Os ficheiros que chegam pela Caixa de entrada aparecem aqui depois de catalogados.');
   ajuda.style.cssText = 'font-size:.7rem;color:var(--muted);margin-top:6px;line-height:1.45';
   p.appendChild(ajuda);
 
@@ -1716,8 +1722,9 @@ function tfPopPagar(t, ancora){
   var bOk = el('button', 'btn small primary', 'Dar por pago'); bOk.type = 'button';
   bOk.addEventListener('click', function(){
     var docs = [];
-    if (comp.valor()) docs.push({ id: comp.valor(), papel: 'comprovativo' });
-    if (rec.valor()) docs.push({ id: rec.valor(), papel: 'recibo' });
+    if (fat.valor()) docs.push({ id: fat.valor(), papel: 'fatura' });
+    if (comp.valor() && comp.valor() !== fat.valor()) docs.push({ id: comp.valor(), papel: 'comprovativo' });
+    if (rec.valor() && rec.valor() !== fat.valor() && rec.valor() !== comp.valor()) docs.push({ id: rec.valor(), papel: 'recibo' });
     var rotina = Boolean(t.repeat_rule);
     tfFecharPop();
     apiGestao('/api/tarefas/' + t.id + '/pagar', {
@@ -1739,7 +1746,7 @@ function tfPopPagar(t, ancora){
       G = d;
       renderGestao();
       var n = tfPorId(t.id);
-      var falta = !docs.length ? ' Falta o comprovativo.' : '';
+      var falta = !docs.some(function(x){ return x.papel !== 'fatura'; }) ? ' Falta o comprovativo.' : '';
       toast(rotina && n && !tfFechada(n)
         ? 'Pago. Próximo: ' + tfDataTxt(n.due_on) + '.' + falta
         : 'Pagamento registado.' + falta);
