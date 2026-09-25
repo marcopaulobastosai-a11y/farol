@@ -4,19 +4,35 @@
  * A regra do farol-organizacao.md: a coisa fica na area, o trabalho sobre a
  * coisa fica no projeto. Faltava a outra metade - a area mostrar o que e
  * dela. As tarefas soltas (sem projeto) sao a operacao corrente: o ordenado
- * da loja, a renda da casa, o IUC. Viviam so na lista das Tarefas, e os ecras
- * das areas diziam «ainda nao ha nada aqui» por cima de dezenas delas.
+ * da loja, a renda da casa, o IUC.
  *
- * Cada ecra de area passa a ter:
- *   - no topo, um filtro por sub-area (Tudo, Cupula Arejada, Falua
- *     Vibrante...) e os numeros do que esta escolhido;
- *   - «Pagamentos» e «Tarefas»: as tarefas abertas que NAO pertencem a
- *     projeto nenhum, com os documentos agarrados a cada uma a vista. As de
- *     projeto vivem no projeto e nao se repetem aqui;
- *   - «Projetos»: uma linha por projeto aberto, que leva a ele;
- *   - «Documentos»: os papeis arrumados na area, por sub-area, e os que sao
- *     da area sem sub-area em «geral».
- * Na vista de tudo, cada cartao vem partido por sub-area.
+ * Todos os ecras das areas sao agora iguais: a mesma barra de filtros e os
+ * mesmos cinco widgets, pela ordem que o Marco escolheu.
+ *
+ *   linha 1: Tarefas        | Despesas      (abertos)
+ *   linha 2: Pagamentos     | Documentos    (recolhidos)
+ *   linha 3: Projetos                       (aberto)
+ *
+ * Cada widget recolhe-se pelo cabecalho e, recolhido, continua a dizer o
+ * essencial - a contagem e o dinheiro. E o que faz valer a pena recolher:
+ * perde-se o detalhe, nao se perde a informacao.
+ *
+ * Os tres filtros mandam no ecra inteiro - nos cinco widgets e nos numeros
+ * do topo ao mesmo tempo:
+ *   - Onde:   a sub-area (Tudo, Cupula Arejada, Falua Vibrante...);
+ *   - Quem:   uma pessoa do agregado, e se conta como dono, por causa de
+ *             quem, ou ambos;
+ *   - Quando: em atraso, 7/30/90 dias, 12 meses, tudo, ou um mes e ano
+ *             escolhidos a mao.
+ * A escolha fica guardada por area, como ja acontecia com a sub-area.
+ *
+ * O que o periodo faz a cada widget:
+ *   - tarefas e pagamentos: a data de entrega; o que nao tem data aparece
+ *     sempre, porque nao tem data para cair fora;
+ *   - despesas: o dia em que o dinheiro saiu;
+ *   - documentos: a data do papel OU a validade - basta uma das duas;
+ *   - projetos: nao sao cortados pelo periodo (duram meses); so o «em
+ *     atraso» os filtra.
  *
  * Pagar a partir daqui abre a janela do pagamento aqui mesmo (tfPopPagar),
  * sem saltar para as Tarefas.
@@ -40,29 +56,61 @@ var AE_AREAS = [
 
 var AE_CSS =
   '.ae{margin-bottom:14px}' +
-  '.ae-top{display:flex;align-items:center;gap:12px 16px;flex-wrap:wrap}' +
-  '.ae-top .tabs{margin-bottom:0;flex-wrap:wrap}' +
-  '.ae-top .tabs button{display:inline-flex;align-items:center;gap:6px}' +
-  '.ae-top .tabs button small{font-family:var(--mono);font-size:.68rem;color:var(--faint)}' +
-  '.ae-top .tabs button small.bad{color:var(--bad)}' +
-  '.ae-kpi{display:flex;flex-wrap:wrap;gap:6px 18px;font-size:.78rem;color:var(--muted)}' +
-  '.ae-kpi b{font-family:var(--mono);font-weight:500;color:var(--ink);font-variant-numeric:tabular-nums}' +
+  '.ae-filtros{padding:10px 14px;display:flex;flex-direction:column;gap:8px;margin-bottom:12px}' +
+  '.ae-fl{display:flex;align-items:flex-start;gap:10px}' +
+  '.ae-fl > .ae-lbl{flex:none;width:58px;padding-top:7px}' +
+  '.ae-lbl{font-family:var(--mono);font-size:.625rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}' +
+  '.ae-chips{display:flex;flex-wrap:wrap;gap:6px;flex:1;min-width:0}' +
+  '.ae-chip{border:1px solid var(--line);background:var(--surface);color:var(--ink-2);border-radius:99px;padding:4px 11px;font:inherit;font-size:.78rem;cursor:pointer;display:inline-flex;align-items:center;gap:6px;min-height:30px}' +
+  '.ae-chip:hover{border-color:var(--accent);color:var(--accent-ink)}' +
+  '.ae-chip.on{background:var(--accent);border-color:var(--accent);color:#fff}' +
+  ':root[data-theme="dark"] .ae-chip.on,:root:not([data-theme="light"]) .ae-chip.on{color:#06181A}' +
+  '.ae-chip i.dot{width:7px;height:7px;border-radius:50%;flex:none}' +
+  '.ae-chip small{font-family:var(--mono);font-size:.68rem;opacity:.75}' +
+  '.ae-chip small.bad{color:var(--bad);opacity:1}' +
+  '.ae-chip.on small.bad{color:inherit}' +
+  '.ae-seg{display:flex;gap:2px;background:var(--surface-2);border:1px solid var(--line);border-radius:99px;padding:2px;margin-right:4px}' +
+  '.ae-seg button{border:0;background:none;font:inherit;font-size:.72rem;color:var(--muted);padding:3px 10px;border-radius:99px;cursor:pointer}' +
+  '.ae-seg button.on{background:var(--surface);color:var(--ink);box-shadow:var(--shadow)}' +
+  '.ae-seg.ae-off{opacity:.55}' +
+  '.ae-kpis{display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap}' +
+  '.ae-kpi{flex:1;min-width:150px;display:flex;flex-direction:column;gap:1px;align-items:flex-start;text-align:left;padding:10px 14px;border:1px solid var(--line);background:var(--surface);border-radius:var(--radius);cursor:pointer;font:inherit}' +
+  '.ae-kpi:hover{border-color:var(--accent)}' +
+  '.ae-kpi b{font-family:var(--mono);font-size:1.25rem;font-weight:500;line-height:1.15;font-variant-numeric:tabular-nums;color:var(--ink)}' +
   '.ae-kpi b.bad{color:var(--bad)}' +
-  '.ae-cols{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;align-items:start}' +
+  '.ae-kpi span{font-size:.75rem;color:var(--muted)}' +
+  '.ae-w{overflow:hidden}' +
+  '.ae-wh{display:flex;align-items:center;gap:10px;width:100%;text-align:left;border:0;background:none;padding:13px 16px;cursor:pointer;font:inherit;border-radius:var(--radius)}' +
+  '.ae-wh:hover{background:var(--surface-2)}' +
+  '.ae-wi{flex:none;width:28px;height:28px;border-radius:8px;display:flex;align-items:center;justify-content:center;background:var(--surface-2);color:var(--ink-2)}' +
+  '.ae-wi.tarefas,.ae-wi.projetos{background:var(--accent-soft);color:var(--accent-ink)}' +
+  '.ae-wi.pagamentos{background:var(--warn-soft);color:var(--warn)}' +
+  '.ae-wi.despesas{background:var(--good-soft);color:var(--good)}' +
+  '.ae-wt{font-size:.9375rem;font-weight:600;color:var(--ink);letter-spacing:-.01em}' +
+  '.ae-wn{font-family:var(--mono);font-size:.6875rem;color:var(--muted);background:var(--surface-2);border:1px solid var(--line-soft);border-radius:99px;padding:1px 7px}' +
+  '.ae-ws{margin-left:auto;display:flex;align-items:center;gap:10px;font-family:var(--mono);font-size:.75rem;color:var(--ink-2);font-variant-numeric:tabular-nums}' +
+  '.ae-ws .bad{color:var(--bad)}' +
+  '.ae-seta{display:flex;color:var(--muted);transition:transform .15s}' +
+  '.ae-fechado .ae-seta{transform:rotate(-90deg)}' +
+  '.ae-w .tf-rows{padding:0 10px}' +
+  '.ae-w .tf-row{padding:8px 6px}' +
+  '.ae-cols{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;align-items:start;margin-bottom:14px}' +
   '@media (max-width:980px){.ae-cols{grid-template-columns:minmax(0,1fr)}}' +
+  '.ae{container-type:inline-size}' +
+  '@container (max-width:860px){.ae-cols{grid-template-columns:minmax(0,1fr)}}' +
   '.ae-grp{margin-top:6px}' +
   '.ae-grp + .ae-grp{margin-top:14px}' +
-  '.ae-grp > h4{font-family:var(--mono);font-size:var(--fs-mono);letter-spacing:.07em;text-transform:uppercase;color:var(--muted);padding:4px 2px;font-weight:500;display:flex;gap:8px}' +
+  '.ae-grp > h4{font-family:var(--mono);font-size:var(--fs-mono);letter-spacing:.07em;text-transform:uppercase;color:var(--muted);padding:4px 16px;font-weight:500;display:flex;gap:8px}' +
   '.ae-grp > h4 span{color:var(--faint)}' +
-  '.ae-vazio{color:var(--muted);font-size:.875rem;padding:.5rem 0}' +
-  '.ae-nota{color:var(--muted);font-size:.78rem;margin-top:10px}' +
+  '.ae-vazio{color:var(--muted);font-size:.85rem;padding:2px 22px 16px;margin:0}' +
+  '.ae-nota{color:var(--muted);font-size:.78rem;padding:0 22px 12px;margin:0}' +
   '.ae-docs-t{display:flex;flex-wrap:wrap;gap:4px 10px;margin-top:4px;font-size:.72rem}' +
   '.ae-docs-t > a,.ae-docs-t > span{color:var(--accent-ink);text-decoration:none;display:inline-flex;align-items:center;gap:4px;max-width:100%}' +
   '.ae-docs-t a:hover{text-decoration:underline}' +
   '.ae-docs-t em{font-style:normal;color:var(--muted)}' +
   '.ae-docs-t > * span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:260px}' +
-  '.ae-pj,.ae-doc{display:flex;align-items:baseline;gap:10px;padding:8px;border-top:1px solid var(--line-soft);border-radius:8px}' +
-  '.ae-pj{cursor:pointer}' +
+  '.ae-pj,.ae-doc{display:flex;align-items:baseline;gap:10px;padding:8px 16px;border-top:1px solid var(--line-soft)}' +
+  '.ae-pj{cursor:pointer;align-items:center}' +
   '.ae-pj:first-of-type,.ae-doc:first-of-type{border-top-color:transparent}' +
   '.ae-pj:hover,.ae-doc:hover{background:var(--surface-2)}' +
   '.ae-pj b,.ae-doc b{font-weight:500;font-size:.875rem;color:var(--ink)}' +
@@ -70,14 +118,74 @@ var AE_CSS =
   '.ae-doc a:hover{color:var(--accent-ink);text-decoration:underline}' +
   '.ae-pj small,.ae-doc small{color:var(--muted);font-size:.72rem}' +
   '.ae-doc small.uso{color:var(--accent-ink)}' +
-  '.ae-pj .mono,.ae-doc .mono{margin-left:auto;white-space:nowrap}' +
-  '.ae-mais{margin-top:8px}';
+  '.ae-pj .mono,.ae-doc .mono{white-space:nowrap}' +
+  '.ae-barra{flex:none;width:150px;height:6px;border-radius:99px;background:var(--line-soft);overflow:hidden}' +
+  '.ae-barra i{display:block;height:6px;background:var(--accent)}' +
+  '.ae-barra i.bad{background:var(--bad)}' +
+  '.ae-dic{flex:none;width:22px;height:22px;border-radius:6px;display:flex;align-items:center;justify-content:center;background:var(--surface-2);color:var(--muted);margin-top:1px}' +
+  '.ae-mais{margin:2px 16px 14px}' +
+  '.ae-topo{display:flex;justify-content:flex-end;margin-bottom:8px}';
 
-var AE = { filtro: {} };
-try { AE.filtro = JSON.parse(localStorage.getItem('aeFiltro') || '{}') || {}; } catch (e) { AE.filtro = {}; }
-function aeGuardarFiltro(){ try { localStorage.setItem('aeFiltro', JSON.stringify(AE.filtro)); } catch (e) {} }
+var AE = { filtro: {}, fechados: {}, despesas: null, aLerDespesas: false };
+function aeLerGuardado(chave){
+  try { return JSON.parse(localStorage.getItem(chave) || '{}') || {}; } catch (e) { return {}; }
+}
+function aeGuardar(chave, v){ try { localStorage.setItem(chave, JSON.stringify(v)); } catch (e) {} }
+AE.filtro = aeLerGuardado('aeFiltro');
+AE.fechados = aeLerGuardado('aeFechados');
+
+/* Os widgets da segunda linha comecam recolhidos: o que a area tem de mais
+   urgente esta na primeira. */
+var AE_INICIO_FECHADO = { pagamentos: true, documentos: true };
+
+function aeF(view){
+  var f = AE.filtro[view];
+  /* O filtro antigo era so o nome da sub-area, guardado como texto. */
+  if (typeof f === 'string') f = { sub: f };
+  if (!f || typeof f !== 'object') f = {};
+  return {
+    sub: f.sub || 'tudo',
+    quem: f.quem || 'todos',
+    papel: f.papel || 'ambos',
+    periodo: f.periodo || 'tudo'
+  };
+}
+function aePor(a, campo, valor){
+  var f = aeF(a.view);
+  f[campo] = valor;
+  AE.filtro[a.view] = f;
+  aeGuardar('aeFiltro', AE.filtro);
+  aeRenderArea(a);
+}
+function aeAbertoW(view, chave){
+  var m = AE.fechados[view] || {};
+  if (m[chave] === undefined) return !AE_INICIO_FECHADO[chave];
+  return !m[chave];
+}
+function aeFecharW(a, chave, fechado){
+  var m = AE.fechados[a.view] || {};
+  m[chave] = fechado;
+  AE.fechados[a.view] = m;
+  aeGuardar('aeFechados', AE.fechados);
+  aeRenderArea(a);
+}
 
 var AE_CLIPE = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 11.5l-8.6 8.6a5 5 0 0 1-7.1-7.1l8.6-8.6a3.3 3.3 0 0 1 4.7 4.7l-8.6 8.6a1.7 1.7 0 0 1-2.4-2.4l7.9-7.9"/></svg>';
+
+var AE_I = {
+  tarefas: '<path d="M4 7h16"/><path d="M4 12h16"/><path d="M4 17h10"/>',
+  pagamentos: '<rect x="3" y="6" width="18" height="12" rx="2"/><path d="M3 10h18"/>',
+  despesas: '<path d="M4 18V9"/><path d="M10 18V5"/><path d="M16 18v-6"/><path d="M3 21h18"/>',
+  documentos: '<path d="M6 3h8l5 5v13H6z"/><path d="M14 3v5h5"/><path d="M9 13h6"/><path d="M9 17h4"/>',
+  projetos: '<path d="M4 6h10"/><path d="M4 12h16"/><path d="M4 18h7"/><circle cx="18" cy="6" r="2"/><circle cx="15" cy="18" r="2"/>',
+  seta: '<path d="M6 9l6 6 6-6"/>',
+  ficheiro: '<path d="M6 3h9l4 4v14H6z"/><path d="M15 3v4h4"/>',
+  dobrar: '<path d="M5 9l7-5 7 5"/><path d="M5 15l7 5 7-5"/>'
+};
+function aeIcone(d, w){
+  return '<svg width="' + w + '" height="' + w + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+    'stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' + d + '</svg>';
+}
 
 function aeNorm(s){ return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase(); }
 
@@ -116,14 +224,22 @@ function aeMontar(){
     else document.querySelector('main').appendChild(sec);
   });
 
-  /* A Familia tinha um cartao a prometer que isto ainda nao existia. */
-  var fam = document.getElementById('view-familia');
-  if (fam){
-    fam.querySelectorAll('.card').forEach(function(c){
-      var h = c.querySelector('header h3');
-      if (h && /Tarefas, apoio e datas/.test(h.textContent)) c.remove();
+  /* Os cartoes da maqueta prometiam que isto ainda nao existia. Agora existe:
+     saem todos, de todas as areas. */
+  AE_AREAS.forEach(function(a){
+    var sec = document.getElementById('view-' + a.view);
+    if (!sec) return;
+    sec.querySelectorAll('.card').forEach(function(c){
+      var v = c.querySelector('p.vazio');
+      if (v && /Ainda n\u00e3o h\u00e1 nada aqui/.test(v.textContent)) c.remove();
     });
-  }
+    /* Uma coluna que ficou vazia nao tem de roubar metade do ecra. */
+    var g = sec.querySelector('.grid.split');
+    if (g){
+      var cols = g.querySelectorAll(':scope > .stack');
+      if (cols.length === 2 && !cols[1].children.length){ cols[1].remove(); g.classList.remove('split'); }
+    }
+  });
 }
 
 /* Onde o bloco vai morar em cada ecra. Na Familia fica na coluna da direita,
@@ -135,12 +251,11 @@ function aeCaixa(a){
   var sec = document.getElementById('view-' + a.view);
   if (!sec) return null;
   box = el('div', 'stack ae'); box.id = id;
-  var alvo = sec;
-  if (a.view === 'familia'){
-    var cols = sec.querySelectorAll('.grid.split > .stack');
-    if (cols[1]) alvo = cols[1];
-  }
-  alvo.insertBefore(box, alvo.firstChild);
+  /* Na Familia a semana fica em cima e o bloco por baixo, a largura toda:
+     cinco widgets numa coluna estreita nao se leem. Nas outras areas o bloco
+     e a primeira coisa do ecra. */
+  if (a.view === 'familia') sec.appendChild(box);
+  else sec.insertBefore(box, sec.firstChild);
   return box;
 }
 
@@ -153,6 +268,126 @@ function aeFicheiro(d){
   var f = (d.ficheiros && d.ficheiros.length) ? d.ficheiros[0] : d.inbox_id;
   return f ? '/api/inbox/' + f + '/ficheiro' : null;
 }
+
+/* ------------------------------------------------------------------ *
+ * o periodo
+ * ------------------------------------------------------------------ */
+
+var AE_PERIODOS = [
+  ['atraso', 'Em atraso'],
+  ['d7', '7 dias'],
+  ['d30', '30 dias'],
+  ['d90', '90 dias'],
+  ['d365', '12 meses'],
+  ['tudo', 'Tudo']
+];
+
+/* Uma janela de datas, ou «atraso», ou nada quando e «tudo». Os dias contam
+   para os dois lados: o que ja passou e esta por fazer conta tanto como o
+   que vem ai. */
+function aeJanela(p){
+  if (!p || p === 'tudo') return null;
+  if (p === 'atraso') return 'atraso';
+  if (p.slice(0, 2) === 'm:'){
+    var pa = p.slice(2).split('-'), ano = Number(pa[0]), mes = Number(pa[1]);
+    return { de: tfISO(new Date(ano, mes - 1, 1)), ate: tfISO(new Date(ano, mes, 0)) };
+  }
+  if (p.slice(0, 2) === 'a:'){
+    var an = Number(p.slice(2));
+    return { de: an + '-01-01', ate: an + '-12-31' };
+  }
+  var n = Number(p.slice(1)) || 30;
+  var h = tfHoje();
+  return { de: tfISO(tfMais(h, -n)), ate: tfISO(tfMais(h, n)) };
+}
+function aeNaJanela(j, iso){ return !!iso && iso >= j.de && iso <= j.ate; }
+
+function aeNomePeriodo(p){
+  for (var i = 0; i < AE_PERIODOS.length; i++) if (AE_PERIODOS[i][0] === p) return AE_PERIODOS[i][1];
+  if (p.slice(0, 2) === 'm:'){
+    var pa = p.slice(2).split('-');
+    return MESES[Number(pa[1]) - 1].slice(0, 3).toLowerCase() + ' ' + pa[0];
+  }
+  if (p.slice(0, 2) === 'a:') return p.slice(2);
+  return 'Tudo';
+}
+function aePeriodoAMao(p){ return p.slice(0, 2) === 'm:' || p.slice(0, 2) === 'a:'; }
+
+/* Escolher um mes e um ano a mao: o «90 dias» serve para o que vem ai, isto
+   serve para ir buscar o que ja foi. */
+function aePopPeriodo(a, ancora){
+  tfFecharPop();
+  var f = aeF(a.view);
+  var hoje = tfHoje();
+  var ano = hoje.getFullYear(), mes = hoje.getMonth() + 1;
+  if (aePeriodoAMao(f.periodo)){
+    var pa = f.periodo.slice(2).split('-');
+    ano = Number(pa[0]);
+    mes = pa.length > 1 ? Number(pa[1]) : 0;
+  }
+  var p = el('div', 'tf-pop');
+  p.style.width = '240px';
+
+  p.appendChild(el('label', null, 'Mês'));
+  var sM = el('select');
+  var o0 = el('option', null, '— o ano inteiro —'); o0.value = '0'; sM.appendChild(o0);
+  MESES.forEach(function(nome, i){
+    var o = el('option', null, nome); o.value = String(i + 1);
+    sM.appendChild(o);
+  });
+  sM.value = String(mes || 0);
+  p.appendChild(sM);
+
+  p.appendChild(el('label', null, 'Ano'));
+  var sA = el('select');
+  for (var y = hoje.getFullYear() + 1; y >= hoje.getFullYear() - 5; y--){
+    var oa = el('option', null, String(y)); oa.value = String(y);
+    sA.appendChild(oa);
+  }
+  sA.value = String(ano);
+  p.appendChild(sA);
+
+  var ac = el('div', 'tf-acoes');
+  var bC = el('button', 'btn small', 'Cancelar'); bC.type = 'button';
+  bC.addEventListener('click', tfFecharPop);
+  var bOk = el('button', 'btn small primary', 'Ver'); bOk.type = 'button';
+  bOk.addEventListener('click', function(){
+    var m = Number(sM.value);
+    tfFecharPop();
+    aePor(a, 'periodo', m ? 'm:' + sA.value + '-' + String(m).padStart(2, '0') : 'a:' + sA.value);
+  });
+  ac.appendChild(bC); ac.appendChild(bOk);
+  p.appendChild(ac);
+  tfPosicionar(p, ancora);
+}
+
+/* ------------------------------------------------------------------ *
+ * quem
+ * ------------------------------------------------------------------ */
+
+var AE_PAPEIS = [['dono', 'Dono'], ['assunto', 'Por causa de'], ['ambos', 'Ambos']];
+
+/* Uma tarefa tem duas pessoas: quem a faz e por causa de quem se faz. O
+   filtro deixa escolher qual das duas conta. */
+function aePassaPessoa(f, dono, assuntos){
+  if (f.quem === 'todos') return true;
+  var id = Number(f.quem);
+  var ehDono = dono === id;
+  var ehAssunto = (assuntos || []).indexOf(id) >= 0;
+  if (f.papel === 'dono') return ehDono;
+  if (f.papel === 'assunto') return ehAssunto;
+  return ehDono || ehAssunto;
+}
+/* Uma despesa, um papel ou um projeto so tem uma pessoa: o «dono / por causa
+   de» nao se lhes aplica. */
+function aePassaPessoaSo(f, ids){
+  if (f.quem === 'todos') return true;
+  return (ids || []).indexOf(Number(f.quem)) >= 0;
+}
+
+/* ------------------------------------------------------------------ *
+ * as linhas
+ * ------------------------------------------------------------------ */
 
 /* Os papeis agarrados a tarefa, a vista na linha: fatura, comprovativo,
    recibo. Abrem o ficheiro sem abrir a tarefa. */
@@ -221,41 +456,36 @@ function aeLinha(t){
   return li;
 }
 
-function aeOrdem(a, b){
-  if (a.due_on && b.due_on && a.due_on !== b.due_on) return a.due_on < b.due_on ? -1 : 1;
-  if (!!a.due_on !== !!b.due_on) return a.due_on ? -1 : 1;
-  return String(a.title).localeCompare(String(b.title), 'pt');
-}
-
-/* Uma lista de tarefas num cartao. Com o filtro em «Tudo» vem partida por
-   sub-area; com uma sub-area escolhida, os cabecalhos so repetiam o filtro. */
-function aeCartaoTarefas(titulo, lista, grupos, area, vazio){
-  var card = el('div', 'card');
-  var h = el('header');
-  h.appendChild(el('h3', null, titulo));
-  var atr = lista.filter(function(t){ return tfNivelData(t) === 'bad'; }).length;
-  h.appendChild(el('span', 'mono', lista.length ? lista.length + (atr ? ' · ' + atr + ' em atraso' : '') : ''));
-  card.appendChild(h);
-  if (!lista.length){ card.appendChild(el('p', 'ae-vazio', vazio)); return card; }
-  /* As sub-areas primeiro; o que e da area sem sub-area fica no fim. */
-  var ordem = grupos.filter(function(c){ return c.id !== area.id; })
-    .concat(grupos.filter(function(c){ return c.id === area.id; }));
-  var gs = ordem.map(function(g){ return { c: g, lista: lista.filter(function(t){ return t.context_id === g.id; }) }; })
-    .filter(function(g){ return g.lista.length; });
-  var cabecas = grupos.length > 1;
-  gs.forEach(function(g){
-    var gr = el('div', 'ae-grp');
-    if (cabecas){
-      var h4 = el('h4', null, g.c.id === area.id ? area.name + ' · geral' : g.c.name);
-      h4.appendChild(el('span', null, String(g.lista.length)));
-      gr.appendChild(h4);
-    }
-    var rows = el('div', 'tf-rows');
-    g.lista.sort(aeOrdem).forEach(function(t){ rows.appendChild(aeLinha(t)); });
-    gr.appendChild(rows);
-    card.appendChild(gr);
-  });
-  return card;
+function aeLinhaDespesa(x){
+  var r = el('div', 'tf-row');
+  var ic = el('span', 'ae-dic'); ic.innerHTML = aeIcone(AE_I.ficheiro, 12);
+  r.appendChild(ic);
+  var corpo = el('div', 'tf-body');
+  var nome = x.description || 'despesa';
+  var url = x.inbox_id ? '/api/inbox/' + x.inbox_id + '/ficheiro' : null;
+  if (url){
+    var a = el('a', 'tf-t', nome);
+    a.href = url; a.target = '_blank'; a.rel = 'noopener';
+    a.style.color = 'var(--ink)'; a.style.textDecoration = 'none';
+    a.title = 'Abrir o ficheiro';
+    corpo.appendChild(a);
+  } else {
+    corpo.appendChild(el('span', 'tf-t', nome));
+  }
+  var m = el('div', 'tf-m');
+  var p = x.person_id ? pessoa(x.person_id) : null;
+  if (p){
+    var s = el('span'); var dot = el('i', 'dot'); dot.style.background = p.color || 'var(--c1)';
+    s.appendChild(dot); s.appendChild(document.createTextNode(p.name)); m.appendChild(s);
+  }
+  if (x.merchant) m.appendChild(el('span', null, x.merchant));
+  if (x.category) m.appendChild(el('span', null, x.category));
+  if (!url) m.appendChild(el('span', null, 'sem ficheiro'));
+  if (m.childNodes.length) corpo.appendChild(m);
+  r.appendChild(corpo);
+  r.appendChild(el('div', 'tf-val', tfEuros(x.amount)));
+  r.appendChild(el('div', 'tf-r', tfDataCurta(x.spent_on)));
+  return r;
 }
 
 function aeLinhaDoc(d, filhos){
@@ -286,35 +516,91 @@ function aeLinhaDoc(d, filhos){
   });
   r.appendChild(g);
   var dt = d.valid_on || d.issued_on;
-  if (dt) r.appendChild(el('span', 'mono', (d.valid_on ? 'até ' : '') + (typeof tfDataCurta === 'function' ? tfDataCurta(dt) : dt)));
+  var dir = el('span', 'mono');
+  dir.style.marginLeft = 'auto';
+  dir.textContent = dt ? (d.valid_on ? 'até ' : '') + (typeof tfDataCurta === 'function' ? tfDataCurta(dt) : dt) : '';
+  r.appendChild(dir);
   return r;
 }
 
-/* Os documentos da area. Na vista de tudo vem arrumados por sub-area, e os
-   que sao da area sem sub-area nenhuma ficam no fim, em «geral». */
-function aeCartaoDocs(docs, area, grupos){
-  var card = el('div', 'card');
-  var h = el('header');
-  h.appendChild(el('h3', null, 'Documentos'));
-  h.appendChild(el('span', 'mono', docs.length ? String(docs.length) : ''));
+function aeLinhaProjeto(p, tudo){
+  var r = el('div', 'ae-pj');
+  var g = el('div');
+  g.style.flex = '1';
+  g.style.minWidth = '0';
+  g.appendChild(el('b', null, p.name));
+  var pai = p.parent_id ? projeto(p.parent_id) : null;
+  var sub = [pai ? pai.name : null, tudo ? areaNome(p.context_id) : null, p.status === 'planeado' ? 'planeado' : null]
+    .filter(Boolean).join(' · ');
+  if (sub){ g.appendChild(document.createElement('br')); g.appendChild(el('small', null, sub)); }
+  r.appendChild(g);
+  var c = p.contagem || {};
+  var pc = c.total ? Math.round((c.feitas / c.total) * 100) : 0;
+  var barra = el('span', 'ae-barra');
+  var i = el('i', c.atrasadas ? 'bad' : '');
+  i.style.width = pc + '%';
+  barra.appendChild(i);
+  barra.title = pc + '% feitas';
+  r.appendChild(barra);
+  var conta = el('span', 'mono');
+  conta.style.width = '170px';
+  conta.style.textAlign = 'right';
+  conta.textContent = (c.abertas || 0) + ' por fazer' + (c.atrasadas ? ' · ' + c.atrasadas + ' em atraso' : '');
+  r.appendChild(conta);
+  r.addEventListener('click', function(){ if (typeof pjAbrir === 'function') pjAbrir(p.id); else show('projetos'); });
+  return r;
+}
+
+function aeOrdem(a, b){
+  if (a.due_on && b.due_on && a.due_on !== b.due_on) return a.due_on < b.due_on ? -1 : 1;
+  if (!!a.due_on !== !!b.due_on) return a.due_on ? -1 : 1;
+  return String(a.title).localeCompare(String(b.title), 'pt');
+}
+
+/* ------------------------------------------------------------------ *
+ * o widget
+ * ------------------------------------------------------------------ */
+
+function aeWidget(a, chave, cfg){
+  var aberto = aeAbertoW(a.view, chave);
+  var card = el('div', 'card ae-w' + (aberto ? '' : ' ae-fechado'));
+  var h = el('button', 'ae-wh');
+  h.type = 'button';
+  var ic = el('span', 'ae-wi ' + chave);
+  ic.innerHTML = aeIcone(AE_I[chave], 15);
+  h.appendChild(ic);
+  h.appendChild(el('span', 'ae-wt', cfg.titulo));
+  if (cfg.n) h.appendChild(el('span', 'ae-wn', String(cfg.n)));
+  var s = el('span', 'ae-ws');
+  if (cfg.resumo) s.appendChild(el('span', cfg.aviso ? 'bad' : '', cfg.resumo));
+  var seta = el('span', 'ae-seta');
+  seta.innerHTML = aeIcone(AE_I.seta, 14);
+  s.appendChild(seta);
+  h.appendChild(s);
+  h.title = aberto ? 'Recolher' : 'Expandir';
+  h.addEventListener('click', function(){ aeFecharW(a, chave, aberto); });
   card.appendChild(h);
-  if (!window.D || !D.documents){ card.appendChild(el('p', 'ae-vazio', 'A ler os documentos…')); return card; }
-  if (!docs.length){ card.appendChild(el('p', 'ae-vazio', 'Nenhum documento arrumado aqui.')); return card; }
-  /* Os papeis de um pagamento contam como um: o comprovativo e o recibo vao
-     dentro da fatura (docsConjuntos, no app.js). */
-  var CJ = typeof docsConjuntos === 'function' ? docsConjuntos() : { filhos: {}, pendurado: {} };
-  var aqui = {};
-  docs.forEach(function(d){ aqui[d.id] = true; });
-  docs = docs.filter(function(d){
-    var cabs = CJ.pendurado[d.id];
-    return !(cabs && cabs.some(function(c){ return aqui[c]; }));
-  });
+  if (aberto) cfg.corpo(card);
+  return card;
+}
+
+function aeRodape(card, texto, fn){
+  var b = el('button', 'btn small ae-mais', texto);
+  b.type = 'button';
+  b.style.marginLeft = '16px';
+  b.addEventListener('click', fn);
+  card.appendChild(b);
+}
+
+/* As linhas de uma lista de tarefas ou pagamentos, partidas por sub-area
+   quando o filtro esta em «Tudo». */
+function aeCorpoTarefas(card, lista, grupos, area, vazio){
+  if (!lista.length){ card.appendChild(el('p', 'ae-vazio', vazio)); return; }
   var ordem = grupos.filter(function(c){ return c.id !== area.id; })
     .concat(grupos.filter(function(c){ return c.id === area.id; }));
-  var gs = ordem.map(function(c){ return { c: c, lista: docs.filter(function(d){ return d.context_id === c.id; }) }; })
+  var gs = ordem.map(function(g){ return { c: g, lista: lista.filter(function(t){ return t.context_id === g.id; }) }; })
     .filter(function(g){ return g.lista.length; });
   var cabecas = grupos.length > 1;
-  var MAX = cabecas ? 5 : 10, cortados = 0;
   gs.forEach(function(g){
     var gr = el('div', 'ae-grp');
     if (cabecas){
@@ -322,24 +608,105 @@ function aeCartaoDocs(docs, area, grupos){
       h4.appendChild(el('span', null, String(g.lista.length)));
       gr.appendChild(h4);
     }
-    g.lista.slice(0, MAX).forEach(function(d){ gr.appendChild(aeLinhaDoc(d, CJ.filhos[d.id])); });
-    if (g.lista.length > MAX){
-      cortados += g.lista.length - MAX;
-      gr.appendChild(el('p', 'ae-nota', 'e mais ' + (g.lista.length - MAX) + '.'));
-    }
+    var rows = el('div', 'tf-rows');
+    g.lista.forEach(function(t){ rows.appendChild(aeLinha(t)); });
+    gr.appendChild(rows);
     card.appendChild(gr);
   });
-  var b = el('button', 'btn small ae-mais', cortados ? 'Ver todos nos Documentos' : 'Abrir os Documentos');
-  b.type = 'button';
-  b.addEventListener('click', function(){ show('documentos'); });
-  card.appendChild(b);
-  return card;
 }
 
-function aeCtx(id){
-  var cs = (window.G && G.contextos) || [];
-  for (var i = 0; i < cs.length; i++) if (cs[i].id === id) return cs[i];
+function aeCorpoDespesas(card, lista, havia){
+  if (AE.despesas === null){ card.appendChild(el('p', 'ae-vazio', 'A ler as despesas…')); return; }
+  if (!lista.length){
+    card.appendChild(el('p', 'ae-vazio', havia
+      ? 'Nenhuma despesa desta área no que está filtrado.'
+      : 'Nenhuma despesa arrumada nesta área. As que não têm área vivem nas Finanças.'));
+    return;
+  }
+  var rows = el('div', 'tf-rows');
+  lista.forEach(function(x){ rows.appendChild(aeLinhaDespesa(x)); });
+  card.appendChild(rows);
+}
+
+/* Os documentos da area. Na vista de tudo vem arrumados por sub-area, e os
+   que sao da area sem sub-area nenhuma ficam no fim, em «geral». */
+function aeCorpoDocs(card, docs, area, grupos, havia){
+  if (!window.D || !D.documents){ card.appendChild(el('p', 'ae-vazio', 'A ler os documentos…')); return; }
+  if (!docs.length){
+    card.appendChild(el('p', 'ae-vazio', havia
+      ? 'Nenhum papel desta área no que está filtrado.'
+      : 'Nenhum papel arrumado nesta área. Arrumam-se nos Documentos.'));
+    return;
+  }
+  var CJ = typeof docsConjuntos === 'function' ? docsConjuntos() : { filhos: {}, pendurado: {} };
+  var ordem = grupos.filter(function(c){ return c.id !== area.id; })
+    .concat(grupos.filter(function(c){ return c.id === area.id; }));
+  var gs = ordem.map(function(c){ return { c: c, lista: docs.filter(function(d){ return d.context_id === c.id; }) }; })
+    .filter(function(g){ return g.lista.length; });
+  var cabecas = grupos.length > 1;
+  gs.forEach(function(g){
+    var gr = el('div', 'ae-grp');
+    if (cabecas){
+      var h4 = el('h4', null, g.c.id === area.id ? area.name + ' · geral' : g.c.name);
+      h4.appendChild(el('span', null, String(g.lista.length)));
+      gr.appendChild(h4);
+    }
+    g.lista.forEach(function(d){ gr.appendChild(aeLinhaDoc(d, CJ.filhos[d.id])); });
+    card.appendChild(gr);
+  });
+}
+
+function aeCorpoProjetos(card, pjs, tudo){
+  if (!pjs.length){ card.appendChild(el('p', 'ae-vazio', 'Nenhum projeto aberto com este filtro.')); return; }
+  pjs.forEach(function(p){ card.appendChild(aeLinhaProjeto(p, tudo)); });
+}
+
+/* ------------------------------------------------------------------ *
+ * as despesas (o ecra das Financas le-as so quando la se entra)
+ * ------------------------------------------------------------------ */
+
+function aeDespesas(){
+  if (AE.despesas) return AE.despesas;
+  if (!AE.aLerDespesas){
+    AE.aLerDespesas = true;
+    apiGestao('/api/despesas').then(function(d){
+      AE.despesas = d.despesas || [];
+      aeRender();
+    }).catch(function(){ AE.despesas = []; });
+  }
   return null;
+}
+
+/* ------------------------------------------------------------------ *
+ * o ecra
+ * ------------------------------------------------------------------ */
+
+function aeChip(nome, ligado, fn, extra){
+  var b = el('button', 'ae-chip' + (ligado ? ' on' : ''));
+  b.type = 'button';
+  if (extra && extra.cor){ var d = el('i', 'dot'); d.style.background = extra.cor; b.appendChild(d); }
+  b.appendChild(document.createTextNode(nome));
+  if (extra && extra.n) b.appendChild(el('small', extra.atraso ? 'bad' : '', String(extra.n)));
+  b.addEventListener('click', fn);
+  return b;
+}
+
+function aeFila(rotulo){
+  var linha = el('div', 'ae-fl');
+  linha.appendChild(el('span', 'ae-lbl', rotulo));
+  var chips = el('div', 'ae-chips');
+  linha.appendChild(chips);
+  linha.chips = chips;
+  return linha;
+}
+
+function aeKpi(valor, nome, cls, fn){
+  var b = el('button', 'ae-kpi');
+  b.type = 'button';
+  b.appendChild(el('b', cls || '', valor));
+  b.appendChild(el('span', null, nome));
+  b.addEventListener('click', fn);
+  return b;
 }
 
 function aeRenderArea(a){
@@ -348,6 +715,7 @@ function aeRenderArea(a){
   clear(box);
   var area = aeArea(a);
   if (!area) return;
+  var f = aeF(a.view);
   var subs = aeSubs(area);
   var todos = [area].concat(subs);
   var idsTodos = todos.map(function(c){ return c.id; });
@@ -358,99 +726,196 @@ function aeRenderArea(a){
   var pjsTodos = (G.projects || []).filter(function(p){
     return p.tipo !== 'programa' && p.status !== 'concluido' && idsTodos.indexOf(p.context_id) >= 0;
   });
+  var docsTodos = ((window.D && D.documents) || []).filter(function(d){ return idsTodos.indexOf(d.context_id) >= 0; });
+  var despTodas = (aeDespesas() || []).filter(function(x){ return idsTodos.indexOf(x.context_id) >= 0; });
 
-  /* O filtro: Tudo, cada sub-area, e «Geral» so quando a area tem coisas
-     suas. Um filtro guardado que deixou de existir volta a Tudo. */
-  var f = AE.filtro[a.view] || 'tudo';
+  /* Onde: Tudo, cada sub-area, e «Geral» so quando a area tem coisas suas.
+     Um filtro guardado que deixou de existir volta a Tudo. */
   var opcoes = [];
   if (subs.length){
     opcoes.push({ k: 'tudo', nome: 'Tudo', ids: idsTodos });
     subs.forEach(function(s){ opcoes.push({ k: String(s.id), nome: s.name, ids: [s.id] }); });
     var temGeral = abertas.some(function(t){ return t.context_id === area.id; }) ||
       pjsTodos.some(function(p){ return p.context_id === area.id; }) ||
-      ((window.D && D.documents) || []).some(function(d){ return d.context_id === area.id; });
+      docsTodos.some(function(d){ return d.context_id === area.id; });
     if (temGeral) opcoes.push({ k: 'geral', nome: 'Geral', ids: [area.id] });
   }
-  var sel = opcoes.filter(function(o){ return o.k === f; })[0] || opcoes[0] || { k: 'tudo', ids: idsTodos };
+  var sel = opcoes.filter(function(o){ return o.k === f.sub; })[0] || opcoes[0] || { k: 'tudo', ids: idsTodos };
   var ids = sel.ids, tudo = sel.k === 'tudo';
   var grupos = todos.filter(function(c){ return ids.indexOf(c.id) >= 0; });
 
-  var soltas = abertas.filter(function(t){ return ids.indexOf(t.context_id) >= 0; });
+  var j = aeJanela(f.periodo);
+  function naArea(x){ return ids.indexOf(x.context_id) >= 0; }
+  function passaTarefa(t){
+    if (!naArea(t)) return false;
+    if (!aePassaPessoa(f, t.owner_id, t.subjects)) return false;
+    if (!j) return true;
+    if (j === 'atraso') return tfNivelData(t) === 'bad';
+    /* Sem data nao ha periodo que a apanhe: fica sempre a vista. */
+    return !t.due_on || aeNaJanela(j, t.due_on);
+  }
+
+  var soltas = abertas.filter(passaTarefa);
   var notas = soltas.filter(function(t){ return tfTipo(t) === 'nota'; }).length;
   soltas = soltas.filter(function(t){ return tfTipo(t) !== 'nota'; });
-  var pags = soltas.filter(function(t){ return tfTipo(t) === 'pagamento'; });
-  var outras = soltas.filter(function(t){ return tfTipo(t) !== 'pagamento'; });
-  var pjs = pjsTodos.filter(function(p){ return ids.indexOf(p.context_id) >= 0; });
-  var docs = ((window.D && D.documents) || []).filter(function(d){ return ids.indexOf(d.context_id) >= 0; });
+  var pags = soltas.filter(function(t){ return tfTipo(t) === 'pagamento'; }).sort(aeOrdem);
+  var outras = soltas.filter(function(t){ return tfTipo(t) !== 'pagamento'; }).sort(aeOrdem);
 
-  /* Topo: o filtro e os numeros do que esta escolhido. */
-  var top = el('div', 'ae-top');
+  var despesas = despTodas.filter(function(x){
+    if (!naArea(x)) return false;
+    if (!aePassaPessoaSo(f, [x.person_id])) return false;
+    if (!j) return true;
+    if (j === 'atraso') return false;
+    return aeNaJanela(j, x.spent_on);
+  });
+
+  var docs = docsTodos.filter(function(d){
+    if (!naArea(d)) return false;
+    if (!aePassaPessoaSo(f, [d.person_id])) return false;
+    if (!j) return true;
+    if (j === 'atraso') return false;
+    /* O papel entra pela data dele ou pela validade - basta uma das duas. */
+    if (!d.issued_on && !d.valid_on) return true;
+    return aeNaJanela(j, d.issued_on) || aeNaJanela(j, d.valid_on);
+  });
+
+  var pjs = pjsTodos.filter(function(p){
+    if (!naArea(p)) return false;
+    if (!aePassaPessoaSo(f, (p.members || []).map(function(m){ return m.person_id; }))) return false;
+    /* Um projeto dura meses: o periodo nao o corta, so o «em atraso». */
+    if (j === 'atraso') return (p.contagem || {}).atrasadas > 0;
+    return true;
+  });
+
+  /* ---- a barra dos filtros ---- */
+  var barra = el('div', 'card ae-filtros');
+
   if (opcoes.length){
-    var tabs = el('div', 'tabs');
+    var fl1 = aeFila('Onde');
     opcoes.forEach(function(o){
-      var b = el('button', o.k === sel.k ? 'is-active' : '');
-      b.type = 'button';
-      b.appendChild(document.createTextNode(o.nome));
       var n = abertas.filter(function(t){ return tfTipo(t) !== 'nota' && o.ids.indexOf(t.context_id) >= 0; });
       var atr = n.filter(function(t){ return tfNivelData(t) === 'bad'; }).length;
-      if (n.length){
-        var sm = el('small', atr ? 'bad' : '', String(n.length));
-        if (atr) sm.title = atr + ' em atraso';
-        b.appendChild(sm);
-      }
-      /* Desenhar so depois: o app.js tem um ouvinte geral para os .tabs que
-         ainda vai olhar para este botao, e ele tem de continuar na pagina. */
-      b.addEventListener('click', function(){ AE.filtro[a.view] = o.k; aeGuardarFiltro(); setTimeout(function(){ aeRenderArea(a); }, 0); });
-      tabs.appendChild(b);
+      fl1.chips.appendChild(aeChip(o.nome, o.k === sel.k, function(){ aePor(a, 'sub', o.k); },
+        { n: n.length || 0, atraso: atr }));
     });
-    top.appendChild(tabs);
+    barra.appendChild(fl1);
   }
-  var kpi = el('div', 'ae-kpi');
-  function num(v, txt, cls){ var s = el('span'); s.appendChild(el('b', cls || '', v)); s.appendChild(document.createTextNode(' ' + txt)); kpi.appendChild(s); }
-  var atrasadas = soltas.filter(function(t){ return tfNivelData(t) === 'bad'; }).length;
-  var h = tfHoje(), fimMes = tfISO(new Date(h.getFullYear(), h.getMonth() + 1, 0));
-  var aPagar = pags.filter(function(t){ return t.amount && t.due_on && t.due_on <= fimMes; })
-    .reduce(function(s, t){ return s + Number(t.amount); }, 0);
-  num(String(soltas.length), 'por fazer');
-  if (atrasadas) num(String(atrasadas), 'em atraso', 'bad');
-  if (aPagar) num(tfEuros(aPagar), 'a pagar até ao fim do mês');
-  num(String(pjs.length), pjs.length === 1 ? 'projeto' : 'projetos');
-  num(String(docs.length), docs.length === 1 ? 'documento' : 'documentos');
-  top.appendChild(kpi);
-  box.appendChild(top);
 
-  var cols = el('div', 'ae-cols');
-  cols.appendChild(aeCartaoTarefas('Pagamentos', pags, grupos, area, 'Nenhum pagamento por fazer.'));
-  var ct = aeCartaoTarefas('Tarefas', outras, grupos, area, 'Nada por fazer fora dos projetos.');
-  if (notas) ct.appendChild(el('p', 'ae-nota', notas + (notas === 1 ? ' nota' : ' notas') + ' nas Tarefas › Notas.'));
-  cols.appendChild(ct);
-  box.appendChild(cols);
+  var fl2 = aeFila('Quem');
+  var seg = el('div', 'ae-seg' + (f.quem === 'todos' ? ' ae-off' : ''));
+  if (f.quem === 'todos') seg.title = 'Escolhe uma pessoa para isto contar';
+  AE_PAPEIS.forEach(function(pp){
+    var b = el('button', f.papel === pp[0] ? 'on' : '', pp[1]);
+    b.type = 'button';
+    b.addEventListener('click', function(){ aePor(a, 'papel', pp[0]); });
+    seg.appendChild(b);
+  });
+  fl2.chips.appendChild(seg);
+  fl2.chips.appendChild(aeChip('Agregado todo', f.quem === 'todos', function(){ aePor(a, 'quem', 'todos'); },
+    { cor: 'var(--faint)' }));
+  (G.people || []).filter(function(p){ return p.active !== false; }).forEach(function(p){
+    fl2.chips.appendChild(aeChip(p.name, f.quem === String(p.id), function(){ aePor(a, 'quem', String(p.id)); },
+      { cor: p.color || 'var(--c1)' }));
+  });
+  barra.appendChild(fl2);
+
+  var fl3 = aeFila('Quando');
+  AE_PERIODOS.forEach(function(pp){
+    fl3.chips.appendChild(aeChip(pp[1], f.periodo === pp[0], function(){ aePor(a, 'periodo', pp[0]); }));
+  });
+  var bMes = aeChip(aePeriodoAMao(f.periodo) ? aeNomePeriodo(f.periodo) : 'Mês…', aePeriodoAMao(f.periodo), function(){
+    bMes.dataset.tfpop = '1';
+    aePopPeriodo(a, bMes);
+  });
+  bMes.title = 'Escolher um mês ou um ano';
+  fl3.chips.appendChild(bMes);
+  barra.appendChild(fl3);
+  box.appendChild(barra);
+
+  /* ---- os numeros, que sao botoes ---- */
+  var atrasadas = soltas.filter(function(t){ return tfNivelData(t) === 'bad'; }).length;
+  var aPagar = pags.reduce(function(s, t){ return s + Number(t.amount || 0); }, 0);
+  var gasto = despesas.reduce(function(s, x){ return s + Number(x.amount || 0); }, 0);
+  var porLer = docs.filter(function(d){ return !d.lido; }).length;
+
+  function abrirW(chave){ return function(){ aeFecharW(a, chave, false); }; }
+  var kpis = el('div', 'ae-kpis');
+  kpis.appendChild(aeKpi(String(soltas.length), 'por fazer', '', abrirW('tarefas')));
+  kpis.appendChild(aeKpi(String(atrasadas), 'em atraso', atrasadas ? 'bad' : '', function(){ aePor(a, 'periodo', 'atraso'); }));
+  kpis.appendChild(aeKpi(tfEuros(aPagar), 'a pagar', '', abrirW('pagamentos')));
+  kpis.appendChild(aeKpi(tfEuros(gasto), 'já gasto', '', abrirW('despesas')));
+  kpis.appendChild(aeKpi(String(docs.length), docs.length === 1 ? 'papel' : 'papéis', '', abrirW('documentos')));
+  box.appendChild(kpis);
+
+  /* ---- os cinco widgets, pela ordem escolhida ---- */
+  /* Uma lista vazia diz coisas diferentes conforme a area nao ter nada, ou
+     ter e o filtro estar a tapar. */
+  var temTarefas = abertas.some(function(t){ return tfTipo(t) !== 'nota' && tfTipo(t) !== 'pagamento'; });
+  var temPagamentos = abertas.some(function(t){ return tfTipo(t) === 'pagamento'; });
+  var MAXT = 12, MAXD = 8;
+
+  var cols1 = el('div', 'ae-cols');
+  cols1.appendChild(aeWidget(a, 'tarefas', {
+    titulo: 'Tarefas',
+    n: outras.length,
+    resumo: outras.filter(function(t){ return tfNivelData(t) === 'bad'; }).length
+      ? outras.filter(function(t){ return tfNivelData(t) === 'bad'; }).length + ' em atraso' : 'em dia',
+    aviso: outras.some(function(t){ return tfNivelData(t) === 'bad'; }),
+    corpo: function(card){
+      aeCorpoTarefas(card, outras.slice(0, MAXT), grupos, area,
+        temTarefas ? 'Nada por fazer no que está filtrado.' : 'Nada por fazer fora dos projetos.');
+      if (notas) card.appendChild(el('p', 'ae-nota', notas + (notas === 1 ? ' nota' : ' notas') + ' nas Tarefas › Notas.'));
+      aeRodape(card, outras.length > MAXT ? 'Ver as ' + outras.length + ' nas Tarefas' : 'Abrir as Tarefas',
+        function(){ show('tarefas'); });
+    }
+  }));
+  cols1.appendChild(aeWidget(a, 'despesas', {
+    titulo: 'Despesas',
+    n: despesas.length,
+    resumo: despesas.length ? tfEuros(gasto) : '',
+    corpo: function(card){
+      aeCorpoDespesas(card, despesas.slice(0, MAXD), despTodas.length > 0);
+      aeRodape(card, despesas.length > MAXD ? 'Ver as ' + despesas.length + ' nas Finanças' : 'Abrir as Finanças',
+        function(){ show('financas'); });
+    }
+  }));
+  box.appendChild(cols1);
 
   var cols2 = el('div', 'ae-cols');
-  /* Os projetos: so a linha, o trabalho vive la. */
-  var cp = el('div', 'card');
-  var hp = el('header');
-  hp.appendChild(el('h3', null, 'Projetos'));
-  hp.appendChild(el('span', 'mono', pjs.length ? String(pjs.length) : ''));
-  cp.appendChild(hp);
-  if (!pjs.length) cp.appendChild(el('p', 'ae-vazio', 'Nenhum projeto aberto aqui.'));
-  pjs.forEach(function(p){
-    var r = el('div', 'ae-pj');
-    var g = el('div');
-    g.appendChild(el('b', null, p.name));
-    var pai = p.parent_id ? projeto(p.parent_id) : null;
-    var sub = [pai ? pai.name : null, tudo ? areaNome(p.context_id) : null, p.status === 'planeado' ? 'planeado' : null]
-      .filter(Boolean).join(' · ');
-    if (sub){ g.appendChild(document.createElement('br')); g.appendChild(el('small', null, sub)); }
-    r.appendChild(g);
-    var c = p.contagem || {};
-    r.appendChild(el('span', 'mono', (c.abertas || 0) + ' por fazer' + (c.atrasadas ? ' · ' + c.atrasadas + ' em atraso' : '')));
-    r.addEventListener('click', function(){ if (typeof pjAbrir === 'function') pjAbrir(p.id); else show('projetos'); });
-    cp.appendChild(r);
-  });
-  cols2.appendChild(cp);
-  cols2.appendChild(aeCartaoDocs(docs, area, grupos));
+  cols2.appendChild(aeWidget(a, 'pagamentos', {
+    titulo: 'Pagamentos',
+    n: pags.length,
+    resumo: pags.length ? tfEuros(aPagar) : '',
+    aviso: pags.some(function(t){ return tfNivelData(t) === 'bad'; }),
+    corpo: function(card){
+      aeCorpoTarefas(card, pags.slice(0, MAXT), grupos, area,
+        temPagamentos ? 'Nenhum pagamento no que está filtrado.' : 'Nenhum pagamento por fazer.');
+      aeRodape(card, pags.length > MAXT ? 'Ver os ' + pags.length + ' nos Pagamentos' : 'Abrir os Pagamentos',
+        function(){ show('tarefas'); });
+    }
+  }));
+  cols2.appendChild(aeWidget(a, 'documentos', {
+    titulo: 'Documentos',
+    n: docs.length,
+    resumo: porLer ? porLer + ' por ler' : '',
+    corpo: function(card){
+      aeCorpoDocs(card, docs.slice(0, MAXD), area, grupos, docsTodos.length > 0);
+      aeRodape(card, docs.length > MAXD ? 'Ver os ' + docs.length + ' nos Documentos' : 'Abrir os Documentos',
+        function(){ show('documentos'); });
+    }
+  }));
   box.appendChild(cols2);
+
+  box.appendChild(aeWidget(a, 'projetos', {
+    titulo: 'Projetos',
+    n: pjs.length,
+    resumo: pjs.reduce(function(s, p){ return s + ((p.contagem || {}).abertas || 0); }, 0) + ' por fazer',
+    aviso: pjs.some(function(p){ return (p.contagem || {}).atrasadas; }),
+    corpo: function(card){
+      aeCorpoProjetos(card, pjs, tudo);
+      aeRodape(card, 'Abrir os Projetos', function(){ show('projetos'); });
+    }
+  }));
 }
 
 function aeRender(){
@@ -473,6 +938,3 @@ renderAll = function(){
   _aeRenderAll();
   aeRender();
 };
-
-aeMontar();
-if (window.G && G.contextos) aeRender();
