@@ -700,6 +700,12 @@ function comPessoa(titulo, pessoa) {
 
 /* O modelo devolve um nome de pessoa e notas; as tabelas querem ids e outros
    nomes de campo. É aqui que se faz a tradução. */
+async function podeTerTarefas(pid) {
+  if (!pid) return false;
+  const r = await all('SELECT 1 FROM people WHERE id = $1 AND can_own_tasks', [pid]);
+  return r.length > 0;
+}
+
 async function paraDestino(d) {
   const dados = Object.assign({}, d.dados || {});
   const cid = await contextoPorNome(dados.area);
@@ -708,8 +714,13 @@ async function paraDestino(d) {
   const pid = await pessoaPorNome(dados.pessoa);
   if (pid) {
     if (d.tipo === 'documento' || d.tipo === 'despesa' || d.tipo === 'evento') dados.person_id = pid;
-    if (d.tipo === 'pagamento') dados.subjects = [pid];
-    if (d.tipo === 'tarefa') dados.subjects = [pid];
+    /* A pessoa do papel e tambem quem paga (ou quem faz), desde que possa ter
+       tarefas: a fatura em nome do Marco e o Marco que a paga. Fica tambem
+       como «por causa de quem». */
+    if (d.tipo === 'pagamento' || d.tipo === 'tarefa') {
+      dados.subjects = [pid];
+      if (!dados.owner_id && await podeTerTarefas(pid)) dados.owner_id = pid;
+    }
   }
   if (d.tipo === 'despesa' && dados.notes && !dados.note) dados.note = dados.notes;
   if (d.tipo === 'evento' && dados.notes && !dados.detail) dados.detail = dados.notes;
@@ -929,7 +940,8 @@ function instalar(app) {
       }
 
       const links = await all(
-        'SELECT target_type, target_id FROM inbox_links WHERE inbox_id = $1', [id]);
+        'SELECT target_type, target_id, criado FROM inbox_links WHERE inbox_id = $1', [id]);
+      const dono = await podeTerTarefas(pid);
       for (const l of links) {
         if (l.target_type === 'documento') {
           await query('UPDATE documents SET person_id = $2 WHERE id = $1', [l.target_id, pid]);
@@ -941,9 +953,18 @@ function instalar(app) {
             await query('INSERT INTO event_people (event_id, person_id) VALUES ($1,$2) ON CONFLICT DO NOTHING',
               [l.target_id, pid]);
           }
-        } else if (l.target_type === 'tarefa' && pid) {
+        } else if ((l.target_type === 'tarefa' || l.target_type === 'pagamento') && pid) {
           await query('INSERT INTO task_subjects (task_id, person_id) VALUES ($1,$2) ON CONFLICT DO NOTHING',
             [l.target_id, pid]);
+          /* Quem paga / quem faz passa a ser a pessoa escolhida. Num pagamento
+             que ja existia e so recebeu a fatura, so se preenche se estiver
+             vazio: quem la estava foi escolhido por alguem. */
+          if (dono) {
+            await query(
+              `UPDATE tasks SET owner_id = CASE WHEN $3 THEN $2 ELSE COALESCE(owner_id, $2) END,
+                                updated_at = now()
+                WHERE id = $1`, [l.target_id, pid, l.criado !== false]);
+          }
         }
       }
 
