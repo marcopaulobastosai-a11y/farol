@@ -204,6 +204,10 @@ function ibMontar() {
   /* --- lista --- */
   var caixa = el('div', 'card');
   ibCabecalho(caixa, 'Por triar', '');
+  /* Filtros por data: o que entrou nos ultimos dias, ou num mes e ano. */
+  var filtros = el('div', 'ib-filtros');
+  filtros.id = 'ibFiltros';
+  caixa.appendChild(filtros);
   var lista = el('div');
   lista.id = 'ibLista';
   caixa.appendChild(lista);
@@ -264,6 +268,17 @@ function ibRender() {
   var lista = $('ibLista');
   if (!lista) return;
   clear(lista);
+  ibDesenharFiltros();
+
+  var visiveis = IB.itens.filter(ibNoPeriodo);
+  if (cab && ibFiltroActivo()) {
+    cab.textContent = visiveis.length + ' de ' + IB.itens.length +
+      (IB.itens.length === 1 ? ' item' : ' itens');
+  }
+  if (IB.itens.length && !visiveis.length) {
+    lista.appendChild(el('div', 'ib-empty', 'Nada neste per\u00edodo.'));
+    return;
+  }
 
   if (!IB.itens.length) {
     lista.appendChild(el('div', 'ib-empty', IB.estado === 'por_triar'
@@ -275,7 +290,105 @@ function ibRender() {
           : 'Nada aqui.'))));
     return;
   }
-  IB.itens.forEach(function (item) { lista.appendChild(ibItem(item)); });
+  visiveis.forEach(function (item) { lista.appendChild(ibItem(item)); });
+}
+
+/* ---------------- filtros por data ---------------- */
+/* Os filtros valem para todos os separadores e ficam quando se muda de um
+   para outro: quem procura «o que entrou em agosto» quer ve-lo em todos. */
+var IB_MESES = ['Janeiro', 'Fevereiro', 'Mar\u00e7o', 'Abril', 'Maio', 'Junho', 'Julho',
+  'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+var IB_PERIODOS = [[0, 'Tudo'], [1, 'Hoje'], [7, '7 dias'], [30, '30 dias'], [90, '3 meses']];
+
+function ibFiltro() {
+  if (!IB.filtro) IB.filtro = { dias: 0, mes: '', ano: '' };
+  return IB.filtro;
+}
+
+function ibFiltroActivo() {
+  var f = ibFiltro();
+  return Boolean(f.dias || f.mes || f.ano);
+}
+
+function ibHojeIso() {
+  var d = new Date();
+  var z = function (n) { return (n < 10 ? '0' : '') + n; };
+  return d.getFullYear() + '-' + z(d.getMonth() + 1) + '-' + z(d.getDate());
+}
+
+function ibNoPeriodo(item) {
+  var f = ibFiltro();
+  var d = String(item.captured_at || '');
+  if (!ibFiltroActivo()) return true;
+  if (!d) return false;
+  if (f.dias === 1) return d.slice(0, 10) === ibHojeIso();
+  if (f.dias) {
+    var limite = new Date(); limite.setHours(0, 0, 0, 0);
+    limite.setDate(limite.getDate() - (f.dias - 1));
+    if (new Date(d.slice(0, 10) + 'T00:00:00') < limite) return false;
+  }
+  if (f.ano && d.slice(0, 4) !== f.ano) return false;
+  if (f.mes && d.slice(5, 7) !== f.mes) return false;
+  return true;
+}
+
+function ibDesenharFiltros() {
+  var caixa = $('ibFiltros');
+  if (!caixa) return;
+  if (!$('ibFiltrosCss')) {
+    var st = document.createElement('style');
+    st.id = 'ibFiltrosCss';
+    st.textContent = '#view-inbox .ib-filtros{display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;margin:.1rem 0 .9rem}' +
+      '#view-inbox .ib-per{display:flex;gap:2px;background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:2px}' +
+      '#view-inbox .ib-per button{font:inherit;font-size:.8125rem;border:0;background:none;color:var(--muted);padding:5px 10px;border-radius:6px;cursor:pointer}' +
+      '#view-inbox .ib-per button.is-on{background:var(--surface);color:var(--ink);box-shadow:0 0 0 1px var(--line)}' +
+      '#view-inbox .ib-filtros select{width:auto;font-size:.8125rem;padding:6px 9px}' +
+      '#view-inbox .ib-limpar{font-size:.8125rem;color:var(--accent-ink);background:none;border:0;cursor:pointer;text-decoration:underline;padding:0 .25rem}';
+    document.head.appendChild(st);
+  }
+  var f = ibFiltro();
+  clear(caixa);
+
+  var per = el('div', 'ib-per');
+  IB_PERIODOS.forEach(function (p) {
+    var b = el('button', f.dias === p[0] && !f.mes && !f.ano ? 'is-on' : null, p[1]);
+    b.type = 'button';
+    b.onclick = function () { f.dias = p[0]; f.mes = ''; f.ano = ''; ibRender(); };
+    per.appendChild(b);
+  });
+  caixa.appendChild(per);
+
+  /* Mes e ano sao outra maneira de perguntar: escolher um deles larga os
+     «ultimos dias». */
+  var mes = el('select');
+  mes.setAttribute('aria-label', 'M\u00eas');
+  mes.appendChild(new Option('Todos os meses', ''));
+  IB_MESES.forEach(function (m, i) {
+    var v = (i < 9 ? '0' : '') + (i + 1);
+    mes.appendChild(new Option(m, v));
+  });
+  mes.value = f.mes;
+  mes.onchange = function () { f.mes = mes.value; f.dias = 0; ibRender(); };
+  caixa.appendChild(mes);
+
+  var anos = {};
+  anos[String(new Date().getFullYear())] = true;
+  (IB.itens || []).forEach(function (i) { if (i.captured_at) anos[String(i.captured_at).slice(0, 4)] = true; });
+  if (f.ano) anos[f.ano] = true;
+  var ano = el('select');
+  ano.setAttribute('aria-label', 'Ano');
+  ano.appendChild(new Option('Todos os anos', ''));
+  Object.keys(anos).sort().reverse().forEach(function (a) { ano.appendChild(new Option(a, a)); });
+  ano.value = f.ano;
+  ano.onchange = function () { f.ano = ano.value; f.dias = 0; ibRender(); };
+  caixa.appendChild(ano);
+
+  if (ibFiltroActivo()) {
+    var limpar = el('button', 'ib-limpar', 'Limpar');
+    limpar.type = 'button';
+    limpar.onclick = function () { f.dias = 0; f.mes = ''; f.ano = ''; ibRender(); };
+    caixa.appendChild(limpar);
+  }
 }
 
 function ibItem(item) {
@@ -342,8 +455,8 @@ function ibItem(item) {
 
   /* Nos arrumados diz-se para onde foi cada coisa e o que ficou gravado: e
      a resposta a «catalogou-se sozinho e nao sei onde esta». */
-  if (item.status === 'catalogado' && item.approved_at) {
-    (item.links || []).forEach(function (l) {
+  if (item.status === 'catalogado') {
+    (item.links || []).filter(function (l) { return l.dados; }).forEach(function (l) {
       body.appendChild(el('div', 'ib-ia pronta', ibResumoLink(l)));
     });
   }
@@ -378,13 +491,15 @@ function ibItem(item) {
     desc.onclick = function () { ibEstado(item.id, 'descartado'); };
     acoes.appendChild(desc);
   } else if (item.status === 'catalogado' && !item.approved_at) {
-    var alvo = (item.links || []).filter(function (l) { return IB_EDITAVEIS.indexOf(l.tipo) >= 0; })[0];
-    if (alvo) {
-      var ed = el('button', 'btn', 'Editar');
+    /* Um pagamento que nasce de uma fatura traz o documento dela: cada um
+       tem o seu Editar, para nao ter de aprovar primeiro e corrigir depois. */
+    var alvos = (item.links || []).filter(function (l) { return IB_EDITAVEIS.indexOf(l.tipo) >= 0; });
+    alvos.forEach(function (alvo) {
+      var ed = el('button', 'btn', alvos.length > 1 ? 'Editar ' + ibNomeDoTipo(alvo.tipo).toLowerCase() : 'Editar');
       ed.type = 'button';
       ed.onclick = function () { ibEditarAlvo(item, alvo); };
       acoes.appendChild(ed);
-    }
+    });
     var ok = el('button', 'btn primary', 'Aprovar');
     ok.type = 'button';
     ok.onclick = function () { ibAprovar(item.id); };
