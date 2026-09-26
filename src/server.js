@@ -118,7 +118,8 @@ app.get('/api/bootstrap', async (_req, res) => {
              SELECT 'tarefa' AS origem, t.id,
                     t.title AS title,
                     COALESCE(c.name, '') AS detail,
-                    to_char(t.due_on,'YYYY-MM-DD') AS quando
+                    to_char(t.due_on,'YYYY-MM-DD') AS quando,
+                    t.context_id
                FROM tasks t LEFT JOIN contexts c ON c.id = t.context_id
               WHERE t.origin = 'real' AND t.aprovado AND NOT t.done AND t.status <> 'cancelada'
                 AND t.tipo <> 'nota'
@@ -129,7 +130,8 @@ app.get('/api/bootstrap', async (_req, res) => {
                     CASE p.id_doc_tipo WHEN 'tr' THEN 'Título de residência'
                                        ELSE 'Cartão de Cidadão' END || ' · ' || p.name,
                     'documento de identificação',
-                    to_char(p.id_doc_validade,'YYYY-MM-DD')
+                    to_char(p.id_doc_validade,'YYYY-MM-DD'),
+                    NULL::int
                FROM people p
               WHERE p.active AND p.id_doc_validade IS NOT NULL
                 AND p.id_doc_validade <= CURRENT_DATE + INTERVAL '60 days'
@@ -137,7 +139,8 @@ app.get('/api/bootstrap', async (_req, res) => {
              SELECT 'documento', d.id,
                     d.name,
                     COALESCE(d.entity, ''),
-                    to_char(d.valid_on,'YYYY-MM-DD')
+                    to_char(d.valid_on,'YYYY-MM-DD'),
+                    d.context_id
                FROM documents d
               WHERE d.aprovado AND d.valid_on IS NOT NULL
                 AND d.valid_on <= CURRENT_DATE + INTERVAL '60 days'
@@ -296,7 +299,7 @@ async function carregarGestao() {
     tarefas.tarefasParaGestao(),
     /* As areas vao junto: e delas que os ecras de gestao precisam para
        mostrar onde cada coisa vive, e poupa-se um pedido. */
-    all(`SELECT c.id, c.slug, c.name, c.parent_id, c.active, p.name AS parent_name
+    all(`SELECT c.id, c.slug, c.name, c.parent_id, c.active, c.color, p.name AS parent_name
            FROM contexts c LEFT JOIN contexts p ON p.id = c.parent_id
           ORDER BY COALESCE(p.sort, c.sort), COALESCE(p.id, c.id), c.parent_id NULLS FIRST, c.sort, c.id`),
     /* Quantas tarefas tem cada projeto ao certo. Sem isto, a lista so podia
