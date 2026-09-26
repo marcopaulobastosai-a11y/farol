@@ -123,6 +123,40 @@ function soData(v) {
   return m ? m[1] : null;
 }
 
+/* As notas de uma tarefa ou de um pagamento sao o que se le quando se vai
+   tratar do assunto, sem o papel a frente. O que a leitura escreveu fica como
+   esta; a seguir juntam-se as linhas que faltem com o que ficou nos campos -
+   entidade, referencia, montante, prazo - para nunca ser preciso abrir o PDF
+   so para saber o IBAN. */
+function euros(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n.toFixed(2).replace('.', ',') + ' \u20ac' : null;
+}
+function dataPt(v) {
+  const d = soData(v);
+  return d ? d.slice(8, 10) + '/' + d.slice(5, 7) + '/' + d.slice(0, 4) : null;
+}
+function notasCompletas(d, tipo) {
+  const base = String(d.notes || '').trim();
+  const tem = (x) => x && semAcentos(base).indexOf(semAcentos(String(x))) >= 0;
+  const quanto = d.amount === undefined || d.amount === null || d.amount === '' ? null : euros(d.amount);
+  const quem = d.payee || d.merchant || d.entity || null;
+  const ref = d.payment_ref || null;
+  const prazo = dataPt(d.due_on);
+  const linhas = [];
+  let prazoDito = false;
+  if (!base && tipo === 'pagamento') {
+    linhas.push('O que fazer: pagar' + (prazo ? ' at\u00e9 ' + prazo : '') + '.');
+    prazoDito = Boolean(prazo);
+  }
+  if (quem && !tem(quem)) linhas.push('Entidade: ' + quem);
+  if (ref && !tem(ref)) linhas.push('Refer\u00eancia: ' + ref);
+  if (quanto && !tem(quanto) && !tem(String(d.amount))) linhas.push('Montante: ' + quanto);
+  if (prazo && !prazoDito && !tem(prazo) && !tem(soData(d.due_on))) linhas.push('Prazo: ' + prazo);
+  const tudo = [base].concat(linhas).filter(Boolean).join('\n').trim();
+  return tudo || null;
+}
+
 const CRIAR = {
   async tarefa(d) {
     const title = String(d.title || '').trim();
@@ -131,7 +165,7 @@ const CRIAR = {
       `INSERT INTO tasks (title, notes, context_id, project_id, owner_id, status, priority,
                           starts_on, due_on, due_time, done, origin, scope)
        VALUES ($1,$2,$3,$4,$5,'aberta',$6,CURRENT_DATE,$7,$8,FALSE,'real',NULL) RETURNING id`,
-      [title, limpar(d.notes), limpar(d.context_id), limpar(d.project_id), limpar(d.owner_id),
+      [title, notasCompletas(d, 'tarefa'), limpar(d.context_id), limpar(d.project_id), limpar(d.owner_id),
        d.priority || 'normal', limpar(d.due_on), limpar(d.due_time)]);
     for (const pid of d.subjects || []) {
       await query('INSERT INTO task_subjects (task_id, person_id) VALUES ($1,$2) ON CONFLICT DO NOTHING',
@@ -151,7 +185,7 @@ const CRIAR = {
                           starts_on, due_on, amount, payee, payment_ref, done, origin, scope, aprovado)
        VALUES ('pagamento',$1,$2,$3,$4,$5,'aberta','normal',CURRENT_DATE,$6,$7,$8,$9,FALSE,'real',NULL,FALSE)
        RETURNING id`,
-      [title, limpar(d.notes), limpar(d.context_id), limpar(d.project_id), limpar(d.owner_id),
+      [title, notasCompletas(d, 'pagamento'), limpar(d.context_id), limpar(d.project_id), limpar(d.owner_id),
        limpar(soData(d.due_on)), d.amount === undefined || d.amount === null || d.amount === '' ? null : Number(d.amount),
        limpar(d.payee || d.merchant || d.entity), limpar(d.payment_ref)]);
     for (const pid of d.subjects || []) {
@@ -250,7 +284,7 @@ async function conteudoDosAlvos(ligacoes) {
   const tar = ids('pagamento').concat(ids('tarefa'));
   if (tar.length) {
     const linhas = await all(
-      `SELECT id, tipo, title, amount::float AS amount, payee, payment_ref,
+      `SELECT id, tipo, title, notes, amount::float AS amount, payee, payment_ref,
               context_id, owner_id, project_id, status, done,
               to_char(due_on, 'YYYY-MM-DD') AS due_on
          FROM tasks WHERE id = ANY($1)`, [tar]);
