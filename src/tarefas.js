@@ -484,6 +484,42 @@ async function importar(corpo) {
  * Rotas
  * ------------------------------------------------------------------ */
 
+/* Pagar e fechar com prova: fica a data, o valor e o metodo, juntam-se o
+   comprovativo e o recibo, e a despesa escreve-se sozinha nas Financas. E a
+   mesma coisa quer se carregue em «Pagar» nas Tarefas, quer se aprove na
+   caixa um comprovativo de transferencia (26 set). Devolve falso se o
+   pagamento nao existir. */
+async function pagar(id, b) {
+  const t = (await all(
+    `SELECT id, tipo, title, amount, payee, context_id, project_id, owner_id, repeat_rule
+       FROM tasks WHERE id = $1 AND origin = 'real'`, [id]))[0];
+  if (!t) return false;
+
+  const pago = valor(b.paid_amount) !== null ? valor(b.paid_amount) : (t.amount !== null ? Number(t.amount) : null);
+  const quando = limpar(b.paid_on) || hojeLisboa();
+  const metodo = METODOS.includes(String(b.payment_method || '').toLowerCase())
+    ? String(b.payment_method).toLowerCase() : limpar(b.payment_method);
+
+  let despesaId = null;
+  if (b.criar_despesa !== false && pago !== null) {
+    const pessoa = limpar(b.person_id) || t.owner_id;
+    const linhas = await all(
+      `INSERT INTO expenses (description, amount, spent_on, merchant, category, person_id,
+                             project_id, context_id, note, origin, aprovado)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'real',TRUE) RETURNING id`,
+      [t.title, pago, quando, limpar(t.payee), limpar(b.category), pessoa,
+       t.project_id, t.context_id, limpar(b.note)]);
+    despesaId = linhas[0].id;
+  }
+
+  await query(
+    `UPDATE tasks SET paid_on = $2, paid_amount = $3, payment_method = COALESCE($4, payment_method),
+            expense_id = COALESCE($5, expense_id), updated_at = now()
+      WHERE id = $1`, [id, quando, pago, metodo, despesaId]);
+  await juntarDocumentos(id, b.documentos);
+  return fechar(id, 'concluida');
+}
+
 function instalar(app, { carregarGestao, quem, ehAdmin }) {
   const falha = (res, err, onde) => {
     if (err.status) return res.status(err.status).json({ error: err.message });
@@ -517,38 +553,8 @@ function instalar(app, { carregarGestao, quem, ehAdmin }) {
      faltar a prova o pagamento fica pago na mesma, marcado como «falta
      comprovativo» - a vida real nao espera pelo PDF. */
   app.post('/api/tarefas/:id(\\d+)/pagar', async (req, res) => {
-    const id = Number(req.params.id);
-    const b = req.body || {};
     try {
-      const t = (await all(
-        `SELECT id, tipo, title, amount, payee, context_id, project_id, owner_id, repeat_rule
-           FROM tasks WHERE id = $1 AND origin = 'real'`, [id]))[0];
-      if (!t) return res.status(404).json({ error: 'Pagamento não encontrado.' });
-
-      const pago = valor(b.paid_amount) !== null ? valor(b.paid_amount) : (t.amount !== null ? Number(t.amount) : null);
-      const quando = limpar(b.paid_on) || hojeLisboa();
-      const metodo = METODOS.includes(String(b.payment_method || '').toLowerCase())
-        ? String(b.payment_method).toLowerCase() : limpar(b.payment_method);
-
-      let despesaId = null;
-      if (b.criar_despesa !== false && pago !== null) {
-        const pessoa = limpar(b.person_id) || t.owner_id;
-        const linhas = await all(
-          `INSERT INTO expenses (description, amount, spent_on, merchant, category, person_id,
-                                 project_id, context_id, note, origin, aprovado)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'real',TRUE) RETURNING id`,
-          [t.title, pago, quando, limpar(t.payee), limpar(b.category), pessoa,
-           t.project_id, t.context_id, limpar(b.note)]);
-        despesaId = linhas[0].id;
-      }
-
-      await query(
-        `UPDATE tasks SET paid_on = $2, paid_amount = $3, payment_method = COALESCE($4, payment_method),
-                expense_id = COALESCE($5, expense_id), updated_at = now()
-          WHERE id = $1`, [id, quando, pago, metodo, despesaId]);
-      await juntarDocumentos(id, b.documentos);
-
-      const ok = await fechar(id, 'concluida');
+      const ok = await pagar(Number(req.params.id), req.body || {});
       if (!ok) return res.status(404).json({ error: 'Pagamento não encontrado.' });
       res.json(await carregarGestao());
     } catch (err) { falha(res, err, 'POST pagar'); }
@@ -710,4 +716,4 @@ function instalar(app, { carregarGestao, quem, ehAdmin }) {
   });
 }
 
-module.exports = { instalar, tarefasParaGestao, importar, criar, alterar, fechar, umaTarefa, proximaData, descreverRegra, STATUS, PRIOS, TIPOS, PAPEIS };
+module.exports = { instalar, tarefasParaGestao, importar, criar, alterar, fechar, pagar, umaTarefa, proximaData, descreverRegra, STATUS, PRIOS, TIPOS, PAPEIS };
