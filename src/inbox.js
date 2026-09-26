@@ -186,6 +186,24 @@ function raizesDe(txt) {
     .filter((r) => (vistas[r] ? false : (vistas[r] = true)));
 }
 
+/* Os valores em euros escritos num texto: «600€», «738,00 €», «EUR 1.234,50».
+   Exige o simbolo ou «eur» ao lado, senao apanhava numeros de fatura e NIFs.
+   Serve para reconhecer um recorrente que guarda o valor nas notas em vez de
+   o ter no campo - e o caso de quase todos os que vieram do TickTick. */
+function valoresDe(txt) {
+  const s = String(txt || '');
+  const num = '(\\d{1,3}(?:[.\\s]\\d{3})*(?:[.,]\\d{1,2})?)';
+  const re = new RegExp(num + '\\s*(?:€|eur\\b|euros\\b)|(?:€|eur\\b|euros\\b)\\s*' + num, 'gi');
+  const out = [];
+  let m;
+  while ((m = re.exec(s))) {
+    const cru = m[1] || m[2];
+    const n = Number(String(cru).replace(/[.\s](?=\d{3}\b)/g, '').replace(',', '.'));
+    if (Number.isFinite(n) && out.indexOf(n) < 0) out.push(n);
+  }
+  return out;
+}
+
 /* O valor de um pagamento: o do campo, ou o que estiver escrito no titulo
    («Avenca de Contabilista — 321,03€»), que e como vinham do TickTick. */
 function valorDe(t) {
@@ -198,15 +216,24 @@ function valorDe(t) {
    pontos e e preciso somar pelo menos 5, com pelo menos uma pista de nome:
    - a mesma entidade de multibanco ............................ 4
    - o nome de quem cobra aparece no pagamento ................. 3
+   - ... ou so nas notas dele .................................. 2
    - cada raiz do titulo em comum («avenca», «contab») ......... 2 (ate 6)
-   - o mesmo valor (do campo ou escrito no titulo) ............. 3
+   - o mesmo valor (do campo, do titulo ou das notas) .......... 3
    - prazo a 35 dias ou menos do da fatura ..................... 2
    Um prazo a mais de 35 dias exclui (e outra ocorrencia). Sem prazo num dos
    lados, so conta se o valor for o mesmo. Um pagamento que ja tem a sua
    fatura e de outro mes: fica de fora. Ganha quem somar mais; em empate, o
    de prazo mais proximo. Caso real (26 set): «Avenca contabilidade agosto
    2026 - Cesto de Numeros» contra «Pagamento Avenca de Contabilista —
-   321,03€»: duas raizes (4) + valor (3) + prazo a 24 dias (2) = 9. */
+   321,03€»: duas raizes (4) + valor (3) + prazo a 24 dias (2) = 9.
+
+   As notas contam (27 set): um recorrente vindo do TickTick chama-se
+   «Pagamento Mensalidade Royalties Kids & Nits» e nao diz no titulo nem no
+   campo a quem paga nem quanto - diz nas notas («A INTERCORPUS, LDA»,
+   «600€ + IVA = 738,00€»). A fatura da INTERCORPUS nao somava ponto nenhum
+   de nome e nascia um pagamento novo ao lado da rotina. Com as notas:
+   nome (2) + valor (3) + prazo a 3 dias (2) = 7. Nas raizes as notas nao
+   entram: sao compridas e dariam parecencas a torto e a direito. */
 async function pontuarPagamentos(d) {
   const quem = d.payee || d.merchant || d.entity || '';
   const nomes = palavrasDe(quem);
@@ -215,23 +242,30 @@ async function pontuarPagamentos(d) {
   const valor = d.amount === undefined || d.amount === null || d.amount === '' ? null : Number(d.amount);
   const prazo = soData(d.due_on);
   const linhas = await all(
-    `SELECT t.id, t.title, t.payee, t.payment_ref, t.amount::float AS amount,
+    `SELECT t.id, t.title, t.payee, t.payment_ref, t.notes, t.repeat_rule, t.amount::float AS amount,
             to_char(t.due_on, 'YYYY-MM-DD') AS due_on
        FROM tasks t
       WHERE t.tipo = 'pagamento' AND t.origin = 'real' AND NOT t.done
         AND t.status NOT IN ('concluida', 'cancelada')
         AND NOT EXISTS (SELECT 1 FROM task_documents td
                          WHERE td.task_id = t.id AND td.papel = 'fatura')`);
+  const cabe = (k, txt) => new RegExp('(^|[^a-z0-9])' + k + '([^a-z0-9]|$)').test(txt);
   const todos = linhas.map((t) => {
     const texto = semAcentos([t.title, t.payee, t.payment_ref].filter(Boolean).join(' '));
+    const notas = semAcentos(t.notes || '');
     const delas = raizesDe([t.title, t.payee].filter(Boolean).join(' '));
     let pontos = 0, nome = false;
-    if (ent && texto.indexOf(ent) >= 0) { pontos += 4; nome = true; }
-    if (nomes.some((k) => new RegExp('(^|[^a-z0-9])' + k + '([^a-z0-9]|$)').test(texto))) { pontos += 3; nome = true; }
+    if (ent && (texto.indexOf(ent) >= 0 || notas.indexOf(ent) >= 0)) { pontos += 4; nome = true; }
+    if (nomes.some((k) => cabe(k, texto))) { pontos += 3; nome = true; }
+    /* So nas notas: vale menos, e so com palavras compridas - «lda» ou «tvde»
+       apanhavam meia casa. */
+    else if (nomes.some((k) => k.length >= 5 && cabe(k, notas))) { pontos += 2; nome = true; }
     const comuns = raizes.filter((x) => delas.indexOf(x) >= 0).length;
     if (comuns) { pontos += Math.min(comuns, 3) * 2; nome = true; }
     const dele = valorDe(t);
-    const mesmoValor = valor !== null && dele !== null && Math.abs(valor - dele) < 0.01;
+    const mesmoValor = valor !== null && (
+      (dele !== null && Math.abs(valor - dele) < 0.01) ||
+      valoresDe(t.notes).some((n) => Math.abs(valor - n) < 0.01));
     if (mesmoValor) pontos += 3;
     let distancia = 999, datasOk = true;
     if (prazo && t.due_on) {
@@ -241,6 +275,7 @@ async function pontuarPagamentos(d) {
       datasOk = false;
     }
     return { id: t.id, title: t.title, amount: dele, due_on: t.due_on, pontos, distancia,
+             rotina: Boolean(t.repeat_rule),
              serve: nome && datasOk && pontos >= 5 };
   });
   todos.sort((a, b) => (b.pontos - a.pontos) || (a.distancia - b.distancia) || (a.id - b.id));
@@ -1908,4 +1943,7 @@ function instalar(app) {
   });
 }
 
-module.exports = { instalar, bucketPronto, arquivoPronto: () => pronto('arquivo') };
+/* pontuarPagamentos sai tambem: e a regra que decide se uma fatura se junta a
+   um pagamento que ja existe ou faz nascer um novo, e da para a exercitar
+   sozinha contra a base de dados. */
+module.exports = { instalar, bucketPronto, arquivoPronto: () => pronto('arquivo'), pontuarPagamentos };
