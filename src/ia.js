@@ -83,12 +83,37 @@ const ESQUEMA = {
             required: ['area']
           }
         },
-        required: ['tipo', 'dados']
+        required: ['tipo', 'confianca', 'dados']
       }
     }
   },
-  required: ['destinos']
+  required: ['resumo', 'destinos']
 };
+
+/* Campos opcionais o modelo salta-os quando lhe apetece: o comprovativo da
+   Cesto Numeros (26 set) vinha so com titulo e area, sem montante, data nem
+   faturas, e a data ia parar a valid_on. Todos os campos passam a ser
+   obrigatorios mas podem ser null: assim o modelo tem de olhar para cada um
+   e dizer «nao ha», em vez de se esquecer dele. Os null saem a seguir. */
+(function () {
+  const d = ESQUEMA.properties.destinos.items.properties.dados;
+  Object.keys(d.properties).forEach((k) => {
+    if (k === 'area') return;
+    const p = d.properties[k];
+    p.type = [p.type, 'null'];
+  });
+  d.required = Object.keys(d.properties);
+})();
+
+function semNulos(proposta) {
+  (proposta.destinos || []).forEach((x) => {
+    const d = (x && x.dados) || {};
+    Object.keys(d).forEach((k) => {
+      if (d[k] === null || d[k] === '' || d[k] === undefined) delete d[k];
+    });
+  });
+  return proposta;
+}
 
 const SISTEMA = [
   'Es o classificador da caixa de entrada do Farol, um gestor pessoal e familiar portugues.',
@@ -306,7 +331,7 @@ async function perguntar(buffer, mime, nome, modelo) {
   if (!cru) throw new Error('resposta sem proposta');
 
   let proposta;
-  try { proposta = JSON.parse(cru); }
+  try { proposta = semNulos(JSON.parse(cru)); }
   catch (e) { throw new Error('proposta ilegivel'); }
   /* Um ficheiro e uma coisa so. Se o modelo propuser mais do que uma, vale a
      primeira - mas os campos que leu nas outras nao se perdem: juntam-se a
