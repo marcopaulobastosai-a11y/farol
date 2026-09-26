@@ -314,8 +314,14 @@ async function pontuarComprovativo(d, ignorar) {
                            AND td.document_id <> $1)`, [Number(fora.doc) || 0, Number(fora.item) || 0]);
   const todos = linhas.map((t) => {
     const texto = semAcentos([t.title, t.payee].filter(Boolean).join(' '));
-    const deles = numerosDe([t.title, t.notes, t.papeis].filter(Boolean).join(' '));
-    const faturas = nums.filter((n) => deles.indexOf(n) >= 0);
+    /* O numero no papel da fatura (o ficheiro, o documento) vale mais do que
+       o numero nas notas: as notas de um recorrente guardam o numero de uma
+       fatura antiga (a avenca tinha «FT CN/537» nas notas e a fatura de
+       agosto e a CN603). */
+    const dosPapeis = numerosDe(t.papeis || '');
+    const dasNotas = numerosDe([t.title, t.notes].filter(Boolean).join(' '));
+    const fortes = nums.filter((n) => dosPapeis.indexOf(n) >= 0);
+    const faturas = nums.filter((n) => fortes.indexOf(n) >= 0 || dasNotas.indexOf(n) >= 0);
     let pontos = 0, nome = false;
     if (faturas.length) pontos += 6;
     if (nomes.some((k) => new RegExp('(^|[^a-z0-9])' + k + '([^a-z0-9]|$)').test(texto))) { pontos += 3; nome = true; }
@@ -331,7 +337,7 @@ async function pontuarComprovativo(d, ignorar) {
       if (distancia > 60) datasOk = false; else if (distancia <= 45) pontos += 2;
     }
     return { id: t.id, title: t.title, amount: dele, due_on: t.due_on, paid_on: t.paid_on,
-             pago: Boolean(t.paid_on), faturas, pontos, distancia,
+             pago: Boolean(t.paid_on), faturas, fortes, pontos, distancia,
              serve: faturas.length > 0 || (nome && datasOk && pontos >= 5) };
   });
   todos.sort((a, b) => (b.pontos - a.pontos) || (a.distancia - b.distancia) || (a.id - b.id));
@@ -347,13 +353,29 @@ async function pontuarComprovativo(d, ignorar) {
    4. sem valor lido, o melhor que sirva.
    O que ficar por encontrar (faturas e dinheiro) vai com a leitura, para o
    cartao o dizer e para se poder criar o pagamento que falta. */
+/* Cada numero de fatura vai para um pagamento, e cada pagamento fica com um
+   numero so: primeiro os que o tem no proprio papel, depois os que o tem so
+   nas notas. */
+function atribuirFaturas(nums, candidatos) {
+  const porNumero = {};
+  const usados = [];
+  ['fortes', 'faturas'].forEach((campo) => {
+    nums.forEach((n) => {
+      if (porNumero[n]) return;
+      const c = candidatos.find((t) => (t[campo] || []).indexOf(n) >= 0 && usados.indexOf(t) < 0);
+      if (c) { porNumero[n] = c; usados.push(c); }
+    });
+  });
+  return porNumero;
+}
+
 async function pagamentosDoComprovativo(d, ignorar) {
   const { todos, nums, valor } = await pontuarComprovativo(d, ignorar);
+  const porNumero = atribuirFaturas(nums, todos);
   let escolhidos = [];
-  for (const n of nums) {
-    const c = todos.find((t) => t.faturas.indexOf(n) >= 0 && escolhidos.indexOf(t) < 0);
-    if (c) escolhidos.push(c);
-  }
+  Object.keys(porNumero).forEach((n) => {
+    if (escolhidos.indexOf(porNumero[n]) < 0) escolhidos.push(porNumero[n]);
+  });
   const bons = todos.filter((t) => t.serve);
   if (!escolhidos.length && valor !== null) {
     const igual = bons.find((t) => t.amount !== null && Math.abs(t.amount - valor) < 0.01);
@@ -374,7 +396,7 @@ async function pagamentosDoComprovativo(d, ignorar) {
   }
   if (!escolhidos.length && valor === null && bons[0]) escolhidos = [bons[0]];
 
-  const faltam = nums.filter((n) => !escolhidos.some((t) => t.faturas.indexOf(n) >= 0));
+  const faltam = nums.filter((n) => !porNumero[n]);
   const coberto = escolhidos.reduce((s, t) => s + (t.amount || 0), 0);
   const resto = valor !== null && escolhidos.length && valor - coberto > 0.01
     ? Math.round((valor - coberto) * 100) / 100 : null;
@@ -1394,17 +1416,23 @@ function instalar(app) {
     }
     const valor = numero(x.amount);
     const coberto = escolhidos.reduce((s, t) => s + (t.amount || 0), 0);
+    /* O que ficou por encontrar muda com a escolha: o cartao diz a verdade. */
+    const deles = pistas.todos.filter((c) => escolhidos.some((t) => t.id === c.id));
+    const cobertos = atribuirFaturas(pistas.nums, deles);
+    const faltam = b.novo ? [] : pistas.nums.filter((n) => !cobertos[n]);
+    /* Um so pagamento leva a transferencia toda, a menos que haja faturas
+       por encontrar ou um pagamento novo para o resto. */
+    const tudoNumSo = escolhidos.length === 1 && !b.novo && !faltam.length;
     for (const t of escolhidos) {
       const ja = velhos.find((v) => v.target_id === t.id);
       if (ja && ja.criado) continue;
-      await ligarComprovativo(id, t.id, cp.doc, x,
-        escolhidos.length === 1 && !b.novo ? valor : t.amount);
+      await ligarComprovativo(id, t.id, cp.doc, x, tudoNumSo ? valor : t.amount);
     }
     let resto = valor !== null && valor - coberto > 0.01 ? Math.round((valor - coberto) * 100) / 100 : null;
     if (b.novo) {
-      const faltam = x.faltam || [];
+      const porPagar = pistas.nums.filter((n) => !cobertos[n]);
       const titulo = String(b.titulo || '').trim() || (x.title || 'Pagamento') +
-        (faltam.length ? ' \u2014 fatura ' + faltam.join(', ') : '');
+        (porPagar.length ? ' \u2014 fatura ' + porPagar.join(', ') : '');
       const novo = await CRIAR.pagamento({
         title: titulo, amount: resto !== null ? resto : valor, due_on: x.paid_on,
         payee: x.payee || x.merchant, context_id: x.context_id, owner_id: x.person_id,
@@ -1421,9 +1449,6 @@ function instalar(app) {
          ON CONFLICT (task_id, document_id) DO UPDATE SET papel = 'comprovativo'`, [novo, cp.doc]);
       resto = null;
     }
-    /* O que ficou por encontrar muda com a escolha: o cartao diz a verdade. */
-    const faturasDe = (tid) => (pistas.todos.find((c) => c.id === tid) || { faturas: [] }).faturas;
-    const faltam = b.novo ? [] : pistas.nums.filter((n) => !escolhidos.some((t) => faturasDe(t.id).indexOf(n) >= 0));
     await query(
       `UPDATE inbox_links SET dados = dados || $2::jsonb
         WHERE inbox_id = $1 AND target_type = 'documento' AND target_id = $3`,
