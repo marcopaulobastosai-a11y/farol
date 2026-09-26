@@ -148,8 +148,8 @@ const CRIAR = {
     if (!title) throw new Error('O pagamento precisa de um título.');
     const rows = await all(
       `INSERT INTO tasks (tipo, title, notes, context_id, project_id, owner_id, status, priority,
-                          starts_on, due_on, amount, payee, payment_ref, done, origin, scope)
-       VALUES ('pagamento',$1,$2,$3,$4,$5,'aberta','normal',CURRENT_DATE,$6,$7,$8,$9,FALSE,'real',NULL)
+                          starts_on, due_on, amount, payee, payment_ref, done, origin, scope, aprovado)
+       VALUES ('pagamento',$1,$2,$3,$4,$5,'aberta','normal',CURRENT_DATE,$6,$7,$8,$9,FALSE,'real',NULL,FALSE)
        RETURNING id`,
       [title, limpar(d.notes), limpar(d.context_id), limpar(d.project_id), limpar(d.owner_id),
        limpar(soData(d.due_on)), d.amount === undefined || d.amount === null || d.amount === '' ? null : Number(d.amount),
@@ -215,7 +215,9 @@ const CRIAR = {
 };
 
 /* O que precisa de uma aprovacao antes de aparecer nos ecras, e onde mora. */
-const APROVAVEIS = { documento: 'documents', despesa: 'expenses' };
+/* O pagamento juntou-se a 26 set: dinheiro que vai sair tambem merece um
+   segundo olhar antes de entrar nas Tarefas. */
+const APROVAVEIS = { documento: 'documents', despesa: 'expenses', pagamento: 'tasks' };
 
 /* O conteudo das linhas que nasceram destes ficheiros, para o cartao da caixa
    poder mostrar - e deixar corrigir - o que esta gravado. */
@@ -430,6 +432,23 @@ async function executarTriagem(id, destinos) {
         }
         await query('UPDATE expenses SET document_id = $2 WHERE id = $1', [dp.id, docId]);
       }
+    }
+
+    /* Um pagamento que nasce de um ficheiro traz o papel com ele: o ficheiro
+       passa a ser tambem um documento (a fatura), como ja acontecia com as
+       despesas. Sem isto a fatura da MEO ficou nas Tarefas sem papel nenhum. */
+    const pagamentos = criados.filter((c) => c.tipo === 'pagamento');
+    if (pagamentos.length && item.file_path && !criados.some((c) => c.tipo === 'documento')) {
+      const t = (await all(
+        `SELECT title, payee, context_id, owner_id FROM tasks WHERE id = $1`, [pagamentos[0].id]))[0];
+      const docId = await CRIAR.documento({
+        name: t.title, entity: t.payee, kind: 'fatura',
+        context_id: t.context_id, person_id: t.owner_id
+      });
+      await query(
+        `INSERT INTO inbox_links (inbox_id, target_type, target_id) VALUES ($1,'documento',$2)
+         ON CONFLICT DO NOTHING`, [id, docId]);
+      criados.push({ tipo: 'documento', id: docId });
     }
 
     /* Se o mesmo ficheiro deu um pagamento e um documento, o documento e a
