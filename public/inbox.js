@@ -51,6 +51,17 @@ var IB_DESTINOS = [
     { k: 'spent_on', l: 'Data', tipo: 'date' },
     { k: 'merchant', l: 'Onde', tipo: 'text' },
     { k: 'context_id', l: 'Área', tipo: 'area' }
+  ] },
+  /* A prova de um pagamento ja feito: agarra-se ao pagamento que prova (ou
+     aos varios, quando uma transferencia paga mais do que uma fatura). */
+  { tipo: 'comprovativo', nome: 'Comprovativo de pagamento', campos: [
+    { k: 'title', l: 'O que se pagou', tipo: 'text' },
+    { k: 'amount', l: 'Montante (\u20ac)', tipo: 'number' },
+    { k: 'paid_on', l: 'Pago em', tipo: 'date' },
+    { k: 'payee', l: 'A quem', tipo: 'text' },
+    { k: 'faturas', l: 'Faturas que paga (n\u00fameros)', tipo: 'text' },
+    { k: 'context_id', l: '\u00c1rea', tipo: 'area' },
+    { k: 'person_id', l: 'De quem', tipo: 'pessoa' }
   ] }
 ];
 
@@ -94,6 +105,11 @@ var IB_CSS_PESSOA =
   '.ib-dlga{display:flex;justify-content:flex-end;gap:.5rem;margin-top:1rem}' +
   '.ib-dlgc select{width:100%;padding:.55rem .6rem;border:1px solid var(--line,#d6dbe1);border-radius:10px;background:var(--surface);color:inherit;font:inherit;font-size:.875rem}' +
   '.ib-dlgc .ib-atual{font-size:.8125rem;margin:0 0 .6rem}' +
+  '.ib-cpl{max-height:50vh;overflow:auto;border:1px solid var(--line,#d6dbe1);border-radius:10px;padding:.35rem .5rem;margin-bottom:.6rem}' +
+  '.ib-cpi{display:flex;gap:.55rem;align-items:flex-start;padding:.35rem 0;font-size:.875rem;cursor:pointer}' +
+  '.ib-cpi input{margin-top:.2rem;flex:none}' +
+  '.ib-cpg{font-size:.75rem;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:.5rem 0 .15rem}' +
+  '.ib-cpn{margin-bottom:.4rem}' +
   /* Catalogar e corrigir sao formularios, nao uma escolha rapida: precisam
      de mais largura e de poder rolar quando o ecra e baixo. */
   '.ib-dlg.larga{max-width:46rem}' +
@@ -513,6 +529,8 @@ function ibItem(item) {
     (item.links || []).filter(function (l) { return l.dados; }).forEach(function (l) {
       body.appendChild(el('div', 'ib-ia pronta', ibResumoLink(l)));
     });
+    var falta = ibFaltaNoComprovativo(item);
+    if (falta) body.appendChild(el('div', 'ib-ia falhou', falta));
   }
 
   /* De quem e o papel. E a primeira coisa que se procura num ficheiro velho,
@@ -555,7 +573,9 @@ function ibItem(item) {
       acoes.appendChild(ed);
     });
     ibBotaoTrocar(item, acoes);
-    var ok = el('button', 'btn primary', 'Aprovar');
+    var ok = el('button', 'btn primary', ibPagaAoAprovar(item) ? 'Aprovar e dar como pago'
+      : ibComprovativo(item) && !(item.links || []).some(function (l) { return l.tipo === 'pagamento'; })
+        ? 'Aprovar como despesa' : 'Aprovar');
     ok.type = 'button';
     ok.onclick = function () { ibAprovar(item.id); };
     acoes.appendChild(ok);
@@ -668,7 +688,49 @@ function ibGravarPessoa(id, pid, dlg) {
 /* A fatura pode ter ido parar ao pagamento errado (ou juntado-se a um que
    nao era o dela). Aqui escolhe-se outro da lista, do mais parecido para o
    menos, ou nenhum: nasce um pagamento novo so com esta fatura. */
+/* O documento de um comprovativo, se o item for um. */
+function ibComprovativo(item) {
+  return (item.links || []).filter(function (l) {
+    return l.tipo === 'documento' && l.papel === 'comprovativo';
+  })[0] || null;
+}
+
+/* Ha pagamentos por pagar ligados a este comprovativo: aprovar da-os como pagos. */
+function ibPagaAoAprovar(item) {
+  return (item.links || []).some(function (l) {
+    return l.tipo === 'pagamento' && l.papel === 'comprovativo' && !(l.dados && (l.dados.paid_on || l.dados.done));
+  });
+}
+
+/* O que o comprovativo paga e nao se encontrou no Farol: faturas e dinheiro. */
+function ibFaltaNoComprovativo(item) {
+  var cp = ibComprovativo(item);
+  if (!cp) return '';
+  var pags = (item.links || []).filter(function (l) { return l.tipo === 'pagamento'; });
+  var partes = [];
+  if (!pags.length) {
+    partes.push('N\u00e3o encontrei o pagamento que isto prova.' +
+      (item.approved_at ? '' : ' Se aprovares assim, fica como despesa.'));
+  }
+  if (cp.faltam && cp.faltam.length) {
+    partes.push('Sem pagamento no Farol: fatura ' + cp.faltam.join(', ') +
+      (cp.resto ? ' (' + ibEuros(cp.resto) + ')' : '') + '.');
+  } else if (cp.resto) {
+    partes.push('Falta encontrar o pagamento de ' + ibEuros(cp.resto) + '.');
+  }
+  if (partes.length && !item.approved_at) partes.push('Usa \u00abPagamentos que prova\u00bb.');
+  return partes.join(' ');
+}
+
 function ibBotaoTrocar(item, acoes) {
+  if (ibComprovativo(item)) {
+    if (item.approved_at) return;
+    var bc = el('button', 'btn', 'Pagamentos que prova');
+    bc.type = 'button';
+    bc.onclick = function () { ibTrocarPagamento(item); };
+    acoes.appendChild(bc);
+    return;
+  }
   var lp = (item.links || []).filter(function (l) { return l.tipo === 'pagamento'; })[0];
   if (!lp) return;
   var b = el('button', 'btn', 'Trocar pagamento');
@@ -689,8 +751,96 @@ function ibLinhaPagamento(p) {
   return partes.join(' · ');
 }
 
+function ibLinhaComprovativo(p) {
+  var partes = [p.title || ('#' + p.id)];
+  if (p.amount !== null && p.amount !== undefined) partes.push(ibEuros(p.amount));
+  if (p.paid_on) partes.push('pago a ' + String(p.paid_on).split('-').reverse().join('/') + ', sem prova');
+  else if (p.due_on) partes.push('at\u00e9 ' + String(p.due_on).split('-').reverse().join('/'));
+  return partes.join(' \u00b7 ');
+}
+
+/* Um comprovativo pode pagar varias faturas: aqui escolhem-se caixas, e a
+   soma escolhida confere-se com o montante transferido. O que sobrar pode
+   virar um pagamento novo (a fatura que ainda nao estava no Farol). */
+function ibEscolherComprovativo(item, r) {
+  var dlg = el('dialog', 'ib-dlg larga');
+  var cx = el('div', 'ib-dlgc');
+  cx.appendChild(el('h3', null, 'Que pagamentos prova este comprovativo' + String.fromCharCode(63)));
+  cx.appendChild(el('p', null, 'Ao aprovar, os que estiverem por pagar ficam pagos com a data e o valor da transfer\u00eancia.'));
+  var lista = el('div', 'ib-cpl');
+  var caixas = [];
+  function linha(p, marcado) {
+    var w = el('label', 'ib-cpi');
+    var c = el('input'); c.type = 'checkbox'; c.checked = Boolean(marcado); c.value = String(p.id);
+    c.dataset.valor = p.amount === null || p.amount === undefined ? '' : String(p.amount);
+    c.onchange = conta;
+    w.appendChild(c);
+    w.appendChild(el('span', null, ibLinhaComprovativo(p)));
+    caixas.push(c);
+    return w;
+  }
+  (r.atuais || []).forEach(function (p) { lista.appendChild(linha(p, true)); });
+  var parecidos = (r.candidatos || []).filter(function (c) { return c.serve; });
+  var outros = (r.candidatos || []).filter(function (c) { return !c.serve; });
+  if (parecidos.length) {
+    lista.appendChild(el('div', 'ib-cpg', 'Parecidos'));
+    parecidos.forEach(function (p) { lista.appendChild(linha(p, false)); });
+  }
+  if (outros.length) {
+    lista.appendChild(el('div', 'ib-cpg', 'Outros por pagar ou pagos sem prova'));
+    outros.forEach(function (p) { lista.appendChild(linha(p, false)); });
+  }
+  cx.appendChild(lista);
+  var novoW = el('label', 'ib-cpi ib-cpn');
+  var novo = el('input'); novo.type = 'checkbox'; novo.id = 'ibCpNovo'; novo.onchange = conta;
+  var novoT = el('span', null, '');
+  novoW.appendChild(novo); novoW.appendChild(novoT);
+  cx.appendChild(novoW);
+  var soma = el('p', 'ib-atual', '');
+  cx.appendChild(soma);
+  function conta() {
+    var s = 0;
+    caixas.forEach(function (c) { if (c.checked && c.dataset.valor !== '') s += Number(c.dataset.valor); });
+    var falta = r.valor !== null && r.valor !== undefined ? Math.round((r.valor - s) * 100) / 100 : null;
+    novoT.textContent = 'Criar um pagamento novo' + (falta !== null && falta > 0.005 ? ' com o que falta (' + ibEuros(falta) + ')' : '') +
+      ((r.faltam || []).length ? ' \u2014 fatura ' + r.faltam.join(', ') : '');
+    soma.textContent = r.valor !== null && r.valor !== undefined
+      ? 'Escolhido: ' + ibEuros(s) + ' de ' + ibEuros(r.valor) + ' transferidos.' : '';
+  }
+  conta();
+  var pe = el('div', 'ib-dlga');
+  var gravar = el('button', 'btn primary', 'Gravar');
+  gravar.type = 'button';
+  gravar.onclick = function () {
+    var paras = caixas.filter(function (c) { return c.checked; }).map(function (c) { return Number(c.value); });
+    gravar.disabled = true;
+    apiGestao('/api/inbox/' + item.id + '/pagamento?estado=' + IB.estado, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ paras: paras, novo: novo.checked })
+    }).then(function (d) {
+      IB.itens = d.itens || []; IB.porTriar = d.porTriar || 0; IB.porAprovar = d.porAprovar || 0; ibRender();
+      dlg.close(); dlg.remove();
+      toast('Gravado. Os pagamentos ficam pagos quando aprovares.');
+    }).catch(function (e) {
+      gravar.disabled = false;
+      toast(e.message || 'N\u00e3o foi poss\u00edvel gravar.');
+    });
+  };
+  var fecha = el('button', 'btn', 'Cancelar');
+  fecha.type = 'button';
+  fecha.onclick = function () { dlg.close(); dlg.remove(); };
+  pe.appendChild(gravar); pe.appendChild(fecha);
+  cx.appendChild(pe);
+  dlg.appendChild(cx);
+  dlg.addEventListener('cancel', function () { setTimeout(function () { dlg.remove(); }, 0); });
+  ($('view-inbox') || document.body).appendChild(dlg);
+  dlg.showModal();
+}
+
 function ibTrocarPagamento(item) {
   apiGestao('/api/inbox/' + item.id + '/pagamentos').then(function (r) {
+    if (r.modo === 'comprovativo') { ibEscolherComprovativo(item, r); return; }
     var atual = r.atual || null;
     var cands = r.candidatos || [];
     var dlg = el('dialog', 'ib-dlg');
@@ -781,11 +931,14 @@ var IB_COMUM = {
   documento: { name: 'titulo', entity: 'entidade', issued_on: 'data', valid_on: 'validade',
     person_id: 'pessoa', context_id: 'area' },
   despesa: { description: 'titulo', amount: 'valor', spent_on: 'data', merchant: 'entidade',
-    context_id: 'area' }
+    context_id: 'area' },
+  comprovativo: { title: 'titulo', amount: 'valor', paid_on: 'pago', payee: 'entidade',
+    faturas: 'faturas', context_id: 'area', person_id: 'pessoa' }
 };
 /* Quando o destino nao tem o seu proprio valor, vai buscar o mais parecido:
    o vencimento de uma fatura e o dia do evento sao a mesma data. */
-var IB_PERTO = { prazo: ['validade', 'dia'], dia: ['prazo', 'validade', 'data'], data: ['dia'] };
+var IB_PERTO = { prazo: ['validade', 'dia'], dia: ['prazo', 'validade', 'data'], data: ['dia', 'pago'],
+  pago: ['data', 'prazo'] };
 
 function ibDataCurta(v) {
   var m = /^(\d{4}-\d{2}-\d{2})/.exec(String(v || ''));
@@ -815,6 +968,8 @@ function ibValoresIniciais(item, semente) {
     pos('hora', x.at);
     pos('data', ibDataCurta(x.spent_on) || ibDataCurta(x.issued_on));
     pos('validade', ibDataCurta(x.valid_on));
+    pos('pago', ibDataCurta(x.paid_on));
+    pos('faturas', x.faturas);
     pos('entidade', x.payee || x.entity || x.merchant);
     pos('ref', x.payment_ref);
     pos('notas', x.notes);
@@ -1092,9 +1247,11 @@ function ibSubmeterTriagem() {
     if (typeof loadGestao === 'function') loadGestao();
     /* Quando a fatura era de um pagamento que ja existia, diz-se qual: e
        a diferenca entre «criei outro» e «juntei ao que la estava». */
-    toast(IB.juntou
-      ? 'Juntei a fatura ao pagamento que j\u00e1 existia: ' + (IB.juntou.titulo || '') + '.'
-      : 'Catalogado.');
+    toast(IB.juntou && IB.juntou.comprovativo
+      ? 'Comprovativo agarrado a: ' + (IB.juntou.titulo || '') + '. Fica pago quando aprovares.'
+      : IB.juntou
+        ? 'Juntei a fatura ao pagamento que j\u00e1 existia: ' + (IB.juntou.titulo || '') + '.'
+        : 'Catalogado.');
     IB.juntou = null;
   }).catch(function (e) { toast(e.message || 'Não foi possível catalogar.'); });
 }
@@ -1254,7 +1411,10 @@ function ibResumoLink(l) {
   var ctx = (typeof G !== 'undefined' && G.contextos) ? G.contextos : [];
   var area = ctx.filter(function (c) { return c.id === x.context_id; })[0];
   if (area) partes.push('\u00b7 ' + area.name);
-  if ((l.tipo === 'pagamento' || l.tipo === 'tarefa') && x.done) partes.push('\u00b7 feito');
+  if (l.tipo === 'pagamento' && x.paid_on) partes.push('\u00b7 pago a ' + ibDataPt(x.paid_on));
+  else if ((l.tipo === 'pagamento' || l.tipo === 'tarefa') && x.done) partes.push('\u00b7 feito');
+  if (l.papel === 'comprovativo' && l.tipo === 'pagamento') partes.push('\u00b7 com este comprovativo');
+  else if (l.papel === 'comprovativo') partes.push('\u00b7 comprovativo');
   if (l.criado === false) partes.push('\u00b7 j\u00e1 existia');
   return partes.join(' ');
 }
