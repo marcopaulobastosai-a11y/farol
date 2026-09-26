@@ -21,14 +21,18 @@
  * essencial - a contagem e o dinheiro. E o que faz valer a pena recolher:
  * perde-se o detalhe, nao se perde a informacao.
  *
- * Os tres filtros mandam no ecra inteiro - nos cinco widgets e nos numeros
- * do topo ao mesmo tempo:
- *   - Onde:   a sub-area (Tudo, Cupula Arejada, Falua Vibrante...);
- *   - Quem:   uma pessoa do agregado, e se conta como dono, por causa de
- *             quem, ou ambos;
- *   - Quando: em atraso, 7/30/90 dias, 12 meses, tudo, ou um mes e ano
- *             escolhidos a mao.
- * A escolha fica guardada por area, como ja acontecia com a sub-area.
+ * Os filtros mandam no ecra inteiro - nos widgets e nos numeros do topo ao
+ * mesmo tempo - e vivem numa linha so, cada um numa lista pendente com
+ * escolha multipla (pedido do Marco, 26 set: as filas de botoes ocupavam
+ * meio ecra):
+ *   - Onde:     uma ou mais sub-areas (nenhuma escolhida = tudo);
+ *   - Quando:   em atraso, 7/30/90 dias, 12 meses, e meses ou anos
+ *               escolhidos a mao - varios somam-se (nenhum = tudo);
+ *   - Fechados: tarefas feitas, pagamentos pagos, eventos que passaram;
+ *   - Quem:     uma pessoa, e se conta como dono, por causa de quem, ou
+ *               ambos. Nao existe no Profissional (semQuem): o trabalho das
+ *               empresas e do Marco, e o filtro so ocupava espaco.
+ * A escolha fica guardada por area.
  *
  * O que o periodo faz a cada widget:
  *   - tarefas e pagamentos: a data de entrega; o que nao tem data aparece
@@ -50,7 +54,7 @@ var AE_AREAS = [
   { view: 'casa', nome: 'casa' },
   { view: 'financas', nome: 'financas' },
   { view: 'saude', nome: 'saude' },
-  { view: 'profissional', nome: 'profissional', novo: true, titulo: 'Profissional',
+  { view: 'profissional', nome: 'profissional', novo: true, titulo: 'Profissional', semQuem: true,
     sub: 'Operação corrente das empresas, do trabalho e do MBA',
     icone: '<rect x="3.5" y="7" width="17" height="12" rx="2"/><path d="M9 7V5.5A1.5 1.5 0 0 1 10.5 4h3A1.5 1.5 0 0 1 15 5.5V7"/><path d="M3.5 12h17"/>' },
   { view: 'patrimonio', nome: 'patrimonio', novo: true, titulo: 'Património',
@@ -77,6 +81,29 @@ var AE_CSS =
   '.ae-seg button{border:0;background:none;font:inherit;font-size:.72rem;color:var(--muted);padding:3px 10px;border-radius:99px;cursor:pointer}' +
   '.ae-seg button.on{background:var(--surface);color:var(--ink);box-shadow:var(--shadow)}' +
   '.ae-seg.ae-off{opacity:.55}' +
+  '.ae-dds{display:flex;flex-wrap:wrap;gap:8px;align-items:center}' +
+  '.ae-dd{border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:8px;padding:5px 10px;font:inherit;font-size:.8rem;cursor:pointer;display:inline-flex;align-items:center;gap:7px;min-height:32px;max-width:100%}' +
+  '.ae-dd:hover{border-color:var(--accent)}' +
+  '.ae-dd.on{border-color:var(--accent);background:var(--accent-soft);color:var(--accent-ink)}' +
+  '.ae-dd .ae-lbl{padding:0}' +
+  '.ae-dd b{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:220px}' +
+  '.ae-dd svg{flex:none;opacity:.6}' +
+  '.ae-dd small{font-family:var(--mono);font-size:.68rem;color:var(--bad)}' +
+  '.ae-limpar{border:0;background:none;font:inherit;font-size:.75rem;color:var(--muted);cursor:pointer;padding:4px}' +
+  '.ae-limpar:hover{color:var(--accent-ink);text-decoration:underline}' +
+  '.tf-pop.ae-ddp{width:310px;padding:8px}' +
+  '.ae-ddp .ae-op{display:flex;align-items:center;gap:9px;padding:6px 8px;border-radius:7px;cursor:pointer;font-size:.8125rem;color:var(--ink);margin:0}' +
+  '.ae-ddp .ae-op:hover{background:var(--surface-2)}' +
+  '.ae-ddp .ae-op input{width:15px;height:15px;accent-color:var(--accent);flex:none;margin:0}' +
+  '.ae-ddp .ae-op i.dot{width:8px;height:8px;border-radius:50%;flex:none}' +
+  '.ae-ddp .ae-op span{flex:1;min-width:0}' +
+  '.ae-ddp .ae-op small{font-family:var(--mono);font-size:.68rem;color:var(--muted)}' +
+  '.ae-ddp .ae-op small.bad{color:var(--bad)}' +
+  '.ae-ddp hr{border:0;border-top:1px solid var(--line-soft);margin:6px 2px}' +
+  '.ae-ddp .ae-ddt{font-family:var(--mono);font-size:.625rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);padding:4px 8px 2px}' +
+  '.ae-ddp .ae-mes{display:flex;gap:6px;padding:4px 8px}' +
+  '.ae-ddp .ae-mes select{flex:1}' +
+  '.ae-ddp .ae-seg{margin:4px 8px 6px}' +
   '.ae-kpis{display:flex;gap:10px;flex-wrap:wrap}' +
   '.ae-kpi{flex:1;min-width:150px;display:flex;flex-direction:column;gap:1px;align-items:flex-start;text-align:left;padding:10px 14px;border:1px solid var(--line);background:var(--surface);border-radius:var(--radius);cursor:pointer;font:inherit}' +
   '.ae-kpi:hover{border-color:var(--accent)}' +
@@ -166,13 +193,29 @@ function aeF(view){
   /* O filtro antigo era so o nome da sub-area, guardado como texto. */
   if (typeof f === 'string') f = { sub: f };
   if (!f || typeof f !== 'object') f = {};
+  /* Os filtros antigos eram de escolha unica (sub, periodo, fechados
+     sim/nao): passam a listas sem se perder o que estava escolhido. */
+  var subs = Array.isArray(f.subs) ? f.subs.slice() : (f.sub && f.sub !== 'tudo' ? [f.sub] : []);
+  var periodos = Array.isArray(f.periodos) ? f.periodos.slice() : (f.periodo && f.periodo !== 'tudo' ? [f.periodo] : []);
+  var fechados = Array.isArray(f.fechados) ? f.fechados.slice() : (f.fechados === 'sim' ? AE_FECHADOS.map(function(x){ return x[0]; }) : []);
   return {
-    sub: f.sub || 'tudo',
+    subs: subs,
+    /* Para quem so precisa de uma (a area proposta ao criar): a unica escolhida. */
+    sub: subs.length === 1 ? subs[0] : 'tudo',
     quem: f.quem || 'todos',
     papel: f.papel || 'ambos',
-    periodo: f.periodo || 'tudo',
-    fechados: f.fechados || 'nao'
+    periodos: periodos,
+    fechados: fechados
   };
+}
+var AE_FECHADOS = [['tarefas', 'Tarefas feitas'], ['pagamentos', 'Pagamentos pagos'], ['eventos', 'Eventos que passaram']];
+/* Liga ou desliga um valor numa lista do filtro. */
+function aeAlternar(a, campo, valor){
+  var f = aeF(a.view);
+  var l = f[campo] || [];
+  var i = l.indexOf(valor);
+  if (i >= 0) l.splice(i, 1); else l.push(valor);
+  aePor(a, campo, l);
 }
 function aePor(a, campo, valor){
   var f = aeF(a.view);
@@ -362,8 +405,9 @@ function aePopPeriodo(a, ancora){
   var f = aeF(a.view);
   var hoje = tfHoje();
   var ano = hoje.getFullYear(), mes = hoje.getMonth() + 1;
-  if (aePeriodoAMao(f.periodo)){
-    var pa = f.periodo.slice(2).split('-');
+  var aMao = f.periodos.filter(aePeriodoAMao);
+  if (aMao.length){
+    var pa = aMao[aMao.length - 1].slice(2).split('-');
     ano = Number(pa[0]);
     mes = pa.length > 1 ? Number(pa[1]) : 0;
   }
@@ -396,7 +440,10 @@ function aePopPeriodo(a, ancora){
   bOk.addEventListener('click', function(){
     var m = Number(sM.value);
     tfFecharPop();
-    aePor(a, 'periodo', m ? 'm:' + sA.value + '-' + String(m).padStart(2, '0') : 'a:' + sA.value);
+    var k = m ? 'm:' + sA.value + '-' + String(m).padStart(2, '0') : 'a:' + sA.value;
+    var l = aeF(a.view).periodos;
+    if (l.indexOf(k) < 0) l.push(k);
+    aePor(a, 'periodos', l);
   });
   ac.appendChild(bC); ac.appendChild(bOk);
   p.appendChild(ac);
@@ -1026,6 +1073,57 @@ function aeChip(nome, ligado, fn, extra){
   return b;
 }
 
+/* Uma lista pendente: o botao diz o rotulo e o que esta escolhido; a janela
+   (um tf-pop, como as outras deste ecra) tem caixas de escolha multipla. A
+   escolha aplica-se na hora e a janela volta a abrir-se por cima do ecra
+   redesenhado, para se poder marcar varias seguidas. */
+var AE_DD = { aberta: null };
+function aeDropdown(rotulo, valor, ligado, atraso, encher){
+  var b = el('button', 'ae-dd' + (ligado ? ' on' : ''));
+  b.type = 'button';
+  b.dataset.tfpop = '1';
+  b.dataset.dd = rotulo;
+  b.appendChild(el('span', 'ae-lbl', rotulo));
+  b.appendChild(el('b', null, valor));
+  if (atraso){ var sm = el('small', null, String(atraso)); sm.title = atraso + ' em atraso'; b.appendChild(sm); }
+  var seta = el('span'); seta.innerHTML = '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M6 9l6 6 6-6"/></svg>';
+  b.appendChild(seta.firstChild);
+  b.encher = encher;
+  b.addEventListener('click', function(){
+    if (AE_DD.aberta === rotulo && document.querySelector('.ae-ddp')){ tfFecharPop(); AE_DD.aberta = null; return; }
+    aeAbrirDropdown(b);
+  });
+  return b;
+}
+function aeAbrirDropdown(b){
+  tfFecharPop();
+  var p = el('div', 'tf-pop ae-ddp');
+  b.encher(p);
+  AE_DD.aberta = b.dataset.dd;
+  tfPosicionar(p, b);
+}
+/* Depois de redesenhar, a janela aberta volta a abrir-se sobre o botao novo. */
+function aeReabrir(){
+  var r = AE_DD.aberta;
+  if (!r) return;
+  setTimeout(function(){
+    var b = document.querySelector('.view.is-active .ae-dd[data-dd="' + r + '"]') ||
+            document.querySelector('.ae-dd[data-dd="' + r + '"]');
+    if (b) aeAbrirDropdown(b); else AE_DD.aberta = null;
+  }, 0);
+}
+function aeOpcao(nome, ligado, fn, extra){
+  extra = extra || {};
+  var l = el('label', 'ae-op');
+  var c = el('input'); c.type = extra.radio ? 'radio' : 'checkbox'; c.checked = !!ligado;
+  c.addEventListener('change', function(){ fn(); aeReabrir(); });
+  l.appendChild(c);
+  if (extra.cor){ var d = el('i', 'dot'); d.style.background = extra.cor; l.appendChild(d); }
+  l.appendChild(el('span', null, nome));
+  if (extra.n) l.appendChild(el('small', extra.atr ? 'bad' : '', String(extra.n) + (extra.atr ? ' · ' + extra.atr + ' atraso' : '')));
+  return l;
+}
+
 function aeFila(rotulo){
   var linha = el('div', 'ae-fl');
   linha.appendChild(el('span', 'ae-lbl', rotulo));
@@ -1084,20 +1182,32 @@ function aeRenderArea(a){
       docsTodos.some(function(d){ return d.context_id === area.id; });
     if (temGeral) opcoes.push({ k: 'geral', nome: 'Geral', ids: [area.id] });
   }
-  var sel = opcoes.filter(function(o){ return o.k === f.sub; })[0] || opcoes[0] || { k: 'tudo', ids: idsTodos };
-  var ids = sel.ids, tudo = sel.k === 'tudo';
+  /* Varias sub-areas somam-se. Nenhuma escolhida (ou uma que deixou de
+     existir) e tudo. */
+  var escolhidas = opcoes.filter(function(o){ return o.k !== 'tudo' && f.subs.indexOf(o.k) >= 0; });
+  var ids = escolhidas.length ? [].concat.apply([], escolhidas.map(function(o){ return o.ids; })) : idsTodos;
+  var tudo = !escolhidas.length;
+  /* Sem Quem neste ecra, a pessoa guardada de outros tempos nao conta. */
+  if (a.semQuem) f.quem = 'todos';
   var grupos = todos.filter(function(c){ return ids.indexOf(c.id) >= 0; });
 
-  var j = aeJanela(f.periodo);
+  /* Os periodos somam-se: basta cair num. «Em atraso» e um criterio a parte
+     (so se aplica ao que tem prazo e esta por fazer). */
+  var JS = f.periodos.length ? {
+    atraso: f.periodos.indexOf('atraso') >= 0,
+    janelas: f.periodos.filter(function(p){ return p !== 'atraso'; }).map(aeJanela).filter(function(x){ return x && x !== 'atraso'; })
+  } : null;
+  function naJ(iso){ return !!iso && JS.janelas.some(function(w){ return aeNaJanela(w, iso); }); }
   function naArea(x){ return ids.indexOf(x.context_id) >= 0; }
   function naAreaDesp(x){ return naArea(x) || (orfas && tudo && !x.context_id); }
   function passaTarefa(t){
     if (!naArea(t)) return false;
     if (!aePassaPessoa(f, t.owner_id, t.subjects)) return false;
-    if (!j) return true;
-    if (j === 'atraso') return tfNivelData(t) === 'bad';
+    if (!JS) return true;
+    if (JS.atraso && tfNivelData(t) === 'bad') return true;
+    if (!JS.janelas.length) return false;
     /* Sem data nao ha periodo que a apanhe: fica sempre a vista. */
-    return !t.due_on || aeNaJanela(j, t.due_on);
+    return !t.due_on || naJ(t.due_on);
   }
 
   var filtradas = abertas.filter(passaTarefa);
@@ -1112,21 +1222,22 @@ function aeRenderArea(a){
   /* Os eventos da area e os lembretes, na mesma lista: sao a mesma coisa vista
      de dois lados - uma data que chega. */
   function passaDia(dia){
-    if (!j) return true;
-    if (j === 'atraso') return false;
-    return aeNaJanela(j, dia);
+    if (!JS) return true;
+    return naJ(dia);
   }
   /* As fechadas passam pelos mesmos filtros, mas pela data em que fecharam. */
   function passaFechada(t){
     if (!naArea(t)) return false;
     if (!aePassaPessoa(f, t.owner_id, t.subjects)) return false;
-    if (!j || j === 'atraso') return j !== 'atraso';
+    if (!JS) return true;
+    if (!JS.janelas.length) return false;
     var dia = t.completed_at ? String(t.completed_at).slice(0, 10) : t.due_on;
-    return !dia || aeNaJanela(j, dia);
+    return !dia || naJ(dia);
   }
-  var fechadas = f.fechados === 'sim' ? jaFechadas.filter(passaFechada) : [];
-  var tarefasFechadas = fechadas.filter(function(t){ return tfTipo(t) === 'tarefa'; }).sort(aeOrdem);
-  var pagamentosFechados = fechadas.filter(function(t){ return tfTipo(t) === 'pagamento'; }).sort(aeOrdem);
+  var verFeitas = f.fechados.indexOf('tarefas') >= 0, verPagos = f.fechados.indexOf('pagamentos') >= 0;
+  var fechadas = (verFeitas || verPagos) ? jaFechadas.filter(passaFechada) : [];
+  var tarefasFechadas = verFeitas ? fechadas.filter(function(t){ return tfTipo(t) === 'tarefa'; }).sort(aeOrdem) : [];
+  var pagamentosFechados = verPagos ? fechadas.filter(function(t){ return tfTipo(t) === 'pagamento'; }).sort(aeOrdem) : [];
 
   var eventos = [], eventosPassados = [];
   var hojeISO = tfISO(tfHoje());
@@ -1153,95 +1264,152 @@ function aeRenderArea(a){
   };
   eventos.sort(porDia);
   eventosPassados.sort(porDia).reverse();
-  if (f.fechados !== 'sim') eventosPassados = [];
+  if (f.fechados.indexOf('eventos') < 0) eventosPassados = [];
 
   var despesas = despTodas.filter(function(x){
     if (!naAreaDesp(x)) return false;
     if (!aePassaPessoaSo(f, [x.person_id])) return false;
-    if (!j) return true;
-    if (j === 'atraso') return false;
-    return aeNaJanela(j, x.spent_on);
+    if (!JS) return true;
+    return naJ(x.spent_on);
   });
 
   var docs = docsTodos.filter(function(d){
     if (!naArea(d)) return false;
     if (!aePassaPessoaSo(f, [d.person_id])) return false;
-    if (!j) return true;
-    if (j === 'atraso') return false;
+    if (!JS) return true;
+    if (!JS.janelas.length) return false;
     /* O papel entra pela data dele ou pela validade - basta uma das duas. */
     if (!d.issued_on && !d.valid_on) return true;
-    return aeNaJanela(j, d.issued_on) || aeNaJanela(j, d.valid_on);
+    return naJ(d.issued_on) || naJ(d.valid_on);
   });
 
   var pjs = pjsTodos.filter(function(p){
     if (!naArea(p)) return false;
     if (!aePassaPessoaSo(f, (p.members || []).map(function(m){ return m.person_id; }))) return false;
     /* Um projeto dura meses: o periodo nao o corta, so o «em atraso». */
-    if (j === 'atraso') return (p.contagem || {}).atrasadas > 0;
+    if (JS && JS.atraso && !JS.janelas.length) return (p.contagem || {}).atrasadas > 0;
     return true;
   });
 
-  /* ---- a barra dos filtros ---- */
+  /* ---- a barra dos filtros: uma linha, listas pendentes ---- */
   var barra = el('div', 'card ae-filtros');
+  var dds = el('div', 'ae-dds');
+  barra.appendChild(dds);
+
+  function contagem(o){
+    var n = abertas.filter(function(t){ return tfTipo(t) !== 'nota' && o.ids.indexOf(t.context_id) >= 0; });
+    return { n: n.length, atr: n.filter(function(t){ return tfNivelData(t) === 'bad'; }).length };
+  }
 
   if (opcoes.length){
-    var fl1 = aeFila('Onde');
-    opcoes.forEach(function(o){
-      var n = abertas.filter(function(t){ return tfTipo(t) !== 'nota' && o.ids.indexOf(t.context_id) >= 0; });
-      var atr = n.filter(function(t){ return tfNivelData(t) === 'bad'; }).length;
-      fl1.chips.appendChild(aeChip(o.nome, o.k === sel.k, function(){ aePor(a, 'sub', o.k); },
-        { n: n.length || 0, atraso: atr }));
+    var nomeOnde = !escolhidas.length ? 'Tudo'
+      : escolhidas.length === 1 ? escolhidas[0].nome
+      : escolhidas.length + ' sub-áreas';
+    var cOnde = escolhidas.length ? null : contagem(opcoes[0]);
+    dds.appendChild(aeDropdown('Onde', nomeOnde, !!escolhidas.length, cOnde && cOnde.atr, function(pop){
+      opcoes.forEach(function(o){
+        var c = contagem(o);
+        var todo = o.k === 'tudo';
+        pop.appendChild(aeOpcao(o.nome, todo ? !escolhidas.length : f.subs.indexOf(o.k) >= 0, function(){
+          if (todo) aePor(a, 'subs', []); else aeAlternar(a, 'subs', o.k);
+        }, { n: c.n, atr: c.atr }));
+        if (todo) pop.appendChild(el('hr'));
+      });
+    }));
+  }
+
+  if (!a.semQuem){
+    var quemP = f.quem !== 'todos' ? pessoa(Number(f.quem)) : null;
+    dds.appendChild(aeDropdown('Quem', quemP ? quemP.name : 'Agregado todo', !!quemP, 0, function(pop){
+      var seg = el('div', 'ae-seg' + (f.quem === 'todos' ? ' ae-off' : ''));
+      if (f.quem === 'todos') seg.title = 'Escolhe uma pessoa para isto contar';
+      AE_PAPEIS.forEach(function(pp){
+        var b = el('button', f.papel === pp[0] ? 'on' : '', pp[1]);
+        b.type = 'button';
+        b.addEventListener('click', function(){ aePor(a, 'papel', pp[0]); aeReabrir(); });
+        seg.appendChild(b);
+      });
+      pop.appendChild(seg);
+      pop.appendChild(aeOpcao('Agregado todo', f.quem === 'todos', function(){ aePor(a, 'quem', 'todos'); }, { radio: true, cor: 'var(--faint)' }));
+      (G.people || []).filter(function(p){ return p.active !== false; }).forEach(function(p){
+        pop.appendChild(aeOpcao(p.name, f.quem === String(p.id), function(){ aePor(a, 'quem', String(p.id)); },
+          { radio: true, cor: p.color || 'var(--c1)' }));
+      });
+      if (quemP){
+        pop.appendChild(el('hr'));
+        var bf = el('button', 'ae-chip ae-ficha', 'Ficha de ' + quemP.name.split(' ')[0]);
+        bf.type = 'button';
+        bf.dataset.ficha = quemP.id;
+        bf.style.margin = '2px 8px 4px';
+        pop.appendChild(bf);
+      }
+    }));
+  }
+
+  var nomesQ = f.periodos.map(aeNomePeriodo);
+  var nomeQuando = !nomesQ.length ? 'Tudo' : nomesQ.length <= 2 ? nomesQ.join(' + ') : nomesQ.length + ' períodos';
+  dds.appendChild(aeDropdown('Quando', nomeQuando, !!nomesQ.length, 0, function(pop){
+    pop.appendChild(aeOpcao('Tudo', !f.periodos.length, function(){ aePor(a, 'periodos', []); }));
+    pop.appendChild(el('hr'));
+    AE_PERIODOS.filter(function(pp){ return pp[0] !== 'tudo'; }).forEach(function(pp){
+      pop.appendChild(aeOpcao(pp[1], f.periodos.indexOf(pp[0]) >= 0, function(){ aeAlternar(a, 'periodos', pp[0]); }));
     });
-    barra.appendChild(fl1);
-  }
-
-  var fl2 = aeFila('Quem');
-  var seg = el('div', 'ae-seg' + (f.quem === 'todos' ? ' ae-off' : ''));
-  if (f.quem === 'todos') seg.title = 'Escolhe uma pessoa para isto contar';
-  AE_PAPEIS.forEach(function(pp){
-    var b = el('button', f.papel === pp[0] ? 'on' : '', pp[1]);
-    b.type = 'button';
-    b.addEventListener('click', function(){ aePor(a, 'papel', pp[0]); });
-    seg.appendChild(b);
-  });
-  fl2.chips.appendChild(seg);
-  fl2.chips.appendChild(aeChip('Agregado todo', f.quem === 'todos', function(){ aePor(a, 'quem', 'todos'); },
-    { cor: 'var(--faint)' }));
-  (G.people || []).filter(function(p){ return p.active !== false; }).forEach(function(p){
-    fl2.chips.appendChild(aeChip(p.name, f.quem === String(p.id), function(){ aePor(a, 'quem', String(p.id)); },
-      { cor: p.color || 'var(--c1)' }));
-  });
-  if (f.quem !== 'todos'){
-    var quem = pessoa(Number(f.quem));
-    if (quem){
-      var bf = el('button', 'ae-chip ae-ficha', 'Ficha de ' + quem.name.split(' ')[0]);
-      bf.type = 'button';
-      bf.dataset.ficha = quem.id;
-      bf.title = 'Abrir a ficha de ' + quem.name;
-      fl2.chips.appendChild(bf);
+    var aMao = f.periodos.filter(aePeriodoAMao);
+    if (aMao.length){
+      pop.appendChild(el('hr'));
+      aMao.forEach(function(pk){
+        pop.appendChild(aeOpcao(aeNomePeriodo(pk), true, function(){ aeAlternar(a, 'periodos', pk); }));
+      });
     }
+    pop.appendChild(el('hr'));
+    pop.appendChild(el('div', 'ae-ddt', 'Juntar um mês ou um ano'));
+    var linhaM = el('div', 'ae-mes');
+    var sM = el('select');
+    var o0 = el('option', null, 'ano inteiro'); o0.value = '0'; sM.appendChild(o0);
+    MESES.forEach(function(nome, i){ var o = el('option', null, nome); o.value = String(i + 1); sM.appendChild(o); });
+    var hj = tfHoje();
+    sM.value = String(hj.getMonth() + 1);
+    var sA = el('select');
+    for (var y = hj.getFullYear() + 1; y >= hj.getFullYear() - 5; y--){
+      var oa = el('option', null, String(y)); oa.value = String(y); sA.appendChild(oa);
+    }
+    sA.value = String(hj.getFullYear());
+    var bJ = el('button', 'btn small', 'Juntar'); bJ.type = 'button';
+    bJ.addEventListener('click', function(){
+      var m = Number(sM.value);
+      var pk = m ? 'm:' + sA.value + '-' + String(m).padStart(2, '0') : 'a:' + sA.value;
+      var l = aeF(a.view).periodos;
+      if (l.indexOf(pk) < 0) l.push(pk);
+      aePor(a, 'periodos', l);
+      aeReabrir();
+    });
+    linhaM.appendChild(sM); linhaM.appendChild(sA); linhaM.appendChild(bJ);
+    pop.appendChild(linhaM);
+  }));
+
+  var nomesF = AE_FECHADOS.filter(function(x){ return f.fechados.indexOf(x[0]) >= 0; });
+  var nomeFech = !nomesF.length ? 'Escondidos'
+    : nomesF.length === AE_FECHADOS.length ? 'Todos à vista'
+    : nomesF.map(function(x){ return x[1].split(' ')[0]; }).join(', ');
+  dds.appendChild(aeDropdown('Fechados', nomeFech, !!nomesF.length, 0, function(pop){
+    pop.appendChild(el('div', 'ae-ddt', 'Mostrar o que já foi feito, pago ou passou'));
+    AE_FECHADOS.forEach(function(x){
+      pop.appendChild(aeOpcao(x[1], f.fechados.indexOf(x[0]) >= 0, function(){ aeAlternar(a, 'fechados', x[0]); }));
+    });
+  }));
+
+  if (escolhidas.length || f.periodos.length || f.fechados.length || (!a.semQuem && f.quem !== 'todos')){
+    var bL = el('button', 'ae-limpar', 'Limpar filtros');
+    bL.type = 'button';
+    bL.addEventListener('click', function(){
+      var nf = aeF(a.view);
+      nf.subs = []; nf.periodos = []; nf.fechados = []; nf.quem = 'todos';
+      AE.filtro[a.view] = nf;
+      aeGuardar('aeFiltro', AE.filtro);
+      aeRenderArea(a);
+    });
+    dds.appendChild(bL);
   }
-  barra.appendChild(fl2);
-
-  var fl4 = aeFila('Fechados');
-  [['nao', 'Esconder'], ['sim', 'Mostrar']].forEach(function(o){
-    fl4.chips.appendChild(aeChip(o[1], f.fechados === o[0], function(){ aePor(a, 'fechados', o[0]); }));
-  });
-  fl4.chips.appendChild(el('span', null, 'o que já foi feito, pago ou passou'));
-  fl4.chips.lastChild.style.cssText = 'font-size:.72rem;color:var(--muted);align-self:center';
-
-  var fl3 = aeFila('Quando');
-  AE_PERIODOS.forEach(function(pp){
-    fl3.chips.appendChild(aeChip(pp[1], f.periodo === pp[0], function(){ aePor(a, 'periodo', pp[0]); }));
-  });
-  var bMes = aeChip(aePeriodoAMao(f.periodo) ? aeNomePeriodo(f.periodo) : 'Mês…', aePeriodoAMao(f.periodo), function(){
-    bMes.dataset.tfpop = '1';
-    aePopPeriodo(a, bMes);
-  });
-  bMes.title = 'Escolher um mês ou um ano';
-  fl3.chips.appendChild(bMes);
-  barra.appendChild(fl3);
-  barra.appendChild(fl4);
   box.appendChild(barra);
 
   /* ---- os numeros, que sao botoes ---- */
@@ -1253,7 +1421,7 @@ function aeRenderArea(a){
   function abrirW(chave){ return function(){ aeFecharW(a, chave, false); }; }
   var kpis = el('div', 'ae-kpis');
   kpis.appendChild(aeKpi(String(soltas.length), 'por fazer', '', abrirW('tarefas')));
-  kpis.appendChild(aeKpi(String(atrasadas), 'em atraso', atrasadas ? 'bad' : '', function(){ aePor(a, 'periodo', 'atraso'); }));
+  kpis.appendChild(aeKpi(String(atrasadas), 'em atraso', atrasadas ? 'bad' : '', function(){ aePor(a, 'periodos', ['atraso']); }));
   kpis.appendChild(aeKpi(tfEuros(aPagar), 'a pagar', '', abrirW('pagamentos')));
   kpis.appendChild(aeKpi(tfEuros(gasto), 'já gasto', '', abrirW('despesas')));
   kpis.appendChild(aeKpi(String(eventos.length), eventos.length === 1 ? 'marcado' : 'marcados', '', abrirW('eventos')));
