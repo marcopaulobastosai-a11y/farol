@@ -575,7 +575,7 @@ function ibItem(item) {
   }
   var apagar = el('button', 'btn danger', 'Apagar');
   apagar.onclick = function () {
-    if (window.confirm('Apagar de vez? O ficheiro tambem desaparece.')) ibApagar(item.id);
+    if (window.confirm('Apagar de vez este ficheiro e tudo o que nasceu dele?' + ibOQueSai(item))) ibApagar(item.id);
   };
   acoes.appendChild(apagar);
   body.appendChild(acoes);
@@ -985,6 +985,7 @@ function ibSubmeterTriagem() {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ destinos: destinos })
   }).then(function (d) {
+    IB.juntou = ((d && d.criados) || []).filter(function (c) { return c.reutilizado; })[0] || null;
     /* O titulo muda depois de catalogar, e nao antes: se a triagem falhar, o
        item fica como estava. Se so o titulo falhar, a triagem ja esta feita e
        vale mais mostra-la do que esconde-la atras de um erro. */
@@ -995,7 +996,12 @@ function ibSubmeterTriagem() {
     IB.itens = d.itens || []; IB.porTriar = d.porTriar || 0; IB.porAprovar = d.porAprovar || 0;
     ibRender();
     if (typeof loadGestao === 'function') loadGestao();
-    toast('Catalogado.');
+    /* Quando a fatura era de um pagamento que ja existia, diz-se qual: e
+       a diferenca entre «criei outro» e «juntei ao que la estava». */
+    toast(IB.juntou
+      ? 'Juntei a fatura ao pagamento que j\u00e1 existia: ' + (IB.juntou.titulo || '') + '.'
+      : 'Catalogado.');
+    IB.juntou = null;
   }).catch(function (e) { toast(e.message || 'Não foi possível catalogar.'); });
 }
 
@@ -1155,6 +1161,7 @@ function ibResumoLink(l) {
   var area = ctx.filter(function (c) { return c.id === x.context_id; })[0];
   if (area) partes.push('\u00b7 ' + area.name);
   if ((l.tipo === 'pagamento' || l.tipo === 'tarefa') && x.done) partes.push('\u00b7 feito');
+  if (l.criado === false) partes.push('\u00b7 j\u00e1 existia');
   return partes.join(' ');
 }
 
@@ -1165,10 +1172,20 @@ function ibDataPt(iso) {
 
 /* Desfazer e voltar a catalogar. O ficheiro fica guardado; o que nasceu dele
    e apagado, e a janela de catalogar abre logo, com o que estava gravado. */
+/* O que sai e o que fica quando se desfaz ou apaga um ficheiro: sai o que
+   nasceu dele; o que ja existia (o pagamento recorrente, o documento a que o
+   ficheiro foi pendurado) fica, so perde a ligacao. */
+function ibOQueSai(item) {
+  var links = item.links || [];
+  var sai = links.filter(function (l) { return l.criado !== false; }).map(ibResumoLink);
+  var fica = links.filter(function (l) { return l.criado === false; }).map(ibResumoLink);
+  return (sai.length ? '\n\nVai ser apagado:\n' + sai.join('\n') : '') +
+    (fica.length ? '\n\nFica (j\u00e1 existia, s\u00f3 perde a liga\u00e7\u00e3o):\n' + fica.join('\n') : '');
+}
+
 function ibRecatalogar(item) {
-  var coisas = (item.links || []).map(function (l) { return ibResumoLink(l); }).join('\n');
-  if (!window.confirm('Desfazer esta catalogação e catalogar outra vez?\n\nVai ser apagado:\n' +
-      coisas + '\n\nO ficheiro continua guardado.')) return;
+  if (!window.confirm('Desfazer esta catalogação e catalogar outra vez?' + ibOQueSai(item) +
+      '\n\nO ficheiro continua guardado.')) return;
   var semente = (item.links || []).filter(function (l) { return l.dados; })
     .map(function (l) { return { tipo: l.tipo, dados: l.dados }; });
   apiGestao('/api/inbox/' + item.id + '/recatalogar?estado=por_triar', { method: 'POST' })
