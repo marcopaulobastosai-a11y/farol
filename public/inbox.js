@@ -54,7 +54,8 @@ var IB_DESTINOS = [
 
 /* A caixa e uma fila de trabalho: o que ja foi aprovado sai daqui e passa a
    viver nos Documentos, nas Despesas, nas Tarefas e na Agenda. */
-var IB_TABS = [['por_triar', 'Por triar'], ['catalogado', 'Por aprovar'], ['descartado', 'Descartados']];
+var IB_TABS = [['por_triar', 'Por triar'], ['catalogado', 'Por aprovar'], ['arrumado', 'Arrumados'],
+  ['descartado', 'Descartados']];
 
 /* ---------------- utilitarios ---------------- */
 function ibTamanho(n) {
@@ -268,8 +269,10 @@ function ibRender() {
     lista.appendChild(el('div', 'ib-empty', IB.estado === 'por_triar'
       ? 'Nada por triar. A caixa está limpa.'
       : (IB.estado === 'catalogado'
-        ? 'Nada à espera de aprovação. O que já foi aprovado está nos Documentos e nas Despesas.'
-        : 'Nada aqui.')));
+        ? 'Nada à espera de aprovação. O que já foi aprovado está em Arrumados.'
+        : (IB.estado === 'arrumado'
+          ? 'Ainda nada arrumado.'
+          : 'Nada aqui.'))));
     return;
   }
   IB.itens.forEach(function (item) { lista.appendChild(ibItem(item)); });
@@ -302,7 +305,8 @@ function ibItem(item) {
   /* Estado da leitura automatica, se estiver ligada. */
   if (item.ai_status === 'pendente') {
     body.appendChild(el('div', 'ib-ia', 'a ler o ficheiro\u2026'));
-  } else if (item.ai_status === 'feito') {
+  } else if (item.ai_status === 'feito' && !item.approved_at) {
+    /* Nos arrumados a proposta ja nao interessa: vale o que ficou gravado. */
     var jx = ibProposta(item);
     body.appendChild(el('div', 'ib-ia' + (jx ? ' pronta' : ''),
       jx ? 'sugest\u00e3o pronta: ' + jx.destinos.map(function (x) { return x.tipo; }).join(', ')
@@ -329,11 +333,19 @@ function ibItem(item) {
     if (item.status === 'catalogado' && item.store === 'inbox') chips.appendChild(pill('por arquivar', 'warn'));
     if (item.status === 'catalogado') {
       chips.appendChild(item.approved_at
-        ? pill('nos documentos', 'good')
+        ? pill('arrumado', 'good')
         : pill('por aprovar', 'warn'));
       if (!item.approved_at && ibSemEntidade(item)) chips.appendChild(pill('sem entidade', 'warn'));
     }
     body.appendChild(chips);
+  }
+
+  /* Nos arrumados diz-se para onde foi cada coisa e o que ficou gravado: e
+     a resposta a «catalogou-se sozinho e nao sei onde esta». */
+  if (item.status === 'catalogado' && item.approved_at) {
+    (item.links || []).forEach(function (l) {
+      body.appendChild(el('div', 'ib-ia pronta', ibResumoLink(l)));
+    });
   }
 
   /* De quem e o papel. E a primeira coisa que se procura num ficheiro velho,
@@ -377,6 +389,18 @@ function ibItem(item) {
     ok.type = 'button';
     ok.onclick = function () { ibAprovar(item.id); };
     acoes.appendChild(ok);
+  } else if (item.status === 'catalogado' && item.approved_at) {
+    (item.links || []).filter(function (l) { return IB_ROTAS[l.tipo] && l.dados; })
+      .forEach(function (l) {
+        var edl = el('button', 'btn', 'Editar ' + ibNomeDoTipo(l.tipo).toLowerCase());
+        edl.type = 'button';
+        edl.onclick = function () { ibEditarAlvo(item, l); };
+        acoes.appendChild(edl);
+      });
+    var rec = el('button', 'btn', 'Recatalogar');
+    rec.type = 'button';
+    rec.onclick = function () { ibRecatalogar(item); };
+    acoes.appendChild(rec);
   } else if (item.status === 'descartado') {
     var volta = el('button', 'btn', 'Repor');
     volta.onclick = function () { ibEstado(item.id, 'por_triar'); };
@@ -509,14 +533,16 @@ function ibDataCurta(v) {
 
 /* O que a IA leu, junto num sitio so. Vale o primeiro destino proposto; os
    outros so preenchem o que ele deixou vazio. */
-function ibValoresIniciais(item) {
+/* A semente e o que estava gravado antes de recatalogar: vale mais do que a
+   leitura da IA, porque pode ter sido corrigido a mao. */
+function ibValoresIniciais(item, semente) {
   var v = {};
   var pos = function (k, x) {
     if (x === null || x === undefined || x === '') return;
     if (v[k] === undefined || v[k] === '') v[k] = String(x);
   };
   var j = ibProposta(item);
-  (j ? j.destinos : []).forEach(function (d) {
+  (semente || []).concat(j ? j.destinos : []).forEach(function (d) {
     var x = (d && d.dados) || {};
     pos('titulo', x.name || x.title || x.description);
     if (x.amount !== null && x.amount !== undefined && x.amount !== '') {
@@ -532,6 +558,9 @@ function ibValoresIniciais(item) {
     pos('ref', x.payment_ref);
     if (x.pessoa) pos('pessoa', ibPessoaPorNome(x.pessoa));
     if (x.area) pos('area', ibContextoPorNome(x.area));
+    pos('area', x.context_id);
+    pos('pessoa', x.owner_id || x.person_id);
+    pos('projeto', x.project_id);
   });
   pos('titulo', ibNomeBonito(item));
   pos('pessoa', item.person_id);
@@ -556,12 +585,13 @@ function ibValoresDe(tipo) {
   return out;
 }
 
-function ibAbrirTriagem(item) {
+function ibAbrirTriagem(item, semente) {
   IB.triando = item;
   IB.prop = ibPorTipo(item);
-  IB.val = ibValoresIniciais(item);
+  IB.val = ibValoresIniciais(item, semente);
   var j0 = ibProposta(item);
-  IB.escolhido = j0 && j0.destinos[0] && IB_COMUM[j0.destinos[0].tipo] ? j0.destinos[0].tipo : null;
+  var primeiro = (semente && semente[0]) || (j0 && j0.destinos[0]);
+  IB.escolhido = primeiro && IB_COMUM[primeiro.tipo] ? primeiro.tipo : null;
   if (typeof gState !== 'undefined' && !gState.loaded && typeof loadGestao === 'function') {
     loadGestao().then(function () { ibDesenharTriagem(); });
   }
@@ -912,8 +942,65 @@ function ibSemEntidade(item) {
 
 /* Corrigir antes de aprovar. Os mesmos campos da catalogacao, desta vez
    preenchidos com o que esta gravado, numa janela - nao no meio da pagina. */
-var IB_EDITAVEIS = ['documento', 'despesa'];
-var IB_ROTAS = { documento: '/api/documentos/', despesa: '/api/despesas/' };
+var IB_EDITAVEIS = ['documento', 'despesa', 'pagamento', 'tarefa'];
+var IB_ROTAS = { documento: '/api/documentos/', despesa: '/api/despesas/',
+  pagamento: '/api/gestao/tarefas/', tarefa: '/api/gestao/tarefas/' };
+
+function ibNomeDoTipo(tipo) {
+  var d = IB_DESTINOS.filter(function (x) { return x.tipo === tipo; })[0];
+  return d ? d.nome : tipo;
+}
+
+/* Uma linha por coisa que nasceu do ficheiro: o que e, como se chama, e os
+   dois ou tres numeros que se procuram (quanto, ate quando, onde). */
+function ibResumoLink(l) {
+  var x = l.dados || {};
+  var partes = [ibNomeDoTipo(l.tipo) + ':'];
+  var nome = x.name || x.title || x.description;
+  partes.push(nome || '(j\u00e1 n\u00e3o existe)');
+  if (x.amount !== null && x.amount !== undefined && x.amount !== '') {
+    partes.push('\u00b7 ' + Number(x.amount).toFixed(2).replace('.', ',') + ' \u20ac');
+  }
+  var data = x.due_on ? 'at\u00e9 ' + ibDataPt(x.due_on)
+    : x.day ? ibDataPt(x.day) + (x.at ? ' ' + x.at : '')
+    : x.spent_on ? ibDataPt(x.spent_on)
+    : x.valid_on ? 'v\u00e1lido at\u00e9 ' + ibDataPt(x.valid_on)
+    : x.issued_on ? ibDataPt(x.issued_on) : '';
+  if (data) partes.push('\u00b7 ' + data);
+  var ctx = (typeof G !== 'undefined' && G.contextos) ? G.contextos : [];
+  var area = ctx.filter(function (c) { return c.id === x.context_id; })[0];
+  if (area) partes.push('\u00b7 ' + area.name);
+  if ((l.tipo === 'pagamento' || l.tipo === 'tarefa') && x.done) partes.push('\u00b7 feito');
+  return partes.join(' ');
+}
+
+function ibDataPt(iso) {
+  var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || ''));
+  return m ? m[3] + '/' + m[2] + '/' + m[1] : String(iso || '');
+}
+
+/* Desfazer e voltar a catalogar. O ficheiro fica guardado; o que nasceu dele
+   e apagado, e a janela de catalogar abre logo, com o que estava gravado. */
+function ibRecatalogar(item) {
+  var coisas = (item.links || []).map(function (l) { return ibResumoLink(l); }).join('\n');
+  if (!window.confirm('Desfazer esta catalogação e catalogar outra vez?\n\nVai ser apagado:\n' +
+      coisas + '\n\nO ficheiro continua guardado.')) return;
+  var semente = (item.links || []).filter(function (l) { return l.dados; })
+    .map(function (l) { return { tipo: l.tipo, dados: l.dados }; });
+  apiGestao('/api/inbox/' + item.id + '/recatalogar?estado=por_triar', { method: 'POST' })
+    .then(function (d) {
+      IB.estado = 'por_triar';
+      var bts = document.querySelectorAll('#view-inbox .tabs button[data-tab]');
+      for (var i = 0; i < bts.length; i++) bts[i].classList.toggle('is-active', bts[i].dataset.tab === 'por_triar');
+      IB.itens = d.itens || []; IB.porTriar = d.porTriar || 0; IB.porAprovar = d.porAprovar || 0;
+      ibRender();
+      if (typeof loadGestao === 'function') loadGestao();
+      if (typeof load === 'function') load();
+      var novo = IB.itens.filter(function (x) { return x.id === item.id; })[0];
+      if (novo) ibAbrirTriagem(novo, semente);
+    })
+    .catch(function (e) { toast(e.message || 'N\u00e3o foi poss\u00edvel desfazer.'); });
+}
 
 function ibEditarAlvo(item, link) {
   var d = IB_DESTINOS.filter(function (x) { return x.tipo === link.tipo; })[0];
@@ -922,8 +1009,11 @@ function ibEditarAlvo(item, link) {
 
   var dlg = el('dialog', 'ib-dlg larga');
   var cx = el('div', 'card');
-  ibCabecalho(cx, 'Corrigir ' + (link.tipo === 'documento' ? 'o documento' : 'a despesa'), null);
-  cx.appendChild(el('p', 'ib-note', 'O que ficar aqui e o que vai para os ecras quando aprovares.'));
+  ibCabecalho(cx, 'Corrigir ' + ({ documento: 'o documento', despesa: 'a despesa',
+    pagamento: 'o pagamento', tarefa: 'a tarefa' }[link.tipo] || ibNomeDoTipo(link.tipo)), null);
+  cx.appendChild(el('p', 'ib-note', item.approved_at
+    ? 'Muda j\u00e1 o que aparece nos ecr\u00e3s.'
+    : 'O que ficar aqui e o que vai para os ecras quando aprovares.'));
 
   var par = null;
   d.campos.forEach(function (c, i) {
@@ -972,7 +1062,8 @@ function ibGravarAlvo(item, link, d, dlg) {
     var campo = $('ibE_' + link.tipo + '_' + c.k);
     if (!campo) return;
     var v = campo.value.trim();
-    corpo[c.k] = v === '' ? null : (c.tipo === 'number' ? Number(v) : v);
+    /* A opcao vazia das listas de pessoas e projetos tem o valor «-». */
+    corpo[c.k] = v === '' || v === '-' ? null : (c.tipo === 'number' ? Number(v) : v);
   });
 
   apiGestao(IB_ROTAS[link.tipo] + link.id, {
