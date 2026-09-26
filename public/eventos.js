@@ -120,6 +120,7 @@ function evLista(){
 }
 
 function evRender(){
+  evBotaoNaAgenda();
   if (!document.getElementById('view-eventos')) return;
   if (!window.D || !D.events || typeof aeLinhaEvento !== 'function') return;
   var box = document.getElementById('evCaixa');
@@ -263,7 +264,23 @@ function evPop(ancora){
   iT.focus();
 }
 
+/* Marcar uma data tambem a partir da Agenda: e o ecra onde se olha para o
+   calendario, e nao tinha por onde escrever nele. */
+function evBotaoNaAgenda(){
+  var topo = document.querySelector('#view-agenda .cal-top');
+  if (!topo || topo.querySelector('.ev-novo')) return;
+  var b = el('button', 'btn primary ev-novo', '+ Marcar uma data');
+  b.type = 'button';
+  b.style.marginLeft = 'auto';
+  b.dataset.tfpop = '1';
+  b.addEventListener('click', function(){ evPop(b); });
+  topo.appendChild(b);
+}
+
 (function evEsperar(){
-  if (document.getElementById('nav') && typeof el === 'function'){ evMontar(); evRender(); return; }
+  if (document.getElementById('nav') && typeof el === 'function'){
+    evMontar(); evBotaoNaAgenda(); evRender();
+    return;
+  }
   setTimeout(evEsperar, 300);
 })();

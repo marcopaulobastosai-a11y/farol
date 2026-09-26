@@ -133,6 +133,12 @@ var AE_CSS =
   '.tf-row:hover .ae-apagar{opacity:1}' +
   '.ae-apagar:hover{color:var(--bad);background:var(--bad-soft)}' +
   '.ae-ficha{border-style:dashed;color:var(--accent-ink)}' +
+  '.ae-fim{display:flex;align-items:center;gap:8px;width:100%;text-align:left;border:0;background:none;cursor:pointer;font:inherit;padding:8px 16px;margin-top:4px;border-top:1px solid var(--line-soft);font-family:var(--mono);font-size:var(--fs-mono);letter-spacing:.07em;text-transform:uppercase;color:var(--muted)}' +
+  '.ae-fim:hover{background:var(--surface-2);color:var(--ink-2)}' +
+  '.ae-fim .n{color:var(--faint)}' +
+  '.ae-fim svg{transition:transform .15s;color:var(--faint)}' +
+  '.ae-fim.rec svg{transform:rotate(-90deg)}' +
+  '.ae-w .tf-row.done .tf-t{color:var(--faint);text-decoration:line-through}' +
   '.ae-ev-dia{flex:none;width:46px;text-align:center;font-family:var(--mono);line-height:1.1;padding-top:1px}' +
   '.ae-ev-dia b{display:block;font-size:1rem;font-weight:500;color:var(--ink)}' +
   '.ae-ev-dia span{display:block;font-size:.625rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}' +
@@ -150,7 +156,10 @@ AE.fechados = aeLerGuardado('aeFechados');
 
 /* O que a area tem por fazer e o que tem marcado ficam a vista; o dinheiro ja
    gasto e os projetos abrem-se quando se quiserem. */
-var AE_INICIO_FECHADO = { despesas: true, projetos: true };
+var AE_INICIO_FECHADO = { despesas: true, projetos: true,
+  /* O que ja esta fechado nao tem de estar aberto: mostra-se a contagem e
+     estende-se quem quiser ver. */
+  'fim:tarefas': true, 'fim:pagamentos': true, 'fim:eventos': true };
 
 function aeF(view){
   var f = AE.filtro[view];
@@ -161,7 +170,8 @@ function aeF(view){
     sub: f.sub || 'tudo',
     quem: f.quem || 'todos',
     papel: f.papel || 'ambos',
-    periodo: f.periodo || 'tudo'
+    periodo: f.periodo || 'tudo',
+    fechados: f.fechados || 'nao'
   };
 }
 function aePor(a, campo, valor){
@@ -596,6 +606,141 @@ function aeApagarEvento(x){
   }).catch(function(e){ toast(e.message || 'Não deu para apagar o evento.'); });
 }
 
+/* Criar uma tarefa ou um pagamento sem sair da area. O essencial cabe numa
+   janelinha - o resto afina-se depois, no detalhe. */
+function aePopNovo(a, ancora, area, subs, tipo){
+  tfFecharPop();
+  var pag = tipo === 'pagamento';
+  var f = aeF(a.view);
+  var p = el('div', 'tf-pop');
+  p.style.width = '320px';
+
+  var cab = el('div', null, pag ? 'Novo pagamento' : 'Nova tarefa');
+  cab.style.cssText = 'font-weight:500;font-size:.8125rem;color:var(--ink)';
+  p.appendChild(cab);
+
+  p.appendChild(el('label', null, pag ? 'O que se paga' : 'O que é'));
+  var iT = el('input'); iT.type = 'text';
+  iT.placeholder = pag ? 'ex.: seguro do carro' : 'ex.: pedir orçamento para os estores';
+  p.appendChild(iT);
+
+  var lin = el('div', 'tf-linha'); lin.style.marginTop = '8px';
+  var cd = el('div'); cd.style.flex = '1';
+  cd.appendChild(el('label', null, 'Prazo'));
+  var iD = el('input'); iD.type = 'date';
+  cd.appendChild(iD);
+  lin.appendChild(cd);
+  var iV = null, iP = null;
+  if (pag){
+    var cv = el('div'); cv.style.width = '110px';
+    cv.appendChild(el('label', null, 'Valor'));
+    iV = el('input'); iV.type = 'text'; iV.placeholder = '0,00';
+    cv.appendChild(iV);
+    lin.appendChild(cv);
+  } else {
+    var cp = el('div'); cp.style.width = '120px';
+    cp.appendChild(el('label', null, 'Prioridade'));
+    iP = el('select');
+    [['normal', 'normal'], ['alta', 'alta'], ['media', 'média'], ['baixa', 'baixa']].forEach(function(o){
+      iP.appendChild(new Option(o[1], o[0]));
+    });
+    cp.appendChild(iP);
+    lin.appendChild(cp);
+  }
+  p.appendChild(lin);
+
+  var lin2 = el('div', 'tf-linha'); lin2.style.marginTop = '8px';
+  var cq = el('div'); cq.style.flex = '1';
+  cq.appendChild(el('label', null, 'De quem'));
+  var sQ = el('select');
+  sQ.appendChild(new Option('— ninguém —', ''));
+  (G.people || []).filter(function(x){ return x.active !== false && x.can_own_tasks !== false; })
+    .forEach(function(x){ sQ.appendChild(new Option(x.name, String(x.id))); });
+  if (f.quem !== 'todos') sQ.value = f.quem;
+  cq.appendChild(sQ);
+  lin2.appendChild(cq);
+  var sPay = null;
+  if (pag){
+    var ce = el('div'); ce.style.flex = '1';
+    ce.appendChild(el('label', null, 'A quem'));
+    sPay = el('input'); sPay.type = 'text'; sPay.placeholder = 'entidade';
+    ce.appendChild(sPay);
+    lin2.appendChild(ce);
+  }
+  p.appendChild(lin2);
+
+  var sC = null;
+  if (subs.length){
+    p.appendChild(el('label', null, 'Onde'));
+    sC = el('select');
+    var o0 = el('option', null, area.name + ' · geral'); o0.value = String(area.id);
+    sC.appendChild(o0);
+    subs.forEach(function(c){ var o = el('option', null, c.name); o.value = String(c.id); sC.appendChild(o); });
+    if (f.sub !== 'tudo' && f.sub !== 'geral') sC.value = f.sub;
+    p.appendChild(sC);
+  }
+
+  var ac = el('div', 'tf-acoes');
+  var bC = el('button', 'btn small', 'Cancelar'); bC.type = 'button';
+  bC.addEventListener('click', tfFecharPop);
+  var bOk = el('button', 'btn small primary', 'Criar'); bOk.type = 'button';
+  bOk.addEventListener('click', function(){
+    var titulo = iT.value.trim();
+    if (!titulo) return iT.focus();
+    var corpo = {
+      title: titulo, tipo: tipo,
+      context_id: sC ? Number(sC.value) : area.id,
+      owner_id: sQ.value ? Number(sQ.value) : null,
+      due_on: iD.value || null,
+      priority: iP ? iP.value : 'normal'
+    };
+    if (pag){
+      corpo.amount = iV.value.trim() || null;
+      corpo.payee = sPay.value.trim() || null;
+    }
+    apiGestao('/api/gestao/tarefas', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(corpo)
+    }).then(function(d){
+      tfFecharPop();
+      G = d;
+      toast(pag ? 'Pagamento criado.' : 'Tarefa criada.');
+      renderGestao();
+    }).catch(function(e){ toast(e.message || 'Não deu para criar.'); });
+  });
+  ac.appendChild(bC); ac.appendChild(bOk);
+  p.appendChild(ac);
+  tfPosicionar(p, ancora);
+  iT.focus();
+}
+
+/* O botao que abre qualquer uma destas janelas, no rodape do widget. */
+function aeBotaoNovo(card, texto, fn){
+  var b = el('button', 'btn small primary ae-mais', texto);
+  b.type = 'button';
+  b.style.marginLeft = '16px';
+  b.dataset.tfpop = '1';
+  b.addEventListener('click', function(){ fn(b); });
+  card.appendChild(b);
+  return b;
+}
+
+/* O que ja esta fechado vive num grupo proprio, no fim da lista: ve-se que
+   existe, estende-se quando interessa. */
+function aeGrupoFechados(a, card, chave, titulo, lista, desenhar){
+  if (!lista.length) return;
+  var k = 'fim:' + chave;
+  var aberto = aeAbertoW(a.view, k);
+  var h = el('button', 'ae-fim' + (aberto ? '' : ' rec'));
+  h.type = 'button';
+  h.innerHTML = aeIcone(AE_I.seta, 12);
+  h.appendChild(document.createTextNode(titulo));
+  h.appendChild(el('span', 'n', String(lista.length)));
+  h.addEventListener('click', function(){ aeFecharW(a, k, aberto); });
+  card.appendChild(h);
+  if (aberto) desenhar(card);
+}
+
 /* Marcar uma data nesta area. Fica um evento como os outros: aparece no Hoje e
    na Agenda, e aqui. */
 function aePopEvento(a, ancora, area, subs){
@@ -910,9 +1055,13 @@ function aeRenderArea(a){
   var todos = [area].concat(subs);
   var idsTodos = todos.map(function(c){ return c.id; });
 
-  var abertas = (G.tasks || []).filter(function(t){
-    return aeAberta(t) && !t.parent_id && !t.project_id && idsTodos.indexOf(t.context_id) >= 0;
+  var daArea = (G.tasks || []).filter(function(t){
+    return !t.parent_id && !t.project_id && idsTodos.indexOf(t.context_id) >= 0;
   });
+  var abertas = daArea.filter(aeAberta);
+  /* O /api/gestao traz as fechadas ha pouco; as mais antigas vivem no
+     historico das Tarefas, e e para la que o rodape leva. */
+  var jaFechadas = daArea.filter(function(t){ return !aeAberta(t); });
   var pjsTodos = (G.projects || []).filter(function(p){
     return p.tipo !== 'programa' && p.status !== 'concluido' && idsTodos.indexOf(p.context_id) >= 0;
   });
@@ -967,27 +1116,44 @@ function aeRenderArea(a){
     if (j === 'atraso') return false;
     return aeNaJanela(j, dia);
   }
-  var eventos = [];
+  /* As fechadas passam pelos mesmos filtros, mas pela data em que fecharam. */
+  function passaFechada(t){
+    if (!naArea(t)) return false;
+    if (!aePassaPessoa(f, t.owner_id, t.subjects)) return false;
+    if (!j || j === 'atraso') return j !== 'atraso';
+    var dia = t.completed_at ? String(t.completed_at).slice(0, 10) : t.due_on;
+    return !dia || aeNaJanela(j, dia);
+  }
+  var fechadas = f.fechados === 'sim' ? jaFechadas.filter(passaFechada) : [];
+  var tarefasFechadas = fechadas.filter(function(t){ return tfTipo(t) === 'tarefa'; }).sort(aeOrdem);
+  var pagamentosFechados = fechadas.filter(function(t){ return tfTipo(t) === 'pagamento'; }).sort(aeOrdem);
+
+  var eventos = [], eventosPassados = [];
+  var hojeISO = tfISO(tfHoje());
+  var guardaEvento = function(x){ (x.day < hojeISO ? eventosPassados : eventos).push(x); };
   ((window.D && D.events) || []).forEach(function(e){
     var meu = typeof e.id === 'number' && naArea(e);
     /* Os aniversarios nao tem area: sao da Familia, e e la que aparecem. */
     var aniv = a.view === 'familia' && e.calendar === 'aniversarios';
     if ((!meu && !aniv) || !passaDia(e.day)) return;
-    eventos.push({ id: e.id, title: e.title, day: e.day, at: e.at, detail: e.detail,
+    guardaEvento({ id: e.id, title: e.title, day: e.day, at: e.at, detail: e.detail,
                    context_id: e.context_id, apagavel: typeof e.id === 'number', orig: e });
   });
   var semData = 0;
   lembretes.forEach(function(t){
     if (!t.due_on){ semData++; return; }
     if (!passaDia(t.due_on)) return;
-    eventos.push({ title: t.title, day: t.due_on, at: t.due_time, tipo: 'lembrete',
+    guardaEvento({ title: t.title, day: t.due_on, at: t.due_time, tipo: 'lembrete',
                    tarefa: t.id, context_id: t.context_id, dono: pessoa(t.owner_id),
                    repete: t.repeat_rule ? (t.repeat_label || 'repete') : null });
   });
-  eventos.sort(function(x, y){
+  var porDia = function(x, y){
     if (x.day !== y.day) return x.day < y.day ? -1 : 1;
     return String(x.at || '').localeCompare(String(y.at || ''));
-  });
+  };
+  eventos.sort(porDia);
+  eventosPassados.sort(porDia).reverse();
+  if (f.fechados !== 'sim') eventosPassados = [];
 
   var despesas = despTodas.filter(function(x){
     if (!naAreaDesp(x)) return false;
@@ -1057,6 +1223,13 @@ function aeRenderArea(a){
   }
   barra.appendChild(fl2);
 
+  var fl4 = aeFila('Fechados');
+  [['nao', 'Esconder'], ['sim', 'Mostrar']].forEach(function(o){
+    fl4.chips.appendChild(aeChip(o[1], f.fechados === o[0], function(){ aePor(a, 'fechados', o[0]); }));
+  });
+  fl4.chips.appendChild(el('span', null, 'o que já foi feito, pago ou passou'));
+  fl4.chips.lastChild.style.cssText = 'font-size:.72rem;color:var(--muted);align-self:center';
+
   var fl3 = aeFila('Quando');
   AE_PERIODOS.forEach(function(pp){
     fl3.chips.appendChild(aeChip(pp[1], f.periodo === pp[0], function(){ aePor(a, 'periodo', pp[0]); }));
@@ -1068,6 +1241,7 @@ function aeRenderArea(a){
   bMes.title = 'Escolher um mês ou um ano';
   fl3.chips.appendChild(bMes);
   barra.appendChild(fl3);
+  barra.appendChild(fl4);
   box.appendChild(barra);
 
   /* ---- os numeros, que sao botoes ---- */
@@ -1105,6 +1279,15 @@ function aeRenderArea(a){
       aeCorpoTarefas(card, outras.slice(0, MAXT), grupos, area,
         temTarefas ? 'Nada por fazer no que está filtrado.' : 'Nada por fazer fora dos projetos.');
       if (notas) card.appendChild(el('p', 'ae-nota', notas + (notas === 1 ? ' nota' : ' notas') + ' nas Tarefas › Notas.'));
+      aeGrupoFechados(a, card, 'tarefas', 'Já feitas', tarefasFechadas, function(c){
+        var rows = el('div', 'tf-rows');
+        tarefasFechadas.slice(0, MAXT).forEach(function(t){
+          var li = aeLinha(t); li.classList.add('done'); rows.appendChild(li);
+        });
+        c.appendChild(rows);
+        if (tarefasFechadas.length > MAXT) c.appendChild(el('p', 'ae-nota', 'e mais ' + (tarefasFechadas.length - MAXT) + ' no histórico das Tarefas.'));
+      });
+      aeBotaoNovo(card, '+ Nova tarefa', function(b){ aePopNovo(a, b, area, subs, 'tarefa'); });
       aeRodape(card, outras.length > MAXT ? 'Ver as ' + outras.length + ' nas Tarefas' : 'Abrir as Tarefas',
         function(){ show('tarefas'); });
     }
@@ -1117,6 +1300,15 @@ function aeRenderArea(a){
     corpo: function(card){
       aeCorpoTarefas(card, pags.slice(0, MAXT), grupos, area,
         temPagamentos ? 'Nenhum pagamento no que está filtrado.' : 'Nenhum pagamento por fazer.');
+      aeGrupoFechados(a, card, 'pagamentos', 'Já pagos', pagamentosFechados, function(c){
+        var rows = el('div', 'tf-rows');
+        pagamentosFechados.slice(0, MAXT).forEach(function(t){
+          var li = aeLinha(t); li.classList.add('done'); rows.appendChild(li);
+        });
+        c.appendChild(rows);
+        if (pagamentosFechados.length > MAXT) c.appendChild(el('p', 'ae-nota', 'e mais ' + (pagamentosFechados.length - MAXT) + ' no histórico das Tarefas.'));
+      });
+      aeBotaoNovo(card, '+ Novo pagamento', function(b){ aePopNovo(a, b, area, subs, 'pagamento'); });
       aeRodape(card, pags.length > MAXT ? 'Ver os ' + pags.length + ' nos Pagamentos' : 'Abrir os Pagamentos',
         function(){ show('tarefas'); });
     }
@@ -1126,7 +1318,7 @@ function aeRenderArea(a){
   var cols2 = el('div', 'ae-cols');
   cols2.appendChild(aeWidget(a, 'eventos', {
     titulo: 'Eventos',
-    n: eventos.length,
+    n: eventos.length + eventosPassados.length,
     resumo: (function(){
       var h = tfISO(tfHoje());
       var prox = eventos.filter(function(x){ return x.day >= h; })[0];
@@ -1135,12 +1327,15 @@ function aeRenderArea(a){
     corpo: function(card){
       aeCorpoEventos(card, eventos.slice(0, MAXT), 'Nada marcado nesta área no que está filtrado.');
       if (semData) card.appendChild(el('p', 'ae-nota', semData + (semData === 1 ? ' lembrete sem data' : ' lembretes sem data') + ', nas Tarefas › Lembretes.'));
-      var b = el('button', 'btn small ae-mais', 'Marcar uma data');
-      b.type = 'button';
-      b.style.marginLeft = '16px';
-      b.dataset.tfpop = '1';
-      b.addEventListener('click', function(){ aePopEvento(a, b, area, subs); });
-      card.appendChild(b);
+      aeGrupoFechados(a, card, 'eventos', 'Já passaram', eventosPassados, function(c){
+        var rows = el('div', 'tf-rows');
+        eventosPassados.slice(0, MAXT).forEach(function(x){
+          var li = aeLinhaEvento(x); li.classList.add('done'); rows.appendChild(li);
+        });
+        c.appendChild(rows);
+        if (eventosPassados.length > MAXT) c.appendChild(el('p', 'ae-nota', 'e mais ' + (eventosPassados.length - MAXT) + ' nos Eventos.'));
+      });
+      aeBotaoNovo(card, '+ Marcar uma data', function(b){ aePopEvento(a, b, area, subs); });
     }
   }));
   cols2.appendChild(aeWidget(a, 'documentos', {
