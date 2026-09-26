@@ -782,3 +782,22 @@ CREATE INDEX IF NOT EXISTS events_context_idx ON events (context_id);
 INSERT INTO calendars (code, name, color, sort)
 VALUES ('areas', 'Áreas', 'var(--c2)', 50)
 ON CONFLICT (code) DO NOTHING;
+
+
+-- ---------------------------------------------------------------------------
+-- ANEXOS DE OUTRAS COISAS ALEM DAS TAREFAS
+--
+-- Uma tarefa ja podia ter documentos agarrados (task_documents). Um evento e
+-- uma despesa tambem precisam: a convocatoria da reuniao, o talao da compra.
+-- A mesma ideia, uma tabela so, com o tipo a dizer de quem e a ligacao.
+--
+-- O documento continua a viver no arquivo: isto e so a ligacao.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS item_documents (
+  tipo        TEXT    NOT NULL,
+  item_id     INTEGER NOT NULL,
+  document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+  papel       TEXT    NOT NULL DEFAULT 'anexo',
+  PRIMARY KEY (tipo, item_id, document_id)
+);
+CREATE INDEX IF NOT EXISTS item_documents_doc_idx ON item_documents (document_id);
