@@ -167,7 +167,7 @@ async function completar(tasks) {
 async function tarefasParaGestao() {
   const rows = await all(
     `SELECT ${CAMPOS} FROM tasks t
-      WHERE t.origin = 'real'
+      WHERE t.origin = 'real' AND t.aprovado
         AND (t.status NOT IN ('concluida','cancelada')
              OR t.completed_at >= now() - INTERVAL '14 days')
       ORDER BY (t.due_on IS NULL), t.due_on, t.due_time NULLS FIRST, t.sort_order, t.id`);
