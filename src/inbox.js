@@ -157,6 +157,81 @@ function notasCompletas(d, tipo) {
   return tudo || null;
 }
 
+/* ---------------- o pagamento que ja existe ---------------- */
+/* Palavras que aparecem em todas as faturas e nao dizem de quem sao. */
+const PALAVRAS_VAZIAS = ['fatura', 'factura', 'recibo', 'pagamento', 'pagamentos', 'aviso', 'servicos',
+  'servico', 'comunicacoes', 'multimedia', 'portugal', 'lda', 'unipessoal', 'sociedade', 'empresa',
+  'referente', 'mensalidade', 'prestacao', 'the', 'de', 'da', 'do', 'das', 'dos', 'para', 'com', 'sem',
+  'janeiro', 'fevereiro', 'marco', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro',
+  'novembro', 'dezembro', 'mes', 'ano', 'comercial', 'geral', 'nacional', 'grupo', 'companhia'];
+
+function palavrasDe(txt) {
+  return semAcentos(txt).split(/[^a-z0-9]+/)
+    .filter((w) => w.length >= 3 && !/^\d+$/.test(w) && PALAVRAS_VAZIAS.indexOf(w) < 0);
+}
+
+/* Procura um pagamento por pagar que seja desta mesma coisa: a mesma entidade
+   (pelo nome, ou pela entidade de multibanco) e um prazo a menos de 35 dias.
+   Sem prazo na fatura, so conta se o valor for o mesmo. Um pagamento que ja
+   tem a sua fatura e de outro mes: fica de fora. */
+async function pagamentoExistente(d) {
+  const quem = d.payee || d.merchant || d.entity || '';
+  const chaves = palavrasDe(quem || d.title || '');
+  const ent = (/entidade\D{0,6}(\d{5})/i.exec(String(d.payment_ref || '')) || [])[1] || null;
+  if (!chaves.length && !ent) return null;
+  const valor = d.amount === undefined || d.amount === null || d.amount === '' ? null : Number(d.amount);
+  const prazo = soData(d.due_on);
+  const linhas = await all(
+    `SELECT t.id, t.title, t.payee, t.payment_ref, t.amount::float AS amount, t.repeat_rule,
+            to_char(t.due_on, 'YYYY-MM-DD') AS due_on
+       FROM tasks t
+      WHERE t.tipo = 'pagamento' AND t.origin = 'real' AND NOT t.done
+        AND t.status NOT IN ('concluida', 'cancelada')
+        AND NOT EXISTS (SELECT 1 FROM task_documents td
+                         WHERE td.task_id = t.id AND td.papel = 'fatura')`);
+  let melhor = null;
+  for (const t of linhas) {
+    const texto = semAcentos([t.title, t.payee, t.payment_ref].filter(Boolean).join(' '));
+    const mesmaEntidade = (ent && texto.indexOf(ent) >= 0) ||
+      (chaves.length && chaves.some((k) => new RegExp('(^|[^a-z0-9])' + k + '([^a-z0-9]|$)').test(texto)));
+    if (!mesmaEntidade) continue;
+    let distancia;
+    if (prazo && t.due_on) {
+      distancia = Math.abs((new Date(prazo) - new Date(t.due_on)) / 86400000);
+      if (distancia > 35) continue;
+    } else if (valor !== null && t.amount !== null && Math.abs(valor - t.amount) < 0.01) {
+      distancia = 40;
+    } else {
+      continue;
+    }
+    if (!melhor || distancia < melhor.distancia) melhor = { id: t.id, title: t.title, distancia };
+  }
+  return melhor;
+}
+
+/* A fatura manda sobre o que ja la estava: valor, referencia e prazo desta
+   ocorrencia sao os que vem nela. O que o pagamento ja tinha e a fatura nao
+   diz, fica. As notas ganham um bloco com o que veio na fatura. */
+async function juntarAoPagamento(taskId, d) {
+  const valor = d.amount === undefined || d.amount === null || d.amount === '' ? null : Number(d.amount);
+  const bloco = notasCompletas(d, 'pagamento');
+  const hoje = new Date().toISOString().slice(0, 10);
+  await query(
+    `UPDATE tasks
+        SET amount = COALESCE($2, amount),
+            payment_ref = COALESCE($3, payment_ref),
+            due_on = COALESCE($4::date, due_on),
+            payee = COALESCE(payee, $5),
+            context_id = COALESCE(context_id, $6),
+            notes = NULLIF(trim(COALESCE(notes, '') || CASE WHEN $7::text IS NULL THEN ''
+                      ELSE E'\n\n' || $7::text END), ''),
+            updated_at = now()
+      WHERE id = $1`,
+    [taskId, Number.isFinite(valor) ? valor : null, limpar(d.payment_ref), soData(d.due_on),
+     limpar(d.payee || d.merchant || d.entity), limpar(d.context_id),
+     bloco ? 'Fatura recebida a ' + dataPt(hoje) + ':\n' + bloco : null]);
+}
+
 const CRIAR = {
   async tarefa(d) {
     const title = String(d.title || '').trim();
@@ -318,23 +393,40 @@ async function descatalogar(id) {
     if (!item.length) throw new Error('Item não encontrado.');
     if (item[0].status !== 'catalogado') throw new Error('Este ficheiro ainda não foi catalogado.');
     const ligados = await all(
-      'SELECT target_type, target_id FROM inbox_links WHERE inbox_id = $1', [id]);
+      'SELECT target_type, target_id, criado FROM inbox_links WHERE inbox_id = $1', [id]);
     /* Um pagamento ja pago ou uma tarefa ja feita tem historia (a despesa que
        o pagamento escreveu, a data em que se fechou). Desfazer isso por aqui
        apagava-a em silencio: corrige-se nas Tarefas. */
-    const tarefas = ligados.filter((l) => l.target_type === 'pagamento' || l.target_type === 'tarefa')
-      .map((l) => l.target_id);
+    const tarefas = ligados.filter((l) => l.criado !== false &&
+      (l.target_type === 'pagamento' || l.target_type === 'tarefa')).map((l) => l.target_id);
     if (tarefas.length) {
       const feitas = await all('SELECT 1 FROM tasks WHERE id = ANY($1) AND done LIMIT 1', [tarefas]);
       if (feitas.length) {
         throw new Error('Isto já foi pago ou feito. Corrige-o nas Tarefas, para não perder o que ficou registado.');
       }
     }
+    const apagados = await apagarOQueNasceu(id, ligados);
+    await query(
+      "UPDATE inbox_items SET status = 'por_triar', resolved_at = NULL, approved_at = NULL WHERE id = $1",
+      [id]);
+    await query('COMMIT');
+    console.log('[farol] item', id, 'volta a por triar; apagado:', apagados.join(', ') || 'nada');
+    return apagados;
+  } catch (err) {
+    await query('ROLLBACK').catch(() => {});
+    throw err;
+  }
+}
+
+/* Apaga o que nasceu de um ficheiro, e so isso. O que ja existia e so lhe foi
+   associado (criado = FALSE) perde a ligacao e fica. Uma linha agarrada tambem
+   a outro ficheiro da caixa tambem fica, porque o outro ainda precisa dela. */
+async function apagarOQueNasceu(id, ligados) {
     await query('DELETE FROM inbox_links WHERE inbox_id = $1', [id]);
     const apagados = [];
     for (const l of ligados) {
       const tabela = TABELA_DO_ALVO[l.target_type];
-      if (!tabela) continue;
+      if (!tabela || l.criado === false) continue;
       const outros = await all(
         'SELECT 1 FROM inbox_links WHERE target_type = $1 AND target_id = $2 LIMIT 1',
         [l.target_type, l.target_id]);
@@ -348,16 +440,7 @@ async function descatalogar(id) {
       await query('DELETE FROM ' + tabela + ' WHERE id = $1', [l.target_id]);
       apagados.push(l.target_type + ' ' + l.target_id);
     }
-    await query(
-      "UPDATE inbox_items SET status = 'por_triar', resolved_at = NULL, approved_at = NULL WHERE id = $1",
-      [id]);
-    await query('COMMIT');
-    console.log('[farol] item', id, 'volta a por triar; apagado:', apagados.join(', ') || 'nada');
     return apagados;
-  } catch (err) {
-    await query('ROLLBACK').catch(() => {});
-    throw err;
-  }
 }
 
 /* ------------------------------------------------------------------ *
@@ -404,7 +487,7 @@ async function carregar(estado) {
     "SELECT count(*)::int AS a FROM inbox_items WHERE status = 'catalogado' AND approved_at IS NULL");
   if (!itens.length) return { itens: [], porTriar: n, porAprovar: a };
   const ligacoes = await all(
-    'SELECT inbox_id, target_type, target_id FROM inbox_links WHERE inbox_id = ANY($1)',
+    'SELECT inbox_id, target_type, target_id, criado FROM inbox_links WHERE inbox_id = ANY($1)',
     [itens.map((i) => i.id)]);
   /* O cartao mostrava o que a IA tinha proposto, nao o que ficou gravado: um
      documento com a entidade corrigida a mao continuava marcado como estando
@@ -415,6 +498,7 @@ async function carregar(estado) {
       .map((l) => ({
         tipo: l.target_type,
         id: l.target_id,
+        criado: l.criado !== false,
         dados: (dados[l.target_type] || {})[l.target_id] || null
       }));
   });
@@ -439,6 +523,18 @@ async function executarTriagem(id, destinos) {
 
     const criados = [];
     for (const d of destinos) {
+      /* Uma fatura de algo que ja esta a ser pago (a mensalidade, a prestacao,
+         a proxima ocorrencia de um pagamento recorrente) nao cria outro
+         pagamento: junta-se ao que ja existe. */
+      const existente = d.tipo === 'pagamento' ? await pagamentoExistente(d.dados || {}) : null;
+      if (existente) {
+        await juntarAoPagamento(existente.id, d.dados || {});
+        await query(
+          `INSERT INTO inbox_links (inbox_id, target_type, target_id, criado) VALUES ($1,'pagamento',$2,FALSE)
+           ON CONFLICT DO NOTHING`, [id, existente.id]);
+        criados.push({ tipo: 'pagamento', id: existente.id, reutilizado: true, titulo: existente.title });
+        continue;
+      }
       const novoId = await CRIAR[d.tipo](d.dados || {});
       await query(
         `INSERT INTO inbox_links (inbox_id, target_type, target_id) VALUES ($1,$2,$3)
@@ -914,11 +1010,28 @@ function instalar(app) {
     }
   });
 
+  /* Apagar um ficheiro da caixa apaga tudo o que nasceu dele - tarefa,
+     pagamento, despesa, documento, evento - numa transaccao so. O que ja
+     existia e so lhe foi associado fica, sem a ligacao. O ficheiro no balde sai
+     no fim, fora da transaccao: se falhar, fica um objecto orfao, nao dados
+     meio apagados. */
   app.delete('/api/inbox/:id', async (req, res) => {
+    const id = Number(req.params.id);
     try {
-      const rows = await all(
-        'DELETE FROM inbox_items WHERE id = $1 RETURNING file_path, store', [Number(req.params.id)]);
+      let rows, apagados = [];
+      await query('BEGIN');
+      try {
+        const ligados = await all(
+          'SELECT target_type, target_id, criado FROM inbox_links WHERE inbox_id = $1', [id]);
+        apagados = await apagarOQueNasceu(id, ligados);
+        rows = await all('DELETE FROM inbox_items WHERE id = $1 RETURNING file_path, store', [id]);
+        await query('COMMIT');
+      } catch (e) {
+        await query('ROLLBACK').catch(() => {});
+        throw e;
+      }
       if (!rows.length) return res.status(404).json({ error: 'Item não encontrado.' });
+      console.log('[farol] item', id, 'apagado; com ele:', apagados.join(', ') || 'nada');
       const { file_path: chave, store } = rows[0];
       if (chave && pronto(store || 'inbox')) {
         await apagar(store || 'inbox', chave).catch((e) => console.warn('[farol] objecto não apagado:', e.message));
@@ -958,8 +1071,10 @@ function instalar(app) {
          VALUES ('ficheiro',$1,$2,$3,$4,$5,$6,$7,'catalogado',now(),now(),'nenhum') RETURNING id`,
         [doc[0].name, chave, nome, mime || 'application/octet-stream', buffer.length, checksum, store]))[0].id;
     }
+    /* O documento ja existia: o ficheiro so lhe foi pendurado. Apagar o ficheiro
+       da caixa solta-o, nao apaga o documento. */
     await query(
-      `INSERT INTO inbox_links (inbox_id, target_type, target_id) VALUES ($1,'documento',$2)
+      `INSERT INTO inbox_links (inbox_id, target_type, target_id, criado) VALUES ($1,'documento',$2,FALSE)
        ON CONFLICT DO NOTHING`, [itemId, docId]);
     return { ok: true, documento: docId, inbox_id: itemId, repetido: igual.length > 0 };
   }
