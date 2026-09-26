@@ -120,7 +120,7 @@ app.get('/api/bootstrap', async (_req, res) => {
                     COALESCE(c.name, '') AS detail,
                     to_char(t.due_on,'YYYY-MM-DD') AS quando
                FROM tasks t LEFT JOIN contexts c ON c.id = t.context_id
-              WHERE t.origin = 'real' AND NOT t.done AND t.status <> 'cancelada'
+              WHERE t.origin = 'real' AND t.aprovado AND NOT t.done AND t.status <> 'cancelada'
                 AND t.tipo <> 'nota'
                 AND t.due_on IS NOT NULL
                 AND t.due_on <= CURRENT_DATE + INTERVAL '30 days'
@@ -144,13 +144,13 @@ app.get('/api/bootstrap', async (_req, res) => {
            ) x ORDER BY quando, title`),
       all(`SELECT 'Por fazer' AS label,
                   (SELECT count(*) FROM tasks
-                    WHERE origin = 'real' AND NOT done AND status <> 'cancelada'
+                    WHERE origin = 'real' AND aprovado AND NOT done AND status <> 'cancelada'
                       AND tipo = 'tarefa')::text AS value,
                   'tarefas abertas' AS note, 'tarefas' AS goto
            UNION ALL
            SELECT 'Com prazo a 7 dias',
                   (SELECT count(*) FROM tasks
-                    WHERE origin = 'real' AND NOT done AND status <> 'cancelada'
+                    WHERE origin = 'real' AND aprovado AND NOT done AND status <> 'cancelada'
                       AND tipo = 'tarefa'
                       AND due_on IS NOT NULL
                       AND due_on <= CURRENT_DATE + INTERVAL '7 days')::text,
@@ -160,14 +160,14 @@ app.get('/api/bootstrap', async (_req, res) => {
               faz ao pequeno-almoco, e nao estava em lado nenhum. */
            SELECT 'A pagar este mês',
                   (SELECT count(*) FROM tasks
-                    WHERE origin = 'real' AND NOT done AND status <> 'cancelada'
+                    WHERE origin = 'real' AND aprovado AND NOT done AND status <> 'cancelada'
                       AND tipo = 'pagamento'
                       AND due_on IS NOT NULL
                       AND due_on < date_trunc('month', CURRENT_DATE) + INTERVAL '1 month')::text,
                   /* O separador decimal do Postgres nao sabe portugues: o
                      ponto passa a virgula a mao. */
                   COALESCE((SELECT replace(to_char(sum(amount), 'FM999999990.00'), '.', ',') || ' €' FROM tasks
-                             WHERE origin = 'real' AND NOT done AND status <> 'cancelada'
+                             WHERE origin = 'real' AND aprovado AND NOT done AND status <> 'cancelada'
                                AND tipo = 'pagamento' AND amount IS NOT NULL
                                AND due_on IS NOT NULL
                                AND due_on < date_trunc('month', CURRENT_DATE) + INTERVAL '1 month'),
@@ -310,7 +310,7 @@ async function carregarGestao() {
                                    AND due_on IS NOT NULL
                                    AND due_on < CURRENT_DATE)::int AS atrasadas
            FROM tasks
-          WHERE origin = 'real' AND project_id IS NOT NULL AND status <> 'cancelada'
+          WHERE origin = 'real' AND aprovado AND project_id IS NOT NULL AND status <> 'cancelada'
           GROUP BY project_id`)
   ]);
   projects.forEach((p) => {
@@ -538,7 +538,7 @@ app.get('/api/gestao/projetos/:id', async (req, res) => {
                   to_char(t.due_on,'YYYY-MM-DD') AS due_on,
                   to_char(t.completed_at,'YYYY-MM-DD') AS completed_on
              FROM tasks t
-            WHERE t.project_id = ANY($1::int[]) AND t.origin = 'real'
+            WHERE t.project_id = ANY($1::int[]) AND t.origin = 'real' AND t.aprovado
             ORDER BY (t.due_on IS NULL), t.due_on, t.sort_order, t.id`, [alvos]) : [],
       alvos.length ? all(
         `SELECT id, name, entity, kind, aprovado, project_id,
