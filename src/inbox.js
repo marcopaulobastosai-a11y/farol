@@ -163,26 +163,57 @@ const PALAVRAS_VAZIAS = ['fatura', 'factura', 'recibo', 'pagamento', 'pagamentos
   'servico', 'comunicacoes', 'multimedia', 'portugal', 'lda', 'unipessoal', 'sociedade', 'empresa',
   'referente', 'mensalidade', 'prestacao', 'the', 'de', 'da', 'do', 'das', 'dos', 'para', 'com', 'sem',
   'janeiro', 'fevereiro', 'marco', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro',
-  'novembro', 'dezembro', 'mes', 'ano', 'comercial', 'geral', 'nacional', 'grupo', 'companhia'];
+  'novembro', 'dezembro', 'mes', 'ano', 'comercial', 'geral', 'nacional', 'grupo', 'companhia',
+  'pagar', 'valor', 'total', 'conta', 'numero', 'referencia', 'entidade', 'iva', 'euros', 'eur'];
 
 function palavrasDe(txt) {
   return semAcentos(txt).split(/[^a-z0-9]+/)
     .filter((w) => w.length >= 3 && !/^\d+$/.test(w) && PALAVRAS_VAZIAS.indexOf(w) < 0);
 }
 
-/* Procura um pagamento por pagar que seja desta mesma coisa: a mesma entidade
-   (pelo nome, ou pela entidade de multibanco) e um prazo a menos de 35 dias.
-   Sem prazo na fatura, so conta se o valor for o mesmo. Um pagamento que ja
-   tem a sua fatura e de outro mes: fica de fora. */
+/* Raiz de uma palavra, para «contabilidade» e «contabilista» contarem como a
+   mesma coisa: as primeiras seis letras chegam para o portugues de uma fatura. */
+function raiz(w) { return w.length > 6 ? w.slice(0, 6) : w; }
+
+/* Palavras do nome que dizem do que se trata (quatro letras ou mais, sem as
+   vazias), ja reduzidas a raiz. */
+function raizesDe(txt) {
+  const vistas = {};
+  return palavrasDe(txt).filter((w) => w.length >= 4).map(raiz)
+    .filter((r) => (vistas[r] ? false : (vistas[r] = true)));
+}
+
+/* O valor de um pagamento: o do campo, ou o que estiver escrito no titulo
+   («Avenca de Contabilista — 321,03€»), que e como vinham do TickTick. */
+function valorDe(t) {
+  if (t.amount !== null && t.amount !== undefined) return Number(t.amount);
+  const m = /(\d{1,6}(?:[.\s]\d{3})*[.,]\d{2})\s*(?:€|eur)/i.exec(String(t.title || ''));
+  return m ? Number(m[1].replace(/[.\s](?=\d{3}\b)/g, '').replace(',', '.')) : null;
+}
+
+/* Procura um pagamento por pagar que seja desta mesma coisa. Cada pista vale
+   pontos e e preciso somar pelo menos 5, com pelo menos uma pista de nome:
+   - a mesma entidade de multibanco ............................ 4
+   - o nome de quem cobra aparece no pagamento ................. 3
+   - cada raiz do titulo em comum («avenca», «contab») ......... 2 (ate 6)
+   - o mesmo valor (do campo ou escrito no titulo) ............. 3
+   - prazo a 35 dias ou menos do da fatura ..................... 2
+   Um prazo a mais de 35 dias exclui (e outra ocorrencia). Sem prazo num dos
+   lados, so conta se o valor for o mesmo. Um pagamento que ja tem a sua
+   fatura e de outro mes: fica de fora. Ganha quem somar mais; em empate, o
+   de prazo mais proximo. Caso real (26 set): «Avenca contabilidade agosto
+   2026 - Cesto de Numeros» contra «Pagamento Avenca de Contabilista —
+   321,03€»: duas raizes (4) + valor (3) + prazo a 24 dias (2) = 9. */
 async function pagamentoExistente(d) {
   const quem = d.payee || d.merchant || d.entity || '';
-  const chaves = palavrasDe(quem || d.title || '');
+  const nomes = palavrasDe(quem);
+  const raizes = raizesDe(d.title || d.description || '');
   const ent = (/entidade\D{0,6}(\d{5})/i.exec(String(d.payment_ref || '')) || [])[1] || null;
-  if (!chaves.length && !ent) return null;
+  if (!nomes.length && !raizes.length && !ent) return null;
   const valor = d.amount === undefined || d.amount === null || d.amount === '' ? null : Number(d.amount);
   const prazo = soData(d.due_on);
   const linhas = await all(
-    `SELECT t.id, t.title, t.payee, t.payment_ref, t.amount::float AS amount, t.repeat_rule,
+    `SELECT t.id, t.title, t.payee, t.payment_ref, t.amount::float AS amount,
             to_char(t.due_on, 'YYYY-MM-DD') AS due_on
        FROM tasks t
       WHERE t.tipo = 'pagamento' AND t.origin = 'real' AND NOT t.done
@@ -192,19 +223,28 @@ async function pagamentoExistente(d) {
   let melhor = null;
   for (const t of linhas) {
     const texto = semAcentos([t.title, t.payee, t.payment_ref].filter(Boolean).join(' '));
-    const mesmaEntidade = (ent && texto.indexOf(ent) >= 0) ||
-      (chaves.length && chaves.some((k) => new RegExp('(^|[^a-z0-9])' + k + '([^a-z0-9]|$)').test(texto)));
-    if (!mesmaEntidade) continue;
-    let distancia;
+    const delas = raizesDe([t.title, t.payee].filter(Boolean).join(' '));
+    let pontos = 0, nome = false;
+    if (ent && texto.indexOf(ent) >= 0) { pontos += 4; nome = true; }
+    if (nomes.some((k) => new RegExp('(^|[^a-z0-9])' + k + '([^a-z0-9]|$)').test(texto))) { pontos += 3; nome = true; }
+    const comuns = raizes.filter((r) => delas.indexOf(r) >= 0).length;
+    if (comuns) { pontos += Math.min(comuns, 3) * 2; nome = true; }
+    if (!nome) continue;
+    const dele = valorDe(t);
+    const mesmoValor = valor !== null && dele !== null && Math.abs(valor - dele) < 0.01;
+    if (mesmoValor) pontos += 3;
+    let distancia = 999;
     if (prazo && t.due_on) {
       distancia = Math.abs((new Date(prazo) - new Date(t.due_on)) / 86400000);
       if (distancia > 35) continue;
-    } else if (valor !== null && t.amount !== null && Math.abs(valor - t.amount) < 0.01) {
-      distancia = 40;
-    } else {
+      pontos += 2;
+    } else if (!mesmoValor) {
       continue;
     }
-    if (!melhor || distancia < melhor.distancia) melhor = { id: t.id, title: t.title, distancia };
+    if (pontos < 5) continue;
+    if (!melhor || pontos > melhor.pontos || (pontos === melhor.pontos && distancia < melhor.distancia)) {
+      melhor = { id: t.id, title: t.title, pontos, distancia };
+    }
   }
   return melhor;
 }
