@@ -162,6 +162,22 @@ function arJanela(c, paiId) {
   campoNota.appendChild(iNota);
   cx.appendChild(campoNota);
 
+  /* Uma sub-area pode mudar de area; leva consigo tudo o que tem. */
+  var iPai = null;
+  if (c && c.parent_id) {
+    var campoPai = el('div');
+    campoPai.appendChild(el('label', null, 'Dentro de'));
+    iPai = el('select');
+    AR.linhas.filter(function (x) { return !x.parent_id; }).forEach(function (x) {
+      var op = el('option', null, x.name);
+      op.value = String(x.id);
+      if (x.id === c.parent_id) op.selected = true;
+      iPai.appendChild(op);
+    });
+    campoPai.appendChild(iPai);
+    cx.appendChild(campoPai);
+  }
+
   var iActiva = null;
   if (c) {
     var campoEstado = el('div');
@@ -186,6 +202,7 @@ function arJanela(c, paiId) {
   gravar.addEventListener('click', function () {
     var corpo = { name: iNome.value.trim(), note: iNota.value.trim() || null };
     if (iActiva) corpo.active = iActiva.value === '1';
+    if (iPai && Number(iPai.value) !== c.parent_id) corpo.parent_id = Number(iPai.value);
     if (!c && paiId) corpo.parent_id = paiId;
     if (!corpo.name) { toast('A \u00e1rea precisa de um nome.'); return; }
     apiGestao(c ? '/api/contextos/' + c.id : '/api/contextos', {
