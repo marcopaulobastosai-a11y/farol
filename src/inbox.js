@@ -204,12 +204,11 @@ function valorDe(t) {
    de prazo mais proximo. Caso real (26 set): «Avenca contabilidade agosto
    2026 - Cesto de Numeros» contra «Pagamento Avenca de Contabilista —
    321,03€»: duas raizes (4) + valor (3) + prazo a 24 dias (2) = 9. */
-async function pagamentoExistente(d) {
+async function pontuarPagamentos(d) {
   const quem = d.payee || d.merchant || d.entity || '';
   const nomes = palavrasDe(quem);
   const raizes = raizesDe(d.title || d.description || '');
   const ent = (/entidade\D{0,6}(\d{5})/i.exec(String(d.payment_ref || '')) || [])[1] || null;
-  if (!nomes.length && !raizes.length && !ent) return null;
   const valor = d.amount === undefined || d.amount === null || d.amount === '' ? null : Number(d.amount);
   const prazo = soData(d.due_on);
   const linhas = await all(
@@ -220,39 +219,47 @@ async function pagamentoExistente(d) {
         AND t.status NOT IN ('concluida', 'cancelada')
         AND NOT EXISTS (SELECT 1 FROM task_documents td
                          WHERE td.task_id = t.id AND td.papel = 'fatura')`);
-  let melhor = null;
-  for (const t of linhas) {
+  const todos = linhas.map((t) => {
     const texto = semAcentos([t.title, t.payee, t.payment_ref].filter(Boolean).join(' '));
     const delas = raizesDe([t.title, t.payee].filter(Boolean).join(' '));
     let pontos = 0, nome = false;
     if (ent && texto.indexOf(ent) >= 0) { pontos += 4; nome = true; }
     if (nomes.some((k) => new RegExp('(^|[^a-z0-9])' + k + '([^a-z0-9]|$)').test(texto))) { pontos += 3; nome = true; }
-    const comuns = raizes.filter((r) => delas.indexOf(r) >= 0).length;
+    const comuns = raizes.filter((x) => delas.indexOf(x) >= 0).length;
     if (comuns) { pontos += Math.min(comuns, 3) * 2; nome = true; }
-    if (!nome) continue;
     const dele = valorDe(t);
     const mesmoValor = valor !== null && dele !== null && Math.abs(valor - dele) < 0.01;
     if (mesmoValor) pontos += 3;
-    let distancia = 999;
+    let distancia = 999, datasOk = true;
     if (prazo && t.due_on) {
       distancia = Math.abs((new Date(prazo) - new Date(t.due_on)) / 86400000);
-      if (distancia > 35) continue;
-      pontos += 2;
+      if (distancia > 35) datasOk = false; else pontos += 2;
     } else if (!mesmoValor) {
-      continue;
+      datasOk = false;
     }
-    if (pontos < 5) continue;
-    if (!melhor || pontos > melhor.pontos || (pontos === melhor.pontos && distancia < melhor.distancia)) {
-      melhor = { id: t.id, title: t.title, pontos, distancia };
-    }
-  }
-  return melhor;
+    return { id: t.id, title: t.title, amount: dele, due_on: t.due_on, pontos, distancia,
+             serve: nome && datasOk && pontos >= 5 };
+  });
+  todos.sort((a, b) => (b.pontos - a.pontos) || (a.distancia - b.distancia) || (a.id - b.id));
+  return todos;
+}
+
+async function pagamentoExistente(d) {
+  const quem = d.payee || d.merchant || d.entity || '';
+  if (!palavrasDe(quem).length && !raizesDe(d.title || d.description || '').length &&
+      !/entidade\D{0,6}\d{5}/i.test(String(d.payment_ref || ''))) return null;
+  return (await pontuarPagamentos(d)).filter((t) => t.serve)[0] || null;
 }
 
 /* A fatura manda sobre o que ja la estava: valor, referencia e prazo desta
    ocorrencia sao os que vem nela. O que o pagamento ja tinha e a fatura nao
    diz, fica. As notas ganham um bloco com o que veio na fatura. */
 async function juntarAoPagamento(taskId, d) {
+  /* Como estava antes: e o que se repoe se a fatura sair daqui. */
+  const antes = (await all(
+    `SELECT amount::float AS amount, payment_ref, to_char(due_on, 'YYYY-MM-DD') AS due_on,
+            payee, context_id, notes
+       FROM tasks WHERE id = $1`, [taskId]))[0] || null;
   const valor = d.amount === undefined || d.amount === null || d.amount === '' ? null : Number(d.amount);
   const bloco = notasCompletas(d, 'pagamento');
   const hoje = new Date().toISOString().slice(0, 10);
@@ -263,13 +270,24 @@ async function juntarAoPagamento(taskId, d) {
             due_on = COALESCE($4::date, due_on),
             payee = COALESCE(payee, $5),
             context_id = COALESCE(context_id, $6),
-            notes = NULLIF(trim(COALESCE(notes, '') || CASE WHEN $7::text IS NULL THEN ''
-                      ELSE E'\n\n' || $7::text END), ''),
+            notes = NULLIF(btrim(COALESCE(notes, '') || CASE WHEN $7::text IS NULL THEN ''
+                      ELSE E'\n\n' || $7::text END, E' \n'), ''),
             updated_at = now()
       WHERE id = $1`,
     [taskId, Number.isFinite(valor) ? valor : null, limpar(d.payment_ref), soData(d.due_on),
      limpar(d.payee || d.merchant || d.entity), limpar(d.context_id),
      bloco ? 'Fatura recebida a ' + dataPt(hoje) + ':\n' + bloco : null]);
+  return antes;
+}
+
+/* Desfaz o que a fatura escreveu num pagamento que ja existia. */
+async function reporPagamento(taskId, antes) {
+  if (!antes) return;
+  await query(
+    `UPDATE tasks SET amount = $2, payment_ref = $3, due_on = $4::date, payee = $5,
+                      context_id = $6, notes = $7, updated_at = now()
+      WHERE id = $1`,
+    [taskId, antes.amount, antes.payment_ref, antes.due_on, antes.payee, antes.context_id, antes.notes]);
 }
 
 const CRIAR = {
@@ -433,7 +451,7 @@ async function descatalogar(id) {
     if (!item.length) throw new Error('Item não encontrado.');
     if (item[0].status !== 'catalogado') throw new Error('Este ficheiro ainda não foi catalogado.');
     const ligados = await all(
-      'SELECT target_type, target_id, criado FROM inbox_links WHERE inbox_id = $1', [id]);
+      'SELECT target_type, target_id, criado, antes FROM inbox_links WHERE inbox_id = $1', [id]);
     /* Um pagamento ja pago ou uma tarefa ja feita tem historia (a despesa que
        o pagamento escreveu, a data em que se fechou). Desfazer isso por aqui
        apagava-a em silencio: corrige-se nas Tarefas. */
@@ -466,6 +484,10 @@ async function apagarOQueNasceu(id, ligados) {
     const apagados = [];
     for (const l of ligados) {
       const tabela = TABELA_DO_ALVO[l.target_type];
+      /* Um pagamento que ja existia volta a ser como era antes da fatura. */
+      if (l.criado === false && l.target_type === 'pagamento' && l.antes) {
+        await reporPagamento(l.target_id, l.antes);
+      }
       if (!tabela || l.criado === false) continue;
       const outros = await all(
         'SELECT 1 FROM inbox_links WHERE target_type = $1 AND target_id = $2 LIMIT 1',
@@ -568,10 +590,11 @@ async function executarTriagem(id, destinos) {
          pagamento: junta-se ao que ja existe. */
       const existente = d.tipo === 'pagamento' ? await pagamentoExistente(d.dados || {}) : null;
       if (existente) {
-        await juntarAoPagamento(existente.id, d.dados || {});
+        const antes = await juntarAoPagamento(existente.id, d.dados || {});
         await query(
-          `INSERT INTO inbox_links (inbox_id, target_type, target_id, criado) VALUES ($1,'pagamento',$2,FALSE)
-           ON CONFLICT DO NOTHING`, [id, existente.id]);
+          `INSERT INTO inbox_links (inbox_id, target_type, target_id, criado, dados, antes)
+           VALUES ($1,'pagamento',$2,FALSE,$3,$4) ON CONFLICT DO NOTHING`,
+          [id, existente.id, JSON.stringify(d.dados || {}), antes ? JSON.stringify(antes) : null]);
         criados.push({ tipo: 'pagamento', id: existente.id, reutilizado: true, titulo: existente.title });
         continue;
       }
@@ -980,7 +1003,7 @@ function instalar(app) {
       }
 
       const links = await all(
-        'SELECT target_type, target_id, criado FROM inbox_links WHERE inbox_id = $1', [id]);
+        'SELECT target_type, target_id, criado, antes FROM inbox_links WHERE inbox_id = $1', [id]);
       const dono = await podeTerTarefas(pid);
       for (const l of links) {
         if (l.target_type === 'documento') {
@@ -1012,6 +1035,113 @@ function instalar(app) {
     } catch (err) {
       console.error('[farol] PATCH pessoa:', err.message);
       res.status(400).json({ error: 'Nao foi possivel relacionar a pessoa.' });
+    }
+  });
+
+  /* ---------------- o pagamento da fatura ---------------- */
+  /* O que a fatura diz: guardado na ligacao quando se juntou a um pagamento
+     que ja existia, ou lido do pagamento que nasceu dela. */
+  async function faturaDoItem(id) {
+    const lp = (await all(
+      `SELECT target_id, criado, dados, antes FROM inbox_links
+        WHERE inbox_id = $1 AND target_type = 'pagamento' LIMIT 1`, [id]))[0];
+    if (!lp) return null;
+    let fatura = lp.dados || {};
+    if (!lp.criado && !Object.keys(fatura).length) {
+      /* Ligacoes de antes de se guardar o que a fatura dizia: vai-se a leitura. */
+      const ai = ((await all('SELECT ai_json FROM inbox_items WHERE id = $1', [id]))[0] || {}).ai_json || {};
+      const d = (ai.destinos || []).filter((x) => x && x.tipo === 'pagamento')[0];
+      fatura = (d && d.dados) || {};
+    }
+    if (lp.criado) {
+      fatura = (await all(
+        `SELECT title, amount::float AS amount, to_char(due_on, 'YYYY-MM-DD') AS due_on, payee,
+                payment_ref, context_id, owner_id, project_id, notes, done
+           FROM tasks WHERE id = $1`, [lp.target_id]))[0] || {};
+    }
+    return { lp, fatura };
+  }
+
+  /* Os pagamentos por pagar, do mais parecido para o menos, para escolher a
+     mao quando a escolha automatica errou. */
+  app.get('/api/inbox/:id/pagamentos', async (req, res) => {
+    const id = Number(req.params.id);
+    try {
+      const f = await faturaDoItem(id);
+      if (!f) return res.status(404).json({ error: 'Este ficheiro nao tem pagamento.' });
+      const atual = (await all(
+        `SELECT id, title, amount::float AS amount, to_char(due_on, 'YYYY-MM-DD') AS due_on
+           FROM tasks WHERE id = $1`, [f.lp.target_id]))[0] || null;
+      const candidatos = (await pontuarPagamentos(f.fatura))
+        .filter((t) => t.id !== f.lp.target_id).slice(0, 60);
+      res.json({ atual: atual && Object.assign(atual, { criado: f.lp.criado }), candidatos });
+    } catch (err) {
+      console.error('[farol] GET pagamentos:', err.message);
+      res.status(500).json({ error: 'Nao foi possivel ler os pagamentos.' });
+    }
+  });
+
+  /* Trocar: { para: <id de um pagamento por pagar> } ou { para: 'novo' }.
+     O pagamento de onde a fatura sai volta ao que era (se ja existia) ou e
+     apagado (se tinha nascido dela). A fatura (documento) vai com ela. */
+  app.post('/api/inbox/:id/pagamento', async (req, res) => {
+    const id = Number(req.params.id);
+    const para = (req.body || {}).para;
+    await query('BEGIN');
+    try {
+      const f = await faturaDoItem(id);
+      if (!f) throw new Error('Este ficheiro nao tem pagamento.');
+      const { lp, fatura } = f;
+      if (String(para) === String(lp.target_id)) { await query('ROLLBACK'); return res.json(await carregar(req.query.estado || 'catalogado')); }
+      if (lp.criado && fatura.done) throw new Error('Este pagamento ja foi pago: corrige-o nas Tarefas.');
+      const item = (await all('SELECT approved_at FROM inbox_items WHERE id = $1', [id]))[0];
+      const doc = (await all(
+        `SELECT target_id FROM inbox_links WHERE inbox_id = $1 AND target_type = 'documento' AND criado
+          ORDER BY target_id LIMIT 1`, [id]))[0];
+
+      /* Sair de onde esta. */
+      if (lp.criado) {
+        await query('DELETE FROM tasks WHERE id = $1', [lp.target_id]);
+      } else {
+        await reporPagamento(lp.target_id, lp.antes);
+        if (doc) await query('DELETE FROM task_documents WHERE task_id = $1 AND document_id = $2',
+          [lp.target_id, doc.target_id]);
+      }
+      await query("DELETE FROM inbox_links WHERE inbox_id = $1 AND target_type = 'pagamento'", [id]);
+
+      /* Entrar no novo sitio. */
+      const dados = Object.assign({}, fatura);
+      delete dados.done;
+      let alvo;
+      if (para === 'novo') {
+        alvo = await CRIAR.pagamento(dados);
+        if (item && item.approved_at) await query('UPDATE tasks SET aprovado = TRUE WHERE id = $1', [alvo]);
+        await query(
+          `INSERT INTO inbox_links (inbox_id, target_type, target_id, criado) VALUES ($1,'pagamento',$2,TRUE)`,
+          [id, alvo]);
+      } else {
+        alvo = Number(para);
+        const ok = await all(
+          "SELECT 1 FROM tasks WHERE id = $1 AND tipo = 'pagamento' AND NOT done AND origin = 'real'", [alvo]);
+        if (!ok.length) throw new Error('Esse pagamento ja nao esta por pagar.');
+        const antes = await juntarAoPagamento(alvo, dados);
+        await query(
+          `INSERT INTO inbox_links (inbox_id, target_type, target_id, criado, dados, antes)
+           VALUES ($1,'pagamento',$2,FALSE,$3,$4)`,
+          [id, alvo, JSON.stringify(dados), antes ? JSON.stringify(antes) : null]);
+      }
+      if (doc) {
+        await query(
+          `INSERT INTO task_documents (task_id, document_id, papel) VALUES ($1,$2,'fatura')
+           ON CONFLICT (task_id, document_id) DO UPDATE SET papel = 'fatura'`, [alvo, doc.target_id]);
+      }
+      await query('COMMIT');
+      console.log('[farol] item', id, 'pagamento', lp.target_id, '->', alvo);
+      res.json({ ok: true, pagamento: alvo, ...(await carregar(req.query.estado || 'catalogado')) });
+    } catch (err) {
+      await query('ROLLBACK').catch(() => {});
+      console.error('[farol] POST trocar pagamento:', err.message);
+      res.status(400).json({ error: err.message || 'Nao foi possivel trocar o pagamento.' });
     }
   });
 
@@ -1083,7 +1213,7 @@ function instalar(app) {
       await query('BEGIN');
       try {
         const ligados = await all(
-          'SELECT target_type, target_id, criado FROM inbox_links WHERE inbox_id = $1', [id]);
+          'SELECT target_type, target_id, criado, antes FROM inbox_links WHERE inbox_id = $1', [id]);
         apagados = await apagarOQueNasceu(id, ligados);
         rows = await all('DELETE FROM inbox_items WHERE id = $1 RETURNING file_path, store', [id]);
         await query('COMMIT');
