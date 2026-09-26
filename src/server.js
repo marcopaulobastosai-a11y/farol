@@ -645,6 +645,58 @@ app.post('/api/gestao/eventos', async (req, res) => {
   }
 });
 
+/* Corrigir um evento: titulo, dia, hora, nota, area e de quem e. Ate 26 set
+   um evento so se corrigia apagando-o e voltando a catalogar o ficheiro.
+   «De quem»: num evento com uma pessoa so (o caso normal quando vem da caixa)
+   troca-se; num evento com varias, a escolhida junta-se as que la estao, para
+   nao se perder a boleia de quem acompanha. */
+app.patch('/api/gestao/eventos/:id', async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'id inválido' });
+  const b = req.body || {};
+  const campos = [], valores = [];
+  const por = (c, v) => { campos.push(c + ' = $' + (campos.length + 1)); valores.push(v); };
+  if (b.title !== undefined) {
+    const t = String(b.title || '').trim();
+    if (!t) return res.status(400).json({ error: 'O evento tem de ter uma descrição.' });
+    por('title', t);
+  }
+  if (b.day !== undefined) {
+    const d = String(b.day || '').trim().slice(0, 10);
+    if (!DIA_ISO.test(d)) return res.status(400).json({ error: 'O evento tem de ter uma data.' });
+    por('day', d);
+  }
+  if (b.at !== undefined) {
+    const h = String(b.at || '').trim().slice(0, 5);
+    if (h && !HORA.test(h)) return res.status(400).json({ error: 'A hora não está bem escrita.' });
+    por('at', h || null);
+  }
+  if (b.detail !== undefined) por('detail', limpar(String(b.detail || '').trim()));
+  if (b.context_id !== undefined) por('context_id', limpar(b.context_id));
+  try {
+    if (campos.length) {
+      valores.push(id);
+      const rows = await all(
+        `UPDATE events SET ${campos.join(', ')} WHERE id = $${valores.length} AND origin = 'real' RETURNING id`,
+        valores);
+      if (!rows.length) return res.status(404).json({ error: 'Evento não encontrado.' });
+    }
+    if (b.person_id !== undefined) {
+      const pid = b.person_id === null || b.person_id === '' || b.person_id === '-' ? null : Number(b.person_id);
+      const [{ n }] = await all('SELECT count(*)::int AS n FROM event_people WHERE event_id = $1', [id]);
+      if (n <= 1) await query('DELETE FROM event_people WHERE event_id = $1', [id]);
+      if (pid) {
+        await query('INSERT INTO event_people (event_id, person_id) VALUES ($1,$2) ON CONFLICT DO NOTHING',
+          [id, pid]);
+      }
+    }
+    res.json({ ok: true, id });
+  } catch (err) {
+    console.error('[farol] PATCH evento:', err.message);
+    res.status(500).json({ error: 'Não foi possível gravar o evento.' });
+  }
+});
+
 app.delete('/api/gestao/eventos/:id', async (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isInteger(id)) return res.status(400).json({ error: 'id inválido' });
