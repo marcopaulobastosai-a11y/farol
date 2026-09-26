@@ -261,7 +261,7 @@ async function ficha(id) {
        LEFT JOIN contexts c   ON c.id = t.context_id
        LEFT JOIN contexts pai ON pai.id = c.parent_id
        LEFT JOIN projects pr  ON pr.id = t.project_id
-      WHERE t.origin = 'real'
+      WHERE t.origin = 'real' AND t.aprovado
         AND (t.owner_id = $1
              OR EXISTS (SELECT 1 FROM task_subjects s
                          WHERE s.task_id = t.id AND s.person_id = $1))
