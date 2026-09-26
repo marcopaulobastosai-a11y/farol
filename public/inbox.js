@@ -531,6 +531,15 @@ function ibItem(item) {
     });
     var falta = ibFaltaNoComprovativo(item);
     if (falta) body.appendChild(el('div', 'ib-ia falhou', falta));
+    /* Com o que este papel esta relacionado - a tarefa, o pagamento, o
+       evento. Fica a vista no cartao, senao ninguem sabe que ja la esta. */
+    var rel = ibRelacoes(item);
+    if (rel.length) {
+      body.appendChild(el('div', 'ib-ia', 'ligado a: ' + rel.map(function (r) {
+        return (typeof relNome === 'function' ? relNome(r.tipo) : r.tipo) + ' \u00b7 ' + (r.title || ('#' + r.id)) +
+          (r.papel && r.papel !== 'anexo' ? ' (' + r.papel + ')' : '');
+      }).join('   |   ')));
+    }
   }
 
   /* De quem e o papel. E a primeira coisa que se procura num ficheiro velho,
@@ -555,6 +564,16 @@ function ibItem(item) {
   quem.type = 'button';
   quem.onclick = function () { ibEscolherPessoa(item); };
   acoes.appendChild(quem);
+  /* Um papel pertence quase sempre a alguma coisa: a tarefa que ele fecha, o
+     pagamento que ele prova, o evento que ele marca. A hipotese esta sempre
+     aqui, seja para aprovar ou ja arrumado. */
+  var docRel = ibDocumentoDoItem(item);
+  if (docRel && typeof relAbrir === 'function') {
+    var lig = el('button', 'btn', 'Relacionar');
+    lig.type = 'button';
+    lig.onclick = function () { relAbrir(docRel, function () { ibRecarregar(); }); };
+    acoes.appendChild(lig);
+  }
   if (item.status === 'por_triar') {
     var triar = el('button', 'btn primary', 'Catalogar');
     triar.onclick = function () { ibAbrirTriagem(item); };
@@ -641,6 +660,27 @@ function ibAvatar(p) {
 
 /* A janela de escolher de quem e o ficheiro. Oito pessoas cabem num relance:
    nao vale a pena uma lista pendente para isto. */
+/* O documento que nasceu deste ficheiro - e com ele que se relacionam as
+   tarefas, os pagamentos e os eventos. */
+function ibDocumentoDoItem(item) {
+  var l = (item.links || []).filter(function (x) { return x.tipo === 'documento' && x.dados; })[0];
+  return l ? l.dados : null;
+}
+
+function ibRelacoes(item) {
+  var d = ibDocumentoDoItem(item);
+  return (d && d.relacoes) || [];
+}
+
+/* Recarregar a caixa sem recarregar a pagina: e o que quase toda a gente aqui
+   faz depois de gravar. */
+function ibRecarregar() {
+  apiGestao('/api/inbox?estado=' + IB.estado).then(function (d) {
+    IB.itens = d.itens || []; IB.porTriar = d.porTriar || 0; IB.porAprovar = d.porAprovar || 0;
+    ibRender();
+  }).catch(function () {});
+}
+
 function ibEscolherPessoa(item) {
   var dlg = el('dialog', 'ib-dlg');
   var cx = el('div', 'ib-dlgc');
