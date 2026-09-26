@@ -892,3 +892,32 @@ BEGIN
 EXCEPTION WHEN OTHERS THEN
   RAISE WARNING '[farol] nao foi possivel marcar as ligacoes antigas: %', SQLERRM;
 END $$;
+
+
+-- ---------------------------------------------------------------------------
+-- QUEM PAGA: A PESSOA DO FICHEIRO
+--
+-- A pessoa escolhida no cartao da caixa ia so para «por causa de quem» do
+-- pagamento; «Quem paga» ficava vazio (a avenca da contabilidade de agosto,
+-- 26 set). Os pagamentos e tarefas que nasceram de um ficheiro com pessoa, e
+-- que ainda nao tem quem pague, passam a te-la - se ela puder ter tarefas.
+-- ---------------------------------------------------------------------------
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM settings WHERE key = 'quem_paga_da_caixa') THEN
+    RETURN;
+  END IF;
+  UPDATE tasks t
+     SET owner_id = i.person_id
+    FROM inbox_links l
+    JOIN inbox_items i ON i.id = l.inbox_id
+    JOIN people p ON p.id = i.person_id AND p.can_own_tasks
+   WHERE l.target_id = t.id
+     AND l.target_type IN ('pagamento', 'tarefa')
+     AND l.criado
+     AND t.owner_id IS NULL;
+  INSERT INTO settings (key, value) VALUES ('quem_paga_da_caixa', now()::text)
+  ON CONFLICT (key) DO NOTHING;
+EXCEPTION WHEN OTHERS THEN
+  RAISE WARNING '[farol] nao foi possivel preencher quem paga: %', SQLERRM;
+END $$;
