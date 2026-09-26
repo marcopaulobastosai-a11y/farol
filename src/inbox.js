@@ -20,7 +20,7 @@ const { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } = re
 const { query } = require('./db');
 const ia = require('./ia');
 const pdf = require('./pdf');
-const { PAPEIS } = require('./tarefas');
+const { PAPEIS, pagar } = require('./tarefas');
 
 const all = async (sql, params) => (await query(sql, params)).rows;
 const limpar = (v) => (v === undefined || v === '' ? null : v);
@@ -28,7 +28,10 @@ const limpar = (v) => (v === undefined || v === '' ? null : v);
 const MAX_BYTES = 25 * 1024 * 1024;
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_BYTES } });
 
-const TIPOS = ['tarefa', 'pagamento', 'evento', 'documento', 'despesa'];
+/* comprovativo (26 set): a prova de que um pagamento ja foi feito - uma
+   transferencia, um talao de multibanco, um MB Way. Nao cria dinheiro novo:
+   agarra-se ao pagamento (ou pagamentos) que prova. */
+const TIPOS = ['tarefa', 'pagamento', 'evento', 'documento', 'despesa', 'comprovativo'];
 
 /* ------------------------------------------------------------------ *
  * Buckets
@@ -254,6 +257,166 @@ async function pagamentoExistente(d) {
 /* A fatura manda sobre o que ja la estava: valor, referencia e prazo desta
    ocorrencia sao os que vem nela. O que o pagamento ja tinha e a fatura nao
    diz, fica. As notas ganham um bloco com o que veio na fatura. */
+/* ---------------- o comprovativo ---------------- */
+/* Numeros de fatura, de recibo ou de documento: tres algarismos ou mais, sem
+   os montantes («321,03») e sem os anos. «FT CN_603» e «FT CN603» dao os dois
+   603, que e o que se compara. */
+function numerosDe(txt) {
+  const s = semAcentos(txt).replace(/\d+[.,]\d{2}(?!\d)/g, ' ');
+  const out = [];
+  (s.match(/\d{3,}/g) || []).forEach((n) => {
+    const m = n.replace(/^0+/, '');
+    if (m.length < 3 || /^(19|20)\d\d$/.test(m) || out.indexOf(m) >= 0) return;
+    out.push(m);
+  });
+  return out;
+}
+
+function numero(v) {
+  if (v === undefined || v === null || v === '') return null;
+  const n = Number(String(v).replace(',', '.'));
+  return Number.isFinite(n) ? n : null;
+}
+
+/* Os pagamentos que um comprovativo pode provar: os que estao por pagar e os
+   que ja foram pagos sem prova nenhuma agarrada (a lista «pagos sem prova»).
+   Pistas e pontos, como na fatura, mais a mais forte de todas:
+   - o numero de uma fatura do comprovativo aparece no pagamento, no nome de
+     um papel dele ou no ficheiro que lhe deu a fatura ................ 6
+   - o nome de quem recebeu aparece no pagamento ...................... 3
+   - cada raiz do titulo em comum ..................................... 2 (ate 6)
+   - o mesmo valor .................................................... 3
+   - prazo (ou data em que se pagou) a 45 dias ou menos ................ 2
+   A mais de 60 dias so passa com o numero da fatura. */
+/* ignorar: o proprio comprovativo ({ doc, item }), para ele nao contar como
+   pista nem tirar da lista os pagamentos a que ja esta agarrado. */
+async function pontuarComprovativo(d, ignorar) {
+  const fora = ignorar || {};
+  const nums = numerosDe([d.faturas, d.title, d.description].filter(Boolean).join(' '));
+  const nomes = palavrasDe(d.payee || d.merchant || d.entity || '');
+  const raizes = raizesDe([d.title, d.description, d.faturas].filter(Boolean).join(' '));
+  const valor = numero(d.amount);
+  const quando = soData(d.paid_on) || soData(d.spent_on) || soData(d.issued_on);
+  const linhas = await all(
+    `SELECT t.id, t.title, t.payee, t.notes, t.amount::float AS amount,
+            to_char(t.due_on, 'YYYY-MM-DD') AS due_on, to_char(t.paid_on, 'YYYY-MM-DD') AS paid_on,
+            (SELECT string_agg(x.txt, ' ') FROM (
+                SELECT dc.name AS txt FROM task_documents td JOIN documents dc ON dc.id = td.document_id
+                 WHERE td.task_id = t.id AND td.document_id <> $1
+                UNION ALL
+                SELECT concat_ws(' ', i.title, i.file_name) FROM inbox_links l JOIN inbox_items i ON i.id = l.inbox_id
+                 WHERE l.target_type = 'pagamento' AND l.target_id = t.id AND l.inbox_id <> $2) x) AS papeis
+       FROM tasks t
+      WHERE t.tipo = 'pagamento' AND t.origin = 'real' AND t.status <> 'cancelada'
+        AND ((NOT t.done AND t.paid_on IS NULL) OR t.paid_on >= CURRENT_DATE - INTERVAL '18 months')
+        AND NOT EXISTS (SELECT 1 FROM task_documents td
+                         WHERE td.task_id = t.id AND td.papel IN ('comprovativo', 'recibo')
+                           AND td.document_id <> $1)`, [Number(fora.doc) || 0, Number(fora.item) || 0]);
+  const todos = linhas.map((t) => {
+    const texto = semAcentos([t.title, t.payee].filter(Boolean).join(' '));
+    const deles = numerosDe([t.title, t.notes, t.papeis].filter(Boolean).join(' '));
+    const faturas = nums.filter((n) => deles.indexOf(n) >= 0);
+    let pontos = 0, nome = false;
+    if (faturas.length) pontos += 6;
+    if (nomes.some((k) => new RegExp('(^|[^a-z0-9])' + k + '([^a-z0-9]|$)').test(texto))) { pontos += 3; nome = true; }
+    const delas = raizesDe([t.title, t.payee].filter(Boolean).join(' '));
+    const comuns = raizes.filter((x) => delas.indexOf(x) >= 0).length;
+    if (comuns) { pontos += Math.min(comuns, 3) * 2; nome = true; }
+    const dele = valorDe(t);
+    if (valor !== null && dele !== null && Math.abs(valor - dele) < 0.01) pontos += 3;
+    const ref = t.paid_on || t.due_on;
+    let distancia = 999, datasOk = true;
+    if (quando && ref) {
+      distancia = Math.abs((new Date(quando) - new Date(ref)) / 86400000);
+      if (distancia > 60) datasOk = false; else if (distancia <= 45) pontos += 2;
+    }
+    return { id: t.id, title: t.title, amount: dele, due_on: t.due_on, paid_on: t.paid_on,
+             pago: Boolean(t.paid_on), faturas, pontos, distancia,
+             serve: faturas.length > 0 || (nome && datasOk && pontos >= 5) };
+  });
+  todos.sort((a, b) => (b.pontos - a.pontos) || (a.distancia - b.distancia) || (a.id - b.id));
+  return { todos, nums, valor };
+}
+
+/* Quais sao, de facto. Um comprovativo pode pagar varias faturas de uma vez
+   (caso real, 26 set: 642,06 EUR = FT CN537 + FT CN603, duas avencas de
+   321,03). Por ordem:
+   1. um pagamento por cada numero de fatura que se encontre;
+   2. um so pagamento com o mesmo valor;
+   3. dois a quatro que somem exactamente o valor;
+   4. sem valor lido, o melhor que sirva.
+   O que ficar por encontrar (faturas e dinheiro) vai com a leitura, para o
+   cartao o dizer e para se poder criar o pagamento que falta. */
+async function pagamentosDoComprovativo(d, ignorar) {
+  const { todos, nums, valor } = await pontuarComprovativo(d, ignorar);
+  let escolhidos = [];
+  for (const n of nums) {
+    const c = todos.find((t) => t.faturas.indexOf(n) >= 0 && escolhidos.indexOf(t) < 0);
+    if (c) escolhidos.push(c);
+  }
+  const bons = todos.filter((t) => t.serve);
+  if (!escolhidos.length && valor !== null) {
+    const igual = bons.find((t) => t.amount !== null && Math.abs(t.amount - valor) < 0.01);
+    if (igual) escolhidos = [igual];
+  }
+  if (!escolhidos.length && valor !== null) {
+    const pool = bons.filter((t) => t.amount !== null && t.amount > 0).slice(0, 12);
+    const procura = (desde, falta, junto) => {
+      if (Math.abs(falta) < 0.01 && junto.length >= 2) return junto;
+      if (junto.length >= 4 || falta < 0) return null;
+      for (let i = desde; i < pool.length; i++) {
+        const r = procura(i + 1, falta - pool[i].amount, junto.concat([pool[i]]));
+        if (r) return r;
+      }
+      return null;
+    };
+    escolhidos = procura(0, valor, []) || [];
+  }
+  if (!escolhidos.length && valor === null && bons[0]) escolhidos = [bons[0]];
+
+  const faltam = nums.filter((n) => !escolhidos.some((t) => t.faturas.indexOf(n) >= 0));
+  const coberto = escolhidos.reduce((s, t) => s + (t.amount || 0), 0);
+  const resto = valor !== null && escolhidos.length && valor - coberto > 0.01
+    ? Math.round((valor - coberto) * 100) / 100 : null;
+  return { escolhidos, faltam, resto, todos, valor };
+}
+
+/* O papel do comprovativo agarrado a um pagamento, e a ligacao da caixa a
+   dizer que foi isso: e o que a aprovacao usa para o dar como pago. */
+async function ligarComprovativo(inboxId, taskId, docId, d, parte) {
+  const dados = { papel: 'comprovativo', paid_on: soData(d.paid_on) || soData(d.spent_on) || null,
+    amount: parte, payment_method: metodoDe(d.payment_method) };
+  await query(
+    `INSERT INTO inbox_links (inbox_id, target_type, target_id, criado, dados)
+     VALUES ($1,'pagamento',$2,FALSE,$3)
+     ON CONFLICT (inbox_id, target_type, target_id) DO UPDATE SET dados = EXCLUDED.dados`,
+    [inboxId, taskId, JSON.stringify(dados)]);
+  if (docId) {
+    await query(
+      `INSERT INTO task_documents (task_id, document_id, papel) VALUES ($1,$2,'comprovativo')
+       ON CONFLICT (task_id, document_id) DO UPDATE SET papel = 'comprovativo'`, [taskId, docId]);
+  }
+}
+
+/* O metodo escreve-se como nas Tarefas, senao o filtro por metodo perde-o. */
+function metodoDe(v) {
+  const m = semAcentos(v);
+  if (/mb ?way/.test(m)) return 'mb way';
+  if (/debito direto|debito directo/.test(m)) return 'd\u00e9bito direto';
+  if (/multibanco|\bmb\b|\batm\b/.test(m)) return 'multibanco';
+  if (/cartao|card/.test(m)) return 'cart\u00e3o';
+  if (/numerario|dinheiro/.test(m)) return 'numer\u00e1rio';
+  if (/cheque/.test(m)) return 'cheque';
+  return 'transfer\u00eancia';
+}
+
+/* Quanto deste comprovativo vai para cada pagamento: um so leva tudo; varios
+   levam cada um o seu valor. */
+function parteDe(escolhidos, t, valor, faltam) {
+  if (escolhidos.length === 1 && valor !== null && !(faltam || []).length) return valor;
+  return t.amount !== null && t.amount !== undefined ? t.amount : null;
+}
+
 async function juntarAoPagamento(taskId, d) {
   /* Como estava antes: e o que se repoe se a fatura sair daqui. */
   const antes = (await all(
@@ -419,7 +582,7 @@ async function conteudoDosAlvos(ligacoes) {
     const linhas = await all(
       `SELECT id, tipo, title, notes, amount::float AS amount, payee, payment_ref,
               context_id, owner_id, project_id, status, done,
-              to_char(due_on, 'YYYY-MM-DD') AS due_on
+              to_char(due_on, 'YYYY-MM-DD') AS due_on, to_char(paid_on, 'YYYY-MM-DD') AS paid_on
          FROM tasks WHERE id = ANY($1)`, [tar]);
     linhas.forEach((t) => { fora.pagamento[t.id] = t; fora.tarefa[t.id] = t; });
   }
@@ -505,6 +668,60 @@ async function apagarOQueNasceu(id, ligados) {
     return apagados;
 }
 
+async function pagarComComprovativo(id) {
+  const ligs = await all(
+    `SELECT target_id, dados FROM inbox_links
+      WHERE inbox_id = $1 AND target_type = 'pagamento' AND dados->>'papel' = 'comprovativo'`, [id]);
+  const pagos = [];
+  /* Um comprovativo que nao prova pagamento nenhum do Farol continua a ser
+     dinheiro que saiu: fica como despesa, com o papel agarrado, como era
+     antes de haver comprovativos. */
+  if (!ligs.length) {
+    const cp = (await all(
+      `SELECT target_id, dados FROM inbox_links
+        WHERE inbox_id = $1 AND target_type = 'documento' AND dados->>'papel' = 'comprovativo' LIMIT 1`, [id]))[0];
+    const x = (cp && cp.dados) || {};
+    if (cp && numero(x.amount) !== null) {
+      const dp = await CRIAR.despesa({
+        description: x.title || x.description || 'Pagamento', amount: numero(x.amount),
+        spent_on: x.paid_on || x.spent_on, merchant: x.payee || x.merchant,
+        context_id: x.context_id, person_id: x.person_id, note: x.notes
+      });
+      await query('UPDATE expenses SET aprovado = TRUE, document_id = $2 WHERE id = $1', [dp, cp.target_id]);
+      await query(
+        `INSERT INTO inbox_links (inbox_id, target_type, target_id) VALUES ($1,'despesa',$2)
+         ON CONFLICT DO NOTHING`, [id, dp]);
+      pagos.push('despesa ' + dp);
+    }
+    return pagos;
+  }
+  for (const l of ligs) {
+    const t = (await all(
+      'SELECT id, done, paid_on, repeat_rule FROM tasks WHERE id = $1', [l.target_id]))[0];
+    if (!t || t.done || t.paid_on) continue;
+    const d = l.dados || {};
+    await query('UPDATE tasks SET aprovado = TRUE WHERE id = $1', [t.id]);
+    await pagar(t.id, {
+      paid_on: d.paid_on || null,
+      paid_amount: d.amount === undefined ? null : d.amount,
+      payment_method: d.payment_method || 'transfer\u00eancia'
+    });
+    /* Num recorrente, a vez paga e uma linha nova (series_id) e a fatura e o
+       comprovativo foram com ela: as ligacoes da caixa vao atras. */
+    if (t.repeat_rule) {
+      const vez = (await all(
+        'SELECT id FROM tasks WHERE series_id = $1 ORDER BY id DESC LIMIT 1', [t.id]))[0];
+      if (vez) {
+        await query(
+          `UPDATE inbox_links SET target_id = $2 WHERE target_type = 'pagamento' AND target_id = $1`,
+          [t.id, vez.id]);
+      }
+    }
+    pagos.push(t.id);
+  }
+  return pagos;
+}
+
 /* ------------------------------------------------------------------ *
  * Leitura
  * ------------------------------------------------------------------ */
@@ -549,7 +766,7 @@ async function carregar(estado) {
     "SELECT count(*)::int AS a FROM inbox_items WHERE status = 'catalogado' AND approved_at IS NULL");
   if (!itens.length) return { itens: [], porTriar: n, porAprovar: a };
   const ligacoes = await all(
-    'SELECT inbox_id, target_type, target_id, criado FROM inbox_links WHERE inbox_id = ANY($1)',
+    'SELECT inbox_id, target_type, target_id, criado, dados AS leitura FROM inbox_links WHERE inbox_id = ANY($1)',
     [itens.map((i) => i.id)]);
   /* O cartao mostrava o que a IA tinha proposto, nao o que ficou gravado: um
      documento com a entidade corrigida a mao continuava marcado como estando
@@ -561,7 +778,12 @@ async function carregar(estado) {
         tipo: l.target_type,
         id: l.target_id,
         criado: l.criado !== false,
-        dados: (dados[l.target_type] || {})[l.target_id] || null
+        dados: (dados[l.target_type] || {})[l.target_id] || null,
+        /* Comprovativo: o documento traz o que ficou por encontrar (faturas e
+           dinheiro); cada pagamento diz que foi provado por este papel. */
+        papel: (l.leitura && l.leitura.papel) || null,
+        faltam: l.target_type === 'documento' && l.leitura ? l.leitura.faltam || null : undefined,
+        resto: l.target_type === 'documento' && l.leitura ? l.leitura.resto || null : undefined
       }));
   });
   return { itens, porTriar: n, porAprovar: a };
@@ -572,6 +794,31 @@ async function carregar(estado) {
  * ------------------------------------------------------------------ */
 /* O mesmo caminho serve a triagem à mão e a automática: há uma só maneira de
    um item da caixa se transformar em coisas. */
+/* Um comprovativo passa a ser um documento (o papel) e agarra-se aos
+   pagamentos que prova. Nada fica pago aqui: isso acontece na aprovacao, que
+   e quando alguem confirmou que a ligacao esta certa. */
+async function catalogarComprovativo(id, x) {
+  const docId = await CRIAR.documento({
+    name: x.title || x.description || 'Comprovativo de pagamento',
+    entity: x.payee || x.merchant || x.entity, kind: 'comprovativo',
+    context_id: x.context_id, person_id: x.person_id,
+    issued_on: x.paid_on || x.spent_on || x.issued_on
+  });
+  const r = await pagamentosDoComprovativo(x, { doc: docId, item: id });
+  const leitura = Object.assign({}, x, { papel: 'comprovativo', faltam: r.faltam, resto: r.resto });
+  await query(
+    `INSERT INTO inbox_links (inbox_id, target_type, target_id, criado, dados)
+     VALUES ($1,'documento',$2,TRUE,$3) ON CONFLICT DO NOTHING`, [id, docId, JSON.stringify(leitura)]);
+  const out = [{ tipo: 'documento', id: docId, comprovativo: true }];
+  for (const t of r.escolhidos) {
+    await ligarComprovativo(id, t.id, docId, x, parteDe(r.escolhidos, t, r.valor, r.faltam));
+    out.push({ tipo: 'pagamento', id: t.id, reutilizado: true, titulo: t.title, comprovativo: true });
+  }
+  console.log('[farol] item', id, 'comprovativo de', r.escolhidos.map((t) => t.id).join(', ') || 'nada',
+    r.faltam.length ? '(faltam faturas: ' + r.faltam.length + ')' : '');
+  return out;
+}
+
 async function executarTriagem(id, destinos) {
   for (const d of destinos) {
     if (!TIPOS.includes(d.tipo)) throw new Error('Destino desconhecido: ' + d.tipo);
@@ -585,6 +832,10 @@ async function executarTriagem(id, destinos) {
 
     const criados = [];
     for (const d of destinos) {
+      if (d.tipo === 'comprovativo') {
+        criados.push(...await catalogarComprovativo(id, d.dados || {}));
+        continue;
+      }
       /* Uma fatura de algo que ja esta a ser pago (a mensalidade, a prestacao,
          a proxima ocorrencia de um pagamento recorrente) nao cria outro
          pagamento: junta-se ao que ja existe. */
@@ -632,7 +883,7 @@ async function executarTriagem(id, destinos) {
     /* Um pagamento que nasce de um ficheiro traz o papel com ele: o ficheiro
        passa a ser tambem um documento (a fatura), como ja acontecia com as
        despesas. Sem isto a fatura da MEO ficou nas Tarefas sem papel nenhum. */
-    const pagamentos = criados.filter((c) => c.tipo === 'pagamento');
+    const pagamentos = criados.filter((c) => c.tipo === 'pagamento' && !c.comprovativo);
     if (pagamentos.length && item.file_path && !criados.some((c) => c.tipo === 'documento')) {
       const t = (await all(
         `SELECT title, payee, context_id, owner_id FROM tasks WHERE id = $1`, [pagamentos[0].id]))[0];
@@ -648,8 +899,8 @@ async function executarTriagem(id, destinos) {
 
     /* Se o mesmo ficheiro deu um pagamento e um documento, o documento e a
        fatura desse pagamento: fica agarrado, sem ninguem ter de o ir buscar. */
-    const pag = criados.filter((c) => c.tipo === 'pagamento');
-    const doc = criados.filter((c) => c.tipo === 'documento');
+    const pag = criados.filter((c) => c.tipo === 'pagamento' && !c.comprovativo);
+    const doc = criados.filter((c) => c.tipo === 'documento' && !c.comprovativo);
     for (const p of pag) {
       for (const dc of doc) {
         await query(
@@ -698,7 +949,9 @@ const CAMPOS_MINIMOS = {
      documento sem entidade chega la marcado como incompleto em vez de ficar
      preso na caixa sem ninguem perceber porque. */
   documento: (x) => Boolean(x.name),
-  despesa: (x) => Boolean(x.description) && x.amount !== undefined && x.amount !== null && x.amount !== ''
+  despesa: (x) => Boolean(x.description) && x.amount !== undefined && x.amount !== null && x.amount !== '',
+  /* Um comprovativo sem montante nao prova nada que se possa conferir. */
+  comprovativo: (x) => x.amount !== undefined && x.amount !== null && x.amount !== ''
 };
 
 /* Acentos e maiusculas nao podem decidir de quem e um papel. */
@@ -776,7 +1029,8 @@ async function paraDestino(d) {
   delete dados.area;
   const pid = await pessoaPorNome(dados.pessoa);
   if (pid) {
-    if (d.tipo === 'documento' || d.tipo === 'despesa' || d.tipo === 'evento') dados.person_id = pid;
+    if (d.tipo === 'documento' || d.tipo === 'despesa' || d.tipo === 'evento' ||
+        d.tipo === 'comprovativo') dados.person_id = pid;
     /* A pessoa do papel e tambem quem paga (ou quem faz), desde que possa ter
        tarefas: a fatura em nome do Marco e o Marco que a paga. Fica tambem
        como «por causa de quem». */
@@ -1064,9 +1318,31 @@ function instalar(app) {
 
   /* Os pagamentos por pagar, do mais parecido para o menos, para escolher a
      mao quando a escolha automatica errou. */
+  /* O comprovativo do item, se o item for um: o documento e a leitura. */
+  async function comprovativoDoItem(id) {
+    return (await all(
+      `SELECT target_id AS doc, dados FROM inbox_links
+        WHERE inbox_id = $1 AND target_type = 'documento' AND dados->>'papel' = 'comprovativo' LIMIT 1`,
+      [id]))[0] || null;
+  }
+
   app.get('/api/inbox/:id/pagamentos', async (req, res) => {
     const id = Number(req.params.id);
     try {
+      const cp = await comprovativoDoItem(id);
+      if (cp) {
+        /* Um comprovativo pode provar varios pagamentos: a lista leva
+           caixas, e os que estao ligados vem marcados. */
+        const atuais = await all(
+          `SELECT t.id, t.title, t.amount::float AS amount, to_char(t.due_on, 'YYYY-MM-DD') AS due_on,
+                  to_char(t.paid_on, 'YYYY-MM-DD') AS paid_on, l.criado
+             FROM inbox_links l JOIN tasks t ON t.id = l.target_id
+            WHERE l.inbox_id = $1 AND l.target_type = 'pagamento' ORDER BY t.id`, [id]);
+        const r = await pontuarComprovativo(cp.dados || {}, { doc: cp.doc, item: id });
+        const candidatos = r.todos.filter((t) => !atuais.some((a) => a.id === t.id)).slice(0, 60);
+        return res.json({ modo: 'comprovativo', atuais, candidatos,
+          valor: r.valor, faltam: (cp.dados || {}).faltam || [], resto: (cp.dados || {}).resto || null });
+      }
       const f = await faturaDoItem(id);
       if (!f) return res.status(404).json({ error: 'Este ficheiro nao tem pagamento.' });
       const atual = (await all(
@@ -1084,9 +1360,95 @@ function instalar(app) {
   /* Trocar: { para: <id de um pagamento por pagar> } ou { para: 'novo' }.
      O pagamento de onde a fatura sai volta ao que era (se ja existia) ou e
      apagado (se tinha nascido dela). A fatura (documento) vai com ela. */
+  /* Comprovativo: { paras: [ids], novo: true|false }. Solta os que estavam,
+     liga os escolhidos, e com novo cria um pagamento para o dinheiro que
+     sobra (o de uma fatura que ainda nao estava no Farol). So antes de
+     aprovar: depois de aprovado os pagamentos ja estao pagos, e isso
+     corrige-se nas Tarefas. */
+  async function trocarComprovativo(id, cp, b) {
+    const item = (await all('SELECT approved_at FROM inbox_items WHERE id = $1', [id]))[0];
+    if (item && item.approved_at) {
+      throw new Error('Este comprovativo ja foi aprovado e os pagamentos ficaram pagos: corrige-os nas Tarefas.');
+    }
+    const x = cp.dados || {};
+    const pistas = await pontuarComprovativo(x, { doc: cp.doc, item: id });
+    const paras = (Array.isArray(b.paras) ? b.paras : []).map(Number).filter(Boolean)
+      .filter((v, i, a) => a.indexOf(v) === i);
+    const velhos = await all(
+      `SELECT target_id, criado FROM inbox_links WHERE inbox_id = $1 AND target_type = 'pagamento'`, [id]);
+    for (const v of velhos) {
+      if (paras.indexOf(v.target_id) >= 0) continue;
+      await query("DELETE FROM inbox_links WHERE inbox_id = $1 AND target_type = 'pagamento' AND target_id = $2",
+        [id, v.target_id]);
+      if (v.criado) await query('DELETE FROM tasks WHERE id = $1 AND NOT done', [v.target_id]);
+      else await query('DELETE FROM task_documents WHERE task_id = $1 AND document_id = $2', [v.target_id, cp.doc]);
+    }
+    const escolhidos = [];
+    for (const pid of paras) {
+      const t = (await all(
+        `SELECT id, title, amount::float AS amount FROM tasks
+          WHERE id = $1 AND tipo = 'pagamento' AND origin = 'real'`, [pid]))[0];
+      if (!t) throw new Error('Um dos pagamentos escolhidos ja nao existe.');
+      t.amount = valorDe(t);
+      escolhidos.push(t);
+    }
+    const valor = numero(x.amount);
+    const coberto = escolhidos.reduce((s, t) => s + (t.amount || 0), 0);
+    for (const t of escolhidos) {
+      const ja = velhos.find((v) => v.target_id === t.id);
+      if (ja && ja.criado) continue;
+      await ligarComprovativo(id, t.id, cp.doc, x,
+        escolhidos.length === 1 && !b.novo ? valor : t.amount);
+    }
+    let resto = valor !== null && valor - coberto > 0.01 ? Math.round((valor - coberto) * 100) / 100 : null;
+    if (b.novo) {
+      const faltam = x.faltam || [];
+      const titulo = String(b.titulo || '').trim() || (x.title || 'Pagamento') +
+        (faltam.length ? ' \u2014 fatura ' + faltam.join(', ') : '');
+      const novo = await CRIAR.pagamento({
+        title: titulo, amount: resto !== null ? resto : valor, due_on: x.paid_on,
+        payee: x.payee || x.merchant, context_id: x.context_id, owner_id: x.person_id,
+        notes: [x.notes, 'Pago por transfer\u00eancia' + (x.paid_on ? ' a ' + dataPt(x.paid_on) : '') + '.']
+          .filter(Boolean).join('\n')
+      });
+      await query(
+        `INSERT INTO inbox_links (inbox_id, target_type, target_id, criado, dados)
+         VALUES ($1,'pagamento',$2,TRUE,$3)`,
+        [id, novo, JSON.stringify({ papel: 'comprovativo', paid_on: soData(x.paid_on),
+          amount: resto !== null ? resto : valor, payment_method: metodoDe(x.payment_method) })]);
+      await query(
+        `INSERT INTO task_documents (task_id, document_id, papel) VALUES ($1,$2,'comprovativo')
+         ON CONFLICT (task_id, document_id) DO UPDATE SET papel = 'comprovativo'`, [novo, cp.doc]);
+      resto = null;
+    }
+    /* O que ficou por encontrar muda com a escolha: o cartao diz a verdade. */
+    const faturasDe = (tid) => (pistas.todos.find((c) => c.id === tid) || { faturas: [] }).faturas;
+    const faltam = b.novo ? [] : pistas.nums.filter((n) => !escolhidos.some((t) => faturasDe(t.id).indexOf(n) >= 0));
+    await query(
+      `UPDATE inbox_links SET dados = dados || $2::jsonb
+        WHERE inbox_id = $1 AND target_type = 'documento' AND target_id = $3`,
+      [id, JSON.stringify({ resto, faltam }), cp.doc]);
+    return escolhidos.map((t) => t.id);
+  }
+
   app.post('/api/inbox/:id/pagamento', async (req, res) => {
     const id = Number(req.params.id);
     const para = (req.body || {}).para;
+    const cp = await comprovativoDoItem(id).catch(() => null);
+    if (cp) {
+      await query('BEGIN');
+      try {
+        const ids = await trocarComprovativo(id, cp, req.body || {});
+        await query('COMMIT');
+        console.log('[farol] item', id, 'comprovativo agora de', ids.join(', ') || 'nada',
+          (req.body || {}).novo ? '+ novo' : '');
+        return res.json({ ok: true, ...(await carregar(req.query.estado || 'catalogado')) });
+      } catch (err) {
+        await query('ROLLBACK').catch(() => {});
+        console.error('[farol] POST comprovativo:', err.message);
+        return res.status(400).json({ error: err.message || 'Nao foi possivel mudar os pagamentos.' });
+      }
+    }
     await query('BEGIN');
     try {
       const f = await faturaDoItem(id);
@@ -1192,8 +1554,14 @@ function instalar(app) {
           await query('UPDATE ' + tabela + ' SET aprovado = TRUE WHERE id = $1', [l.target_id]);
         }
       }
+      /* Um comprovativo aprovado e um pagamento feito: fica pago com a data e
+         o valor da transferencia, a despesa escreve-se sozinha, e um pagamento
+         recorrente passa a vez seguinte (o que se pagou fica no historico com
+         a fatura e o comprovativo). */
+      const pagos = await pagarComComprovativo(id);
       await query('UPDATE inbox_items SET approved_at = now() WHERE id = $1', [id]);
-      console.log('[farol] item', id, 'aprovado:', ligados.map((l) => l.target_type).join(', '));
+      console.log('[farol] item', id, 'aprovado:', ligados.map((l) => l.target_type).join(', '),
+        pagos.length ? '; pagos: ' + pagos.join(', ') : '');
       res.json({ ok: true, id, ...(await carregar(req.query.estado || 'catalogado')) });
     } catch (err) {
       console.error('[farol] POST aprovar:', err.message);
