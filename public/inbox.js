@@ -301,13 +301,27 @@ var IB_MESES = ['Janeiro', 'Fevereiro', 'Mar\u00e7o', 'Abril', 'Maio', 'Junho', 
 var IB_PERIODOS = [[0, 'Tudo'], [1, 'Hoje'], [7, '7 dias'], [30, '30 dias'], [90, '3 meses']];
 
 function ibFiltro() {
-  if (!IB.filtro) IB.filtro = { dias: 0, mes: '', ano: '' };
+  if (!IB.filtro) IB.filtro = { dias: 0, mes: '', ano: '', q: '' };
   return IB.filtro;
 }
 
 function ibFiltroActivo() {
   var f = ibFiltro();
-  return Boolean(f.dias || f.mes || f.ano);
+  return Boolean(f.dias || f.mes || f.ano || f.q);
+}
+
+/* O texto onde a pesquisa procura: o nome do cartao, o do ficheiro, a nota e
+   o que ficou gravado em cada coisa (nome, entidade, a quem se paga, valor). */
+function ibTextoDe(item) {
+  var partes = [item.title, item.file_name, item.note];
+  (item.links || []).forEach(function (l) {
+    var x = l.dados || {};
+    partes.push(l.tipo, x.name, x.title, x.description, x.entity, x.payee, x.merchant, x.payment_ref);
+    if (x.amount !== null && x.amount !== undefined) {
+      partes.push(String(x.amount), Number(x.amount).toFixed(2).replace('.', ','));
+    }
+  });
+  return ibSimples(partes.filter(Boolean).join(' '));
 }
 
 function ibHojeIso() {
@@ -320,6 +334,12 @@ function ibNoPeriodo(item) {
   var f = ibFiltro();
   var d = String(item.captured_at || '');
   if (!ibFiltroActivo()) return true;
+  if (f.q) {
+    var texto = ibTextoDe(item);
+    var palavras = ibSimples(f.q).split(/\s+/).filter(Boolean);
+    if (!palavras.every(function (w) { return texto.indexOf(w) >= 0; })) return false;
+    if (!f.dias && !f.mes && !f.ano) return true;
+  }
   if (!d) return false;
   if (f.dias === 1) return d.slice(0, 10) === ibHojeIso();
   if (f.dias) {
@@ -343,10 +363,30 @@ function ibDesenharFiltros() {
       '#view-inbox .ib-per button{font:inherit;font-size:.8125rem;border:0;background:none;color:var(--muted);padding:5px 10px;border-radius:6px;cursor:pointer}' +
       '#view-inbox .ib-per button.is-on{background:var(--surface);color:var(--ink);box-shadow:0 0 0 1px var(--line)}' +
       '#view-inbox .ib-filtros select{width:auto;font-size:.8125rem;padding:6px 9px}' +
+      '#view-inbox #ibProcura{font:inherit;font-size:.8125rem;color:var(--ink);background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:7px 10px;flex:1 1 220px;min-width:0}' +
+      '#view-inbox #ibFiltrosResto{margin:0}' +
       '#view-inbox .ib-limpar{font-size:.8125rem;color:var(--accent-ink);background:none;border:0;cursor:pointer;text-decoration:underline;padding:0 .25rem}';
     document.head.appendChild(st);
   }
   var f = ibFiltro();
+  /* A caixa de pesquisa nasce uma vez so: redesenha-la a cada tecla tirava-lhe
+     o foco a meio da palavra. O resto dos filtros redesenha-se a vontade. */
+  var procura = $('ibProcura');
+  if (!procura) {
+    clear(caixa);
+    procura = el('input');
+    procura.id = 'ibProcura';
+    procura.type = 'search';
+    procura.placeholder = 'Procurar: nome, entidade, valor\u2026';
+    procura.setAttribute('aria-label', 'Procurar na caixa');
+    procura.addEventListener('input', function () { f.q = procura.value; ibRender(); });
+    caixa.appendChild(procura);
+    var resto0 = el('span', 'ib-filtros');
+    resto0.id = 'ibFiltrosResto';
+    caixa.appendChild(resto0);
+  }
+  if (procura.value !== f.q) procura.value = f.q;
+  caixa = $('ibFiltrosResto');
   clear(caixa);
 
   var per = el('div', 'ib-per');
@@ -386,7 +426,7 @@ function ibDesenharFiltros() {
   if (ibFiltroActivo()) {
     var limpar = el('button', 'ib-limpar', 'Limpar');
     limpar.type = 'button';
-    limpar.onclick = function () { f.dias = 0; f.mes = ''; f.ano = ''; ibRender(); };
+    limpar.onclick = function () { f.dias = 0; f.mes = ''; f.ano = ''; f.q = ''; ibRender(); };
     caixa.appendChild(limpar);
   }
 }
@@ -421,9 +461,19 @@ function ibItem(item) {
   } else if (item.ai_status === 'feito' && !item.approved_at) {
     /* Nos arrumados a proposta ja nao interessa: vale o que ficou gravado. */
     var jx = ibProposta(item);
-    body.appendChild(el('div', 'ib-ia' + (jx ? ' pronta' : ''),
+    var lida = el('div', 'ib-ia' + (jx ? ' pronta' : ''),
       jx ? 'sugest\u00e3o pronta: ' + jx.destinos.map(function (x) { return x.tipo; }).join(', ')
-         : 'sem sugest\u00e3o'));
+         : 'sem sugest\u00e3o');
+    /* Uma leitura pobre (so o titulo, sem valor nem area) tambem merece outra
+       oportunidade, nao so a que falhou. Se a nova vier boa, o item pode
+       arrumar-se sozinho: o separador Arrumados mostra-o. */
+    if (item.status === 'por_triar' && item.file_name) {
+      var denovo = el('button', 'btn', 'Ler outra vez');
+      denovo.type = 'button';
+      denovo.onclick = function () { ibReanalisar(item.id); };
+      lida.appendChild(denovo);
+    }
+    body.appendChild(lida);
   } else if (item.ai_status === 'falhou') {
     /* Dizer o que correu mal e melhor do que um «nao consegui»: o limite do
        dia do plano gratuito nao se resolve carregando outra vez. */
@@ -495,7 +545,7 @@ function ibItem(item) {
        tem o seu Editar, para nao ter de aprovar primeiro e corrigir depois. */
     var alvos = (item.links || []).filter(function (l) { return IB_EDITAVEIS.indexOf(l.tipo) >= 0; });
     alvos.forEach(function (alvo) {
-      var ed = el('button', 'btn', alvos.length > 1 ? 'Editar ' + ibNomeDoTipo(alvo.tipo).toLowerCase() : 'Editar');
+      var ed = el('button', 'btn', alvos.length > 1 ? 'Editar ' + ibNomeCurto(alvo.tipo) : 'Editar');
       ed.type = 'button';
       ed.onclick = function () { ibEditarAlvo(item, alvo); };
       acoes.appendChild(ed);
@@ -507,7 +557,7 @@ function ibItem(item) {
   } else if (item.status === 'catalogado' && item.approved_at) {
     (item.links || []).filter(function (l) { return IB_ROTAS[l.tipo] && l.dados; })
       .forEach(function (l) {
-        var edl = el('button', 'btn', 'Editar ' + ibNomeDoTipo(l.tipo).toLowerCase());
+        var edl = el('button', 'btn', 'Editar ' + ibNomeCurto(l.tipo));
         edl.type = 'button';
         edl.onclick = function () { ibEditarAlvo(item, l); };
         acoes.appendChild(edl);
@@ -1057,9 +1107,15 @@ function ibSemEntidade(item) {
 
 /* Corrigir antes de aprovar. Os mesmos campos da catalogacao, desta vez
    preenchidos com o que esta gravado, numa janela - nao no meio da pagina. */
-var IB_EDITAVEIS = ['documento', 'despesa', 'pagamento', 'tarefa'];
+var IB_EDITAVEIS = ['documento', 'despesa', 'pagamento', 'tarefa', 'evento'];
 var IB_ROTAS = { documento: '/api/documentos/', despesa: '/api/despesas/',
-  pagamento: '/api/gestao/tarefas/', tarefa: '/api/gestao/tarefas/' };
+  pagamento: '/api/gestao/tarefas/', tarefa: '/api/gestao/tarefas/',
+  evento: '/api/gestao/eventos/' };
+
+/* Para os botoes: «Editar evento», e nao «Editar evento na agenda». */
+function ibNomeCurto(tipo) {
+  return tipo === 'evento' ? 'evento' : ibNomeDoTipo(tipo).toLowerCase();
+}
 
 function ibNomeDoTipo(tipo) {
   var d = IB_DESTINOS.filter(function (x) { return x.tipo === tipo; })[0];
@@ -1125,7 +1181,7 @@ function ibEditarAlvo(item, link) {
   var dlg = el('dialog', 'ib-dlg larga');
   var cx = el('div', 'card');
   ibCabecalho(cx, 'Corrigir ' + ({ documento: 'o documento', despesa: 'a despesa',
-    pagamento: 'o pagamento', tarefa: 'a tarefa' }[link.tipo] || ibNomeDoTipo(link.tipo)), null);
+    pagamento: 'o pagamento', tarefa: 'a tarefa', evento: 'o evento' }[link.tipo] || ibNomeDoTipo(link.tipo)), null);
   cx.appendChild(el('p', 'ib-note', item.approved_at
     ? 'Muda j\u00e1 o que aparece nos ecr\u00e3s.'
     : 'O que ficar aqui e o que vai para os ecras quando aprovares.'));
