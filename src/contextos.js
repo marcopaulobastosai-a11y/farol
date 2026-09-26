@@ -103,6 +103,23 @@ function instalar(app) {
       const atual = await all('SELECT * FROM contexts WHERE id = $1', [id]);
       if (!atual.length) return res.status(404).json({ error: 'Area nao encontrada.' });
 
+      /* Mudar de sitio. So a sub-area muda de pai: tudo o que esta agarrado a
+         ela (tarefas, pagamentos, despesas, documentos, projetos, agenda)
+         aponta para o id dela, e o id nao muda - por isso vai tudo junto. */
+      let novoPai = null;
+      if (tem('parent_id') && b.parent_id && Number(b.parent_id) !== atual[0].parent_id) {
+        novoPai = Number(b.parent_id);
+        if (novoPai === id) return res.status(400).json({ error: 'Uma area nao pode ficar dentro de si propria.' });
+        if (!atual[0].parent_id) {
+          return res.status(400).json({ error: 'So as sub-areas mudam de area.' });
+        }
+        const acima = await all('SELECT parent_id FROM contexts WHERE id = $1', [novoPai]);
+        if (!acima.length) return res.status(404).json({ error: 'Essa area nao existe.' });
+        if (acima[0].parent_id) {
+          return res.status(400).json({ error: 'So ha dois niveis: uma sub-area nao pode ter sub-areas.' });
+        }
+      }
+
       await query(
         `UPDATE contexts SET
            name     = COALESCE($2, name),
@@ -114,6 +131,14 @@ function instalar(app) {
         [id, limpar(b.name), tem('note'), limpar(b.note),
          tem('owner_id'), limpar(b.owner_id),
          tem('active') ? Boolean(b.active) : null, limpar(b.sort)]);
+
+      if (novoPai) {
+        await query(
+          `UPDATE contexts SET parent_id = $2,
+                  sort = (SELECT COALESCE(max(sort),0)+1 FROM contexts WHERE parent_id = $2)
+            WHERE id = $1`, [id, novoPai]);
+        console.log('[farol] sub-area mudou de area:', atual[0].slug, '->', novoPai);
+      }
 
       res.json({ contextos: await arvore() });
     } catch (err) {
