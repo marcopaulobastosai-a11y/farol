@@ -92,6 +92,8 @@ var IB_CSS_PESSOA =
   '.ib-pessoa:hover{border-color:var(--accent)}' +
   '.ib-pessoa.on{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}' +
   '.ib-dlga{display:flex;justify-content:flex-end;gap:.5rem;margin-top:1rem}' +
+  '.ib-dlgc select{width:100%;padding:.55rem .6rem;border:1px solid var(--line,#d6dbe1);border-radius:10px;background:var(--surface);color:inherit;font:inherit;font-size:.875rem}' +
+  '.ib-dlgc .ib-atual{font-size:.8125rem;margin:0 0 .6rem}' +
   /* Catalogar e corrigir sao formularios, nao uma escolha rapida: precisam
      de mais largura e de poder rolar quando o ecra e baixo. */
   '.ib-dlg.larga{max-width:46rem}' +
@@ -552,6 +554,7 @@ function ibItem(item) {
       ed.onclick = function () { ibEditarAlvo(item, alvo); };
       acoes.appendChild(ed);
     });
+    ibBotaoTrocar(item, acoes);
     var ok = el('button', 'btn primary', 'Aprovar');
     ok.type = 'button';
     ok.onclick = function () { ibAprovar(item.id); };
@@ -564,6 +567,7 @@ function ibItem(item) {
         edl.onclick = function () { ibEditarAlvo(item, l); };
         acoes.appendChild(edl);
       });
+    ibBotaoTrocar(item, acoes);
     var rec = el('button', 'btn', 'Recatalogar');
     rec.type = 'button';
     rec.onclick = function () { ibRecatalogar(item); };
@@ -659,6 +663,96 @@ function ibGravarPessoa(id, pid, dlg) {
     if (typeof loadGestao === 'function') loadGestao();
     if (typeof load === 'function') load();
   }).catch(function (e) { toast(e.message || 'N\u00e3o foi poss\u00edvel gravar.'); });
+}
+
+/* A fatura pode ter ido parar ao pagamento errado (ou juntado-se a um que
+   nao era o dela). Aqui escolhe-se outro da lista, do mais parecido para o
+   menos, ou nenhum: nasce um pagamento novo so com esta fatura. */
+function ibBotaoTrocar(item, acoes) {
+  var lp = (item.links || []).filter(function (l) { return l.tipo === 'pagamento'; })[0];
+  if (!lp) return;
+  var b = el('button', 'btn', 'Trocar pagamento');
+  b.type = 'button';
+  b.onclick = function () { ibTrocarPagamento(item); };
+  acoes.appendChild(b);
+}
+
+function ibEuros(v) {
+  return v === null || v === undefined || v === '' ? '' :
+    Number(v).toLocaleString('pt-PT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
+}
+
+function ibLinhaPagamento(p) {
+  var partes = [p.title || ('#' + p.id)];
+  if (p.amount !== null && p.amount !== undefined) partes.push(ibEuros(p.amount));
+  if (p.due_on) partes.push('até ' + String(p.due_on).split('-').reverse().join('/'));
+  return partes.join(' · ');
+}
+
+function ibTrocarPagamento(item) {
+  apiGestao('/api/inbox/' + item.id + '/pagamentos').then(function (r) {
+    var atual = r.atual || null;
+    var cands = r.candidatos || [];
+    var dlg = el('dialog', 'ib-dlg');
+    var cx = el('div', 'ib-dlgc');
+    cx.appendChild(el('h3', null, 'A que pagamento pertence esta fatura' + String.fromCharCode(63)));
+    cx.appendChild(el('p', null, 'Se a escolha automática errou, escolhe outro. «Nenhum» cria um pagamento novo só com esta fatura.'));
+    if (atual) {
+      cx.appendChild(el('p', 'ib-atual', 'Agora: ' + ibLinhaPagamento(atual) +
+        (atual.criado ? ' (nasceu desta fatura)' : ' (já existia)')));
+    }
+    var sel = el('select');
+    sel.id = 'ibTrocaSel';
+    function opcao(v, txt, pai) {
+      var o = el('option', null, txt); o.value = String(v); (pai || sel).appendChild(o); return o;
+    }
+    if (atual) opcao(atual.id, 'Manter: ' + ibLinhaPagamento(atual)).selected = true;
+    var parecidos = cands.filter(function (c) { return c.serve; });
+    var outros = cands.filter(function (c) { return !c.serve; });
+    if (parecidos.length) {
+      var g1 = el('optgroup'); g1.label = 'Parecidos';
+      parecidos.forEach(function (c) { opcao(c.id, ibLinhaPagamento(c), g1); });
+      sel.appendChild(g1);
+    }
+    if (outros.length) {
+      var g2 = el('optgroup'); g2.label = 'Outros por pagar';
+      outros.forEach(function (c) { opcao(c.id, ibLinhaPagamento(c), g2); });
+      sel.appendChild(g2);
+    }
+    opcao('novo', '— Nenhum: criar um pagamento novo —');
+    cx.appendChild(sel);
+
+    var pe = el('div', 'ib-dlga');
+    var gravar = el('button', 'btn primary', 'Gravar');
+    gravar.type = 'button';
+    gravar.onclick = function () {
+      var para = sel.value;
+      if (atual && para === String(atual.id)) { dlg.close(); dlg.remove(); return; }
+      gravar.disabled = true;
+      apiGestao('/api/inbox/' + item.id + '/pagamento?estado=' + IB.estado, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ para: para === 'novo' ? 'novo' : Number(para) })
+      }).then(function (d) {
+        IB.itens = d.itens || []; IB.porTriar = d.porTriar || 0; IB.porAprovar = d.porAprovar || 0; ibRender();
+        dlg.close(); dlg.remove();
+        toast(para === 'novo' ? 'Criei um pagamento novo com esta fatura.' : 'A fatura passou para o pagamento escolhido.');
+        if (typeof load === 'function') load();
+      }).catch(function (e) {
+        gravar.disabled = false;
+        toast(e.message || 'Não foi possível trocar o pagamento.');
+      });
+    };
+    var fecha = el('button', 'btn', 'Cancelar');
+    fecha.type = 'button';
+    fecha.onclick = function () { dlg.close(); dlg.remove(); };
+    pe.appendChild(gravar); pe.appendChild(fecha);
+    cx.appendChild(pe);
+    dlg.appendChild(cx);
+    dlg.addEventListener('cancel', function () { setTimeout(function () { dlg.remove(); }, 0); });
+    ($('view-inbox') || document.body).appendChild(dlg);
+    dlg.showModal();
+  }).catch(function (e) { toast(e.message || 'Não foi possível ler os pagamentos.'); });
 }
 
 /* O modelo devolve um nome; aqui procura-se a pessoa correspondente. */
