@@ -180,9 +180,21 @@ var AE_CSS =
   '.ae-ev-dia.passou b,.ae-ev-dia.passou span{color:var(--faint)}' +
   '.ae-topo{display:flex;justify-content:flex-end;margin-bottom:8px}' +
   /* 27 set: a lista unica a 3/4 e a coluna da direita (Agenda, Projetos) */
-  '.ae-main{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,1fr);gap:14px;align-items:start}' +
-  '.ae-dir{display:flex;flex-direction:column;gap:14px;min-width:0}' +
-  '@container (max-width:980px){.ae-main{grid-template-columns:minmax(0,1fr)}}' +
+  '.ae-main{display:grid;grid-template-columns:minmax(0,1fr);gap:14px;align-items:start}' +
+  '.ae-main.com-det{grid-template-columns:minmax(0,3fr) minmax(0,2fr)}' +
+  '.ae-esq{display:flex;flex-direction:column;gap:14px;min-width:0}' +
+  '.ae-detslot{min-width:0}' +
+  '.ae-detslot .tf-det{margin:0}' +
+  '.ae .tf-det .tf-fechar{display:inline-flex}' +
+  '.card.ae-volta{display:flex;flex-direction:row;align-items:center;justify-content:flex-start;gap:14px;flex-wrap:wrap;padding:10px 14px}' +
+  '.ae-volta > *,.ae-volta > .btn.small{margin:0}' +
+  '.ae-trilho{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:.875rem;color:var(--muted)}' +
+  '.ae-trilho button{border:0;background:none;font:inherit;color:var(--accent-ink);cursor:pointer;padding:2px 0}' +
+  '.ae-trilho button:hover{text-decoration:underline}' +
+  '.ae-trilho b{font-weight:500;color:var(--ink)}' +
+  '.ae-pag > header{display:flex;align-items:baseline;gap:10px;margin-bottom:6px}' +
+  '.ae-emp > .stack{margin:0}' +
+    '@container (max-width:980px){.ae-main{grid-template-columns:minmax(0,1fr)}}' +
   '.ae-tipo{flex:none;width:22px;height:22px;border-radius:6px;display:flex;align-items:center;justify-content:center;margin-top:-1px}' +
   '.ae-tipo.pag{background:var(--warn-soft);color:var(--warn)}' +
   '.ae-tipo.tar{background:var(--accent-soft);color:var(--accent-ink)}' +
@@ -199,7 +211,7 @@ var AE_CSS =
   '.ae-spark i{width:8px;border-radius:2px 2px 0 0;background:var(--line);min-height:2px}' +
   '.ae-spark i.agora{background:var(--accent)}';
 
-var AE = { filtro: {}, fechados: {}, despesas: null, aLerDespesas: false, tipo: {} };
+var AE = { filtro: {}, fechados: {}, despesas: null, aLerDespesas: false, tipo: {}, pagina: {}, det: null };
 function aeLerGuardado(chave){
   try { return JSON.parse(localStorage.getItem(chave) || '{}') || {}; } catch (e) { return {}; }
 }
@@ -580,10 +592,8 @@ function aeLinha(t, comSub){
   li.appendChild(corpo);
   if (tfTipo(t) === 'pagamento' && t.amount) li.appendChild(el('div', 'tf-val', tfEuros(t.amount)));
   li.appendChild(el('div', 'tf-r ' + tfNivelData(t), tfDataTxt(t.due_on, t.due_time)));
-  li.addEventListener('click', function(){
-    if (typeof avAbrir === 'function') avAbrir({ origem: 'tarefa', id: t.id, quando: t.due_on || null, detail: areaNome(t.context_id) });
-    else if (typeof tfIrPara === 'function') tfIrPara(t.id);
-  });
+  if (AE.det && window.TF && TF.aberta === t.id) li.classList.add('sel');
+  li.addEventListener('click', function(){ aeAbrirTarefa(t); });
   return li;
 }
 
@@ -1452,7 +1462,6 @@ function aeRenderArea(a){
     });
     dds.appendChild(bL);
   }
-  box.appendChild(barra);
 
   /* ---- os numeros, que sao botoes ---- */
   var atrasadas = soltas.filter(function(t){ return tfNivelData(t) === 'bad'; }).length;
@@ -1472,7 +1481,15 @@ function aeRenderArea(a){
   kpis.appendChild(aeKpi(tfEuros(aPagar), 'a pagar', '', function(){
     AE.tipo[a.view] = 'pagamento'; aeFecharW(a, 'tarefas', false);
   }));
-  kpis.appendChild(aeKpi(String(eventos.length), 'na agenda', '', abrirW('eventos')));
+  var bA = el('button', 'ae-kpi ae-link');
+  bA.type = 'button';
+  var vA = el('b', null, String(eventos.length));
+  vA.appendChild(el('i', null, '\u2192'));
+  bA.appendChild(vA);
+  bA.appendChild(el('span', null, 'na agenda'));
+  bA.title = 'Ver a agenda de ' + alvoNome;
+  bA.addEventListener('click', function(){ aeAbrirPagina(a, 'agenda', alvoId); });
+  kpis.appendChild(bA);
 
   /* As despesas: o mes corrente da area (ou da sub-area), com os ultimos nove
      meses em miniatura. O detalhe - graficos, quadro, periodos - vive na
@@ -1502,9 +1519,7 @@ function aeRenderArea(a){
   });
   bD.appendChild(sp);
   bD.title = 'Ver o detalhe das despesas de ' + alvoNome;
-  bD.addEventListener('click', function(){
-    if (typeof dpAbrir === 'function') dpAbrir(alvoId); else show('despesas');
-  });
+  bD.addEventListener('click', function(){ aeAbrirPagina(a, 'despesas', alvoId); });
   kpis.appendChild(bD);
 
   /* Os documentos da area, sem o periodo: e o arquivo dela. Abre os
@@ -1519,12 +1534,20 @@ function aeRenderArea(a){
   bO.appendChild(el('span', null, 'documentos · ' + alvoNome));
   if (porLerAqui) bO.appendChild(el('small', null, porLerAqui + ' por ler'));
   bO.title = 'Abrir os Documentos de ' + alvoNome;
-  bO.addEventListener('click', function(){
-    if (typeof DOCS_AREA !== 'undefined') DOCS_AREA = alvoId;
-    show('documentos');
-    if (typeof renderDocumentos === 'function') renderDocumentos();
-  });
+  bO.addEventListener('click', function(){ aeAbrirPagina(a, 'documentos', alvoId); });
   kpis.appendChild(bO);
+
+  /* Agenda, Despesas e Documentos abrem aqui dentro, como paginas da area:
+     o menu continua na area, e um botao leva de volta. */
+  var pag = AE.pagina[a.view];
+  if (pag){
+    aeSubPagina(a, box, pag, {
+      area: area, alvoId: alvoId, alvoNome: alvoNome, barra: barra, subs: subs,
+      eventos: eventos, eventosPassados: eventosPassados, semData: semData
+    });
+    return;
+  }
+  box.appendChild(barra);
   box.appendChild(kpis);
 
   var MAXT = 40;
@@ -1551,8 +1574,11 @@ function aeRenderArea(a){
   var aPagarL = lista.filter(function(t){ return tfTipo(t) === 'pagamento'; })
     .reduce(function(s2, t){ return s2 + Number(t.amount || 0); }, 0);
 
-  var main = el('div', 'ae-main');
-  main.appendChild(aeWidget(a, 'tarefas', {
+  var detAqui = AE.det === a.view && window.TF && TF.aberta && document.getElementById('tfDet');
+  var main = el('div', 'ae-main' + (detAqui ? ' com-det' : ''));
+  var esq = el('div', 'ae-esq');
+  main.appendChild(esq);
+  esq.appendChild(aeWidget(a, 'tarefas', {
     titulo: 'Tarefas',
     n: lista.length,
     resumo: [nAtrasoL ? nAtrasoL + ' em atraso' : 'em dia', aPagarL ? tfEuros(aPagarL) + ' a pagar' : ''].filter(Boolean).join(' · '),
@@ -1608,31 +1634,8 @@ function aeRenderArea(a){
     }
   }));
 
-  /* ---- a direita (1/4): a agenda da sub-area e os projetos ---- */
-  var dir = el('div', 'ae-dir');
-  dir.appendChild(aeWidget(a, 'eventos', {
-    titulo: 'Agenda',
-    n: eventos.length + eventosPassados.length,
-    resumo: (function(){
-      var h = tfISO(tfHoje());
-      var prox = eventos.filter(function(x){ return x.day >= h; })[0];
-      return prox ? (prox.day === h ? 'hoje' : tfDataCurta(prox.day)) : '';
-    })(),
-    corpo: function(card){
-      aeCorpoEventos(card, eventos.slice(0, 15), 'Nada marcado nesta área no que está filtrado.');
-      if (eventos.length > 15) card.appendChild(el('p', 'ae-nota', 'e mais ' + (eventos.length - 15) + ' nos Eventos.'));
-      if (semData) card.appendChild(el('p', 'ae-nota', semData + (semData === 1 ? ' lembrete sem data' : ' lembretes sem data') + ', nas Tarefas › Lembretes.'));
-      aeGrupoFechados(a, card, 'eventos', 'Já passaram', eventosPassados, function(c){
-        var rows = el('div', 'tf-rows');
-        eventosPassados.slice(0, 15).forEach(function(x){
-          var li = aeLinhaEvento(x); li.classList.add('done'); rows.appendChild(li);
-        });
-        c.appendChild(rows);
-      });
-      aeBotaoNovo(card, '+ Marcar uma data', function(b){ aePopEvento(a, b, area, subs); });
-    }
-  }));
-  dir.appendChild(aeWidget(a, 'projetos', {
+  /* ---- por baixo das tarefas, os projetos ---- */
+  esq.appendChild(aeWidget(a, 'projetos', {
     titulo: 'Projetos',
     n: pjs.length,
     resumo: pjs.reduce(function(s3, p){ return s3 + ((p.contagem || {}).abertas || 0); }, 0) + ' por fazer',
@@ -1642,8 +1645,179 @@ function aeRenderArea(a){
       aeRodape(card, 'Abrir os Projetos', function(){ show('projetos'); });
     }
   }));
-  main.appendChild(dir);
+  /* ---- a direita, o detalhe da tarefa escolhida: o mesmo das Tarefas ---- */
+  if (detAqui){
+    var slot = el('div', 'ae-detslot');
+    main.appendChild(slot);
+    aeEmprestar('det', document.getElementById('tfDet'), slot);
+  }
   box.appendChild(main);
+}
+
+/* ------------------------------------------------------------------ *
+ * Paginas dentro da area (27 set)
+ *
+ * A Agenda, as Despesas e os Documentos de uma area abrem-se dentro do ecra
+ * dela, e nao nas paginas gerais: la perdia-se o sitio. As Despesas e os
+ * Documentos sao as paginas gerais, emprestadas - o mesmo no do DOM muda-se
+ * para dentro da area e volta para casa quando se sai. Assim nao ha uma
+ * segunda copia do codigo a divergir da primeira.
+ *
+ * O detalhe de uma tarefa usa o mesmo emprestimo: e o painel das Tarefas,
+ * posto na coluna da direita da area.
+ * ------------------------------------------------------------------ */
+var AE_EMP = {};
+function aeEmprestar(k, no, destino){
+  if (!no || !destino) return;
+  if (!AE_EMP[k]) AE_EMP[k] = { no: no, casa: no.parentNode, depois: no.nextSibling };
+  destino.appendChild(no);
+}
+function aeDevolver(k){
+  var e = AE_EMP[k];
+  if (!e) return;
+  delete AE_EMP[k];
+  if (!e.casa) return;
+  if (e.depois && e.depois.parentNode === e.casa) e.casa.insertBefore(e.no, e.depois);
+  else e.casa.appendChild(e.no);
+}
+function aeDevolverTudo(){ Object.keys(AE_EMP).forEach(aeDevolver); }
+
+/* O miolo dos Documentos, embrulhado uma vez para poder ser emprestado. */
+function aeMioloDocs(){
+  var m = document.getElementById('aeDocsMiolo');
+  if (m) return m;
+  var sec = document.getElementById('view-documentos');
+  if (!sec) return null;
+  m = el('div'); m.id = 'aeDocsMiolo';
+  while (sec.firstChild) m.appendChild(sec.firstChild);
+  sec.appendChild(m);
+  return m;
+}
+
+function aeAreaAtiva(){
+  var sec = document.querySelector('.view.is-active');
+  if (!sec) return null;
+  return AE_AREAS.filter(function(x){ return 'view-' + x.view === sec.id; })[0] || null;
+}
+
+function aeAbrirPagina(a, pag, alvoId){
+  if (pag === 'despesas'){
+    if (typeof dpMontar === 'function') dpMontar();
+    if (window.DP){ DP.filtro.onde = alvoId ? String(alvoId) : 'tudo'; DP.soSemPapel = false; if (typeof dpGuardar === 'function') dpGuardar(); }
+  }
+  if (pag === 'documentos' && typeof DOCS_AREA !== 'undefined') DOCS_AREA = alvoId;
+  aeFecharDetalheArea();
+  AE.pagina[a.view] = pag;
+  aeRenderArea(a);
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function aeSairPagina(a){
+  AE.pagina[a.view] = null;
+  aeDevolverTudo();
+  aeRenderArea(a);
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+var AE_PAG_NOME = { agenda: 'Agenda', despesas: 'Despesas', documentos: 'Documentos' };
+function aeSubPagina(a, box, pag, c){
+  /* O caminho de volta: sempre a vista, sempre o mesmo sitio. */
+  var topo = el('div', 'card ae-volta');
+  var bV = el('button', 'btn small', '\u2190 Voltar');
+  bV.type = 'button';
+  bV.addEventListener('click', function(){ aeSairPagina(a); });
+  topo.appendChild(bV);
+  var tr = el('div', 'ae-trilho');
+  var bArea = el('button', null, c.area.name);
+  bArea.type = 'button';
+  bArea.addEventListener('click', function(){ aeSairPagina(a); });
+  tr.appendChild(bArea);
+  if (c.alvoId !== c.area.id){
+    tr.appendChild(el('span', null, '\u203a'));
+    var bSub = el('button', null, c.alvoNome);
+    bSub.type = 'button';
+    bSub.addEventListener('click', function(){ aeSairPagina(a); });
+    tr.appendChild(bSub);
+  }
+  tr.appendChild(el('span', null, '\u203a'));
+  tr.appendChild(el('b', null, AE_PAG_NOME[pag] || pag));
+  topo.appendChild(tr);
+  box.appendChild(topo);
+
+  if (pag === 'agenda'){
+    box.appendChild(c.barra);
+    var card = el('div', 'card ae-pag');
+    var h = el('header');
+    h.appendChild(el('h3', null, 'Agenda'));
+    h.appendChild(el('span', 'mono', String(c.eventos.length)));
+    card.appendChild(h);
+    aeCorpoEventos(card, c.eventos, 'Nada marcado no que est\u00e1 filtrado.');
+    if (c.semData) card.appendChild(el('p', 'ae-nota', c.semData + (c.semData === 1 ? ' lembrete sem data' : ' lembretes sem data') + ', nas Tarefas \u203a Lembretes.'));
+    aeGrupoFechados(a, card, 'eventos', 'J\u00e1 passaram', c.eventosPassados, function(cc){
+      var rows = el('div', 'tf-rows');
+      c.eventosPassados.forEach(function(x){
+        var li = aeLinhaEvento(x); li.classList.add('done'); rows.appendChild(li);
+      });
+      cc.appendChild(rows);
+    });
+    aeBotaoNovo(card, '+ Marcar uma data', function(b){ aePopEvento(a, b, c.area, c.subs); });
+    box.appendChild(card);
+    return;
+  }
+
+  var hold = el('div', 'ae-emp');
+  box.appendChild(hold);
+  if (pag === 'despesas'){
+    if (typeof dpMontar === 'function') dpMontar();
+    /* O estilo das Despesas esta preso a #view-despesas; emprestado, o miolo
+       sai de la. Uma copia presa ao proprio miolo serve nos dois sitios. */
+    if (typeof DP_CSS === 'string' && !document.getElementById('aeDpCss')){
+      var stD = document.createElement('style'); stD.id = 'aeDpCss';
+      stD.textContent = DP_CSS.replace(/#view-despesas/g, '#dpCaixa');
+      document.head.appendChild(stD);
+    }
+    aeEmprestar('despesas', document.getElementById('dpCaixa'), hold);
+    try { if (typeof dpRender === 'function') dpRender(); } catch (e) { console.error('[farol] despesas na area', e); }
+  } else if (pag === 'documentos'){
+    aeEmprestar('documentos', aeMioloDocs(), hold);
+    try { if (window.D && typeof renderDocumentos === 'function') renderDocumentos(); } catch (e) { console.error('[farol] documentos na area', e); }
+  }
+}
+
+/* Clicar numa tarefa da area abre o detalhe a direita, sem sair dela. */
+function aeAbrirTarefa(t){
+  var a = aeAreaAtiva();
+  if (!a || typeof tfAbrir !== 'function' || typeof tfMontar !== 'function'){
+    if (typeof avAbrir === 'function') avAbrir({ origem: 'tarefa', id: t.id, quando: t.due_on || null, detail: areaNome(t.context_id) });
+    else if (typeof tfIrPara === 'function') tfIrPara(t.id);
+    return;
+  }
+  tfMontar();
+  AE.det = a.view;
+  TF.aberta = t.id;
+  aeRenderArea(a);
+  tfAbrir(t.id);
+}
+
+function aeFecharDetalheArea(){
+  if (!AE.det) return;
+  AE.det = null;
+  aeDevolver('det');
+  if (typeof _aeTfFechar === 'function') _aeTfFechar();
+}
+
+/* Fechar o detalhe (a cruz, ou a tarefa que desapareceu) arruma tambem a
+   coluna da direita da area. */
+var _aeTfFechar = typeof tfFecharDetalhe === 'function' ? tfFecharDetalhe : null;
+if (_aeTfFechar){
+  tfFecharDetalhe = function(){
+    var v = AE.det;
+    AE.det = null;
+    aeDevolver('det');
+    _aeTfFechar();
+    var a = v && AE_AREAS.filter(function(x){ return x.view === v; })[0];
+    if (a){ try { aeRenderArea(a); } catch (e) { console.error('[farol] area ' + a.view, e); } }
+  };
 }
 
 /* ------------------------------------------------------------------ *
@@ -1783,8 +1957,17 @@ function aeNavMarcar(){
 /* O show() do app.js poe o realce nos botoes do menu; as sub-areas vao atras. */
 var _aeShow = show;
 show = function(view){
+  /* Sair (ou voltar a entrar pelo menu) leva a area a pagina dela, e o que
+     estava emprestado volta para casa antes de a outra pagina se mostrar. */
+  AE.pagina = {};
+  aeFecharDetalheArea();
+  aeDevolverTudo();
   _aeShow(view);
   aeNavMarcar();
+  var a = AE_AREAS.filter(function(x){ return x.view === view; })[0];
+  if (a && window.G && G.contextos && G.contextos.length && typeof tfCaixa === 'function'){
+    try { aeRenderArea(a); } catch (e) { console.error('[farol] area ' + a.view, e); }
+  }
 };
 
 var AE_ESPERA = 0;
