@@ -75,7 +75,7 @@ const ESQUEMA = {
               pessoa: texto('Pessoa da casa a quem o ficheiro diz respeito, escrita tal como vem na lista de pessoas desta casa.'),
               area: texto('Area ou sub-area onde isto se arruma, escrita tal como vem na lista de areas.'),
               kind: texto('Que tipo de papel e: cartao, contrato, apolice, declaracao, certidao, fatura, recibo, exame.'),
-              notes: texto('Qualquer coisa util que nao caiba nos outros campos.')
+              notes: texto('Numa tarefa ou num pagamento: o que ha a fazer e tudo o que e preciso para o fazer sem voltar a abrir o papel - entidade, referencias, montantes, prazos, periodo, numero da fatura, contactos. Linhas curtas, uma coisa por linha. Noutros destinos: qualquer coisa util que nao caiba nos outros campos.')
             },
             required: ['area']
           }
@@ -108,6 +108,13 @@ const SISTEMA = [
   '(entity, payee, merchant), referencia de pagamento, pessoa e area.',
   'Numa fatura, o valor a pagar e o total com IVA, e o prazo e a data de',
   'vencimento (due_on) - nao e valid_on.',
+  '',
+  'Numa tarefa ou num pagamento, notes e o que a pessoa le quando for tratar do',
+  'assunto, sem o papel a frente. Escreve em linhas curtas, so com o que o papel',
+  'diz: o que fazer (pagar, renovar, entregar, marcar), a quem (entidade e NIF),',
+  'como (IBAN, ou entidade e referencia multibanco, ou link), quanto (total e,',
+  'se houver, parcelas ou valores por pessoa), ate quando, a que se refere',
+  '(periodo, numero da fatura ou do contrato, local) e contactos uteis.',
   '',
   'Despesa ou pagamento, a diferenca e o tempo: um talao ou um recibo e dinheiro',
   'que ja saiu - despesa. Uma fatura por pagar ou um aviso com prazo e dinheiro',
@@ -199,6 +206,8 @@ async function perguntar(buffer, mime, nome, modelo) {
       'amount (o total, como numero), due_on (vencimento, limite de pagamento),',
       'payee e entity (quem emitiu), payment_ref (IBAN, ou entidade e referencia)',
       'e area. Esquecer o valor de uma fatura e o erro mais caro.',
+      'Se for tarefa ou pagamento, confere tambem notes: o que fazer, entidade,',
+      'referencias, montantes e prazos, uma coisa por linha.',
       '',
       'Se isto for um documento, confere tambem quatro coisas:',
       '1. entity - quem o emitiu. Esta quase sempre no topo ou no rodape, no',
