@@ -223,6 +223,7 @@ function aePor(a, campo, valor){
   AE.filtro[a.view] = f;
   aeGuardar('aeFiltro', AE.filtro);
   aeRenderArea(a);
+  if (typeof aeNavMarcar === 'function') aeNavMarcar();
 }
 function aeAbertoW(view, chave){
   var m = AE.fechados[view] || {};
@@ -1541,6 +1542,147 @@ function aeRenderArea(a){
   }));
 }
 
+/* ------------------------------------------------------------------ *
+ * As sub-areas no menu (26 set)
+ *
+ * Cada area com sub-areas mostra-as no menu, por baixo dela, com uma seta
+ * para recolher (comecam abertas). Carregar numa sub-area abre o ecra da
+ * area ja filtrado por ela - e o mesmo filtro «Onde» do ecra, nao um
+ * segundo: mudar la muda o realce aqui, e vice-versa. Carregar na area em
+ * si mostra-a inteira.
+ * ------------------------------------------------------------------ */
+
+var AE_NAV_CSS =
+  '.nav .ae-nseta{margin-left:auto;display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:5px;color:var(--faint);flex:none}' +
+  '.nav .badge + .ae-nseta{margin-left:4px}' +
+  '.nav .ae-nseta:hover{background:var(--surface);color:var(--ink)}' +
+  '.nav .ae-nseta svg{opacity:1;transition:transform .15s}' +
+  '.nav .ae-nseta.fechado svg{transform:rotate(-90deg)}' +
+  '.nav .ae-nsubs{display:flex;flex-direction:column;gap:1px;margin:1px 0 3px}' +
+  '.nav .ae-nsubs[hidden]{display:none}' +
+  '.nav button.ae-nsub{padding:5px 8px 5px 34px;font-size:.8125rem;color:var(--muted);position:relative}' +
+  '.nav button.ae-nsub::before{content:"";position:absolute;left:15px;top:50%;width:9px;height:1px;background:var(--line)}' +
+  '.nav button.ae-nsub.is-active{background:var(--accent-soft);color:var(--accent-ink);font-weight:500}' +
+  '.nav button.ae-nsub span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}' +
+  '.nav button.is-active.ae-com-sub{background:none}' +
+  '@media (max-width: 900px){.nav .ae-nsubs,.nav .ae-nseta{display:none}}';
+
+var AE_NAV_FECHADO = aeLerGuardado('aeNavFechado');
+
+function aeNavEstilo(){
+  if (document.getElementById('aeNavCss')) return;
+  var st = document.createElement('style'); st.id = 'aeNavCss'; st.textContent = AE_NAV_CSS;
+  document.head.appendChild(st);
+}
+
+/* Escolher no menu e escolher no ecra sao a mesma coisa: uma sub-area so,
+   ou nenhuma (a area inteira). Os outros filtros (quem, quando) ficam. */
+function aeNavFiltrar(a, sub){
+  var f = aeF(a.view);
+  f.subs = sub ? [sub] : [];
+  AE.filtro[a.view] = f;
+  aeGuardar('aeFiltro', AE.filtro);
+  try { aeRenderArea(a); } catch (e) { console.error('[farol] area ' + a.view, e); }
+}
+
+function aeNavMontar(){
+  var nav = document.getElementById('nav');
+  if (!nav || !window.G || !G.contextos) return;
+  aeNavEstilo();
+  AE_AREAS.forEach(function(a){
+    var b = nav.querySelector('button[data-view="' + a.view + '"]');
+    if (!b) return;
+    var area = aeArea(a);
+    var subs = area ? aeSubs(area).filter(function(s){ return s.active !== false; }) : [];
+    var chave = subs.map(function(s){ return s.id + ':' + s.name; }).join('|');
+    var caixa = b.nextElementSibling && b.nextElementSibling.classList.contains('ae-nsubs') ? b.nextElementSibling : null;
+
+    /* Carregar na area mostra-a inteira. Corre antes do ouvinte geral do
+       menu (que esta no #nav e so apanha o clique a subir). */
+    if (!b.dataset.aeNav){
+      b.dataset.aeNav = '1';
+      b.addEventListener('click', function(ev){
+        if (ev.target.closest('.ae-nseta')) return;
+        aeNavFiltrar(a, null);
+      });
+    }
+
+    if (caixa && caixa.dataset.chave === chave) return;
+    if (caixa) caixa.remove();
+    var seta = b.querySelector('.ae-nseta');
+    if (!subs.length){ if (seta) seta.remove(); return; }
+
+    if (!seta){
+      seta = el('span', 'ae-nseta');
+      seta.setAttribute('role', 'button');
+      seta.innerHTML = aeIcone(AE_I.seta, 12);
+      seta.addEventListener('click', function(ev){
+        /* A seta so abre e fecha: nao muda de ecra. */
+        ev.stopPropagation();
+        var cx = b.nextElementSibling;
+        if (!cx || !cx.classList.contains('ae-nsubs')) return;
+        cx.hidden = !cx.hidden;
+        seta.classList.toggle('fechado', cx.hidden);
+        seta.title = cx.hidden ? 'Mostrar as sub-áreas' : 'Recolher as sub-áreas';
+        AE_NAV_FECHADO[a.view] = cx.hidden;
+        aeGuardar('aeNavFechado', AE_NAV_FECHADO);
+      });
+      b.appendChild(seta);
+    }
+    caixa = el('div', 'ae-nsubs');
+    caixa.dataset.chave = chave;
+    caixa.hidden = AE_NAV_FECHADO[a.view] === true;
+    seta.classList.toggle('fechado', caixa.hidden);
+    seta.title = caixa.hidden ? 'Mostrar as sub-áreas' : 'Recolher as sub-áreas';
+    subs.forEach(function(s){
+      var sb = el('button', 'ae-nsub');
+      sb.type = 'button';
+      sb.dataset.aeSub = String(s.id);
+      sb.title = s.name;
+      sb.appendChild(el('span', null, s.name));
+      sb.addEventListener('click', function(){
+        aeNavFiltrar(a, String(s.id));
+        show(a.view);
+      });
+      caixa.appendChild(sb);
+    });
+    b.parentNode.insertBefore(caixa, b.nextSibling);
+  });
+  aeNavMarcar();
+}
+
+/* O realce: a sub-area quando o ecra esta filtrado so por ela; a area
+   quando esta inteira (ou filtrada de outra maneira, no proprio ecra). */
+function aeNavMarcar(){
+  var nav = document.getElementById('nav');
+  if (!nav) return;
+  var ativa = nav.querySelector('button[data-view].is-active');
+  var view = ativa ? ativa.dataset.view : null;
+  AE_AREAS.forEach(function(a){
+    var b = nav.querySelector('button[data-view="' + a.view + '"]');
+    var cx = b && b.nextElementSibling && b.nextElementSibling.classList.contains('ae-nsubs') ? b.nextElementSibling : null;
+    if (!b || !cx) return;
+    var f = aeF(a.view);
+    var so = f.subs.length === 1 ? f.subs[0] : null;
+    var marcou = false;
+    cx.querySelectorAll('button.ae-nsub').forEach(function(sb){
+      var on = view === a.view && sb.dataset.aeSub === so;
+      sb.classList.toggle('is-active', on);
+      if (on) marcou = true;
+    });
+    /* Com a sub-area realcada, a area fica so com o texto forte, sem fundo:
+       dois fundos seguidos nao dizem onde se esta. */
+    b.classList.toggle('ae-com-sub', marcou);
+  });
+}
+
+/* O show() do app.js poe o realce nos botoes do menu; as sub-areas vao atras. */
+var _aeShow = show;
+show = function(view){
+  _aeShow(view);
+  aeNavMarcar();
+};
+
 var AE_ESPERA = 0;
 function aeRender(){
   /* Se o desenho apanhar a app a meio do arranque - sem areas ainda, ou sem o
@@ -1557,6 +1699,7 @@ function aeRender(){
     /* Um ecra que rebenta nao cala os outros. */
     try { aeRenderArea(a); } catch (e) { console.error('[farol] area ' + a.view, e); }
   });
+  try { aeNavMontar(); } catch (e) { console.error('[farol] menu das areas', e); }
   /* As paginas gerais dos Eventos e das Despesas bebem dos mesmos dados: ou
      se desenham aqui, ou ficavam a espera de um clique. */
   try { if (typeof evRender === 'function') evRender(); } catch (e) { console.error('[farol] eventos', e); }
