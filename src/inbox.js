@@ -243,7 +243,7 @@ async function pontuarPagamentos(d) {
   const prazo = soData(d.due_on);
   const linhas = await all(
     `SELECT t.id, t.title, t.payee, t.payment_ref, t.notes, t.repeat_rule, t.amount::float AS amount,
-            to_char(t.due_on, 'YYYY-MM-DD') AS due_on
+            t.context_id, to_char(t.due_on, 'YYYY-MM-DD') AS due_on
        FROM tasks t
       WHERE t.tipo = 'pagamento' AND t.origin = 'real' AND NOT t.done
         AND t.status NOT IN ('concluida', 'cancelada')
@@ -275,7 +275,7 @@ async function pontuarPagamentos(d) {
       datasOk = false;
     }
     return { id: t.id, title: t.title, amount: dele, due_on: t.due_on, pontos, distancia,
-             rotina: Boolean(t.repeat_rule),
+             context_id: t.context_id, rotina: Boolean(t.repeat_rule),
              serve: nome && datasOk && pontos >= 5 };
   });
   todos.sort((a, b) => (b.pontos - a.pontos) || (a.distancia - b.distancia) || (a.id - b.id));
@@ -333,7 +333,7 @@ async function pontuarComprovativo(d, ignorar) {
   const valor = numero(d.amount);
   const quando = soData(d.paid_on) || soData(d.spent_on) || soData(d.issued_on);
   const linhas = await all(
-    `SELECT t.id, t.title, t.payee, t.notes, t.amount::float AS amount,
+    `SELECT t.id, t.title, t.payee, t.notes, t.amount::float AS amount, t.context_id,
             to_char(t.due_on, 'YYYY-MM-DD') AS due_on, to_char(t.paid_on, 'YYYY-MM-DD') AS paid_on,
             (SELECT string_agg(x.txt, ' ') FROM (
                 SELECT dc.name AS txt FROM task_documents td JOIN documents dc ON dc.id = td.document_id
@@ -372,7 +372,7 @@ async function pontuarComprovativo(d, ignorar) {
       if (distancia > 60) datasOk = false; else if (distancia <= 45) pontos += 2;
     }
     return { id: t.id, title: t.title, amount: dele, due_on: t.due_on, paid_on: t.paid_on,
-             pago: Boolean(t.paid_on), faturas, fortes, pontos, distancia,
+             context_id: t.context_id, pago: Boolean(t.paid_on), faturas, fortes, pontos, distancia,
              serve: faturas.length > 0 || (nome && datasOk && pontos >= 5) };
   });
   todos.sort((a, b) => (b.pontos - a.pontos) || (a.distancia - b.distancia) || (a.id - b.id));
@@ -1505,7 +1505,8 @@ function instalar(app) {
         /* Um comprovativo pode provar varios pagamentos: a lista leva
            caixas, e os que estao ligados vem marcados. */
         const atuais = await all(
-          `SELECT t.id, t.title, t.amount::float AS amount, to_char(t.due_on, 'YYYY-MM-DD') AS due_on,
+          `SELECT t.id, t.title, t.amount::float AS amount, t.context_id,
+                  to_char(t.due_on, 'YYYY-MM-DD') AS due_on,
                   to_char(t.paid_on, 'YYYY-MM-DD') AS paid_on, l.criado
              FROM inbox_links l JOIN tasks t ON t.id = l.target_id
             WHERE l.inbox_id = $1 AND l.target_type = 'pagamento' ORDER BY t.id`, [id]);
@@ -1517,7 +1518,8 @@ function instalar(app) {
       const f = await faturaDoItem(id);
       if (!f) return res.status(404).json({ error: 'Este ficheiro nao tem pagamento.' });
       const atual = (await all(
-        `SELECT id, title, amount::float AS amount, to_char(due_on, 'YYYY-MM-DD') AS due_on
+        `SELECT id, title, amount::float AS amount, context_id,
+                to_char(due_on, 'YYYY-MM-DD') AS due_on
            FROM tasks WHERE id = $1`, [f.lp.target_id]))[0] || null;
       const candidatos = (await pontuarPagamentos(f.fatura))
         .filter((t) => t.id !== f.lp.target_id).slice(0, 60);
