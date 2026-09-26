@@ -801,3 +801,61 @@ CREATE TABLE IF NOT EXISTS item_documents (
   PRIMARY KEY (tipo, item_id, document_id)
 );
 CREATE INDEX IF NOT EXISTS item_documents_doc_idx ON item_documents (document_id);
+
+
+-- ---------------------------------------------------------------------------
+-- PAGAMENTOS QUE NASCEM DA CAIXA: APROVADOS E COM A SUA FATURA
+--
+-- Um pagamento lido de um ficheiro entrava logo nas Tarefas, sem passar por
+-- «Por aprovar», e sem o papel agarrado: a fatura da MEO (26 set) ficou nas
+-- Tarefas e ninguem sabia de onde tinha vindo. Passa a ser como os documentos
+-- e as despesas: nasce por aprovar (aprovado = FALSE) e nao aparece nos ecras
+-- ate alguem o aprovar. O que ja existia conta como aprovado.
+-- ---------------------------------------------------------------------------
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS aprovado BOOLEAN NOT NULL DEFAULT TRUE;
+
+-- Os pagamentos que ja nasceram de um ficheiro ganham o documento dele como
+-- fatura. Se a triagem ja tinha criado um documento do mesmo ficheiro, liga-se
+-- esse; se nao, cria-se um com o que o pagamento sabe.
+DO $$
+DECLARE r record; doc integer;
+BEGIN
+  IF EXISTS (SELECT 1 FROM settings WHERE key = 'pagamentos_com_fatura') THEN
+    RETURN;
+  END IF;
+
+  FOR r IN
+    SELECT t.id AS tarefa, l.inbox_id, t.title, t.payee, t.context_id, t.owner_id,
+           t.project_id, i.captured_at
+      FROM tasks t
+      JOIN inbox_links l ON l.target_type = 'pagamento' AND l.target_id = t.id
+      JOIN inbox_items i ON i.id = l.inbox_id AND i.file_path IS NOT NULL
+  LOOP
+    SELECT d.target_id INTO doc
+      FROM inbox_links d
+     WHERE d.inbox_id = r.inbox_id AND d.target_type = 'documento'
+     ORDER BY d.target_id LIMIT 1;
+
+    IF doc IS NULL THEN
+      INSERT INTO documents (name, entity, kind, context_id, person_id, project_id,
+                             issued_on, origin, aprovado, sort)
+      VALUES (r.title, r.payee, 'fatura', r.context_id, r.owner_id, r.project_id,
+              r.captured_at::date, 'real', TRUE, 0)
+      RETURNING id INTO doc;
+
+      INSERT INTO inbox_links (inbox_id, target_type, target_id)
+      VALUES (r.inbox_id, 'documento', doc) ON CONFLICT DO NOTHING;
+    END IF;
+
+    INSERT INTO task_documents (task_id, document_id, papel)
+    VALUES (r.tarefa, doc, 'fatura')
+    ON CONFLICT (task_id, document_id) DO UPDATE SET papel = 'fatura';
+  END LOOP;
+
+  INSERT INTO settings (key, value) VALUES ('pagamentos_com_fatura', now()::text)
+  ON CONFLICT (key) DO NOTHING;
+
+  RAISE NOTICE '[farol] pagamentos vindos da caixa passaram a ter a fatura agarrada.';
+EXCEPTION WHEN OTHERS THEN
+  RAISE WARNING '[farol] nao foi possivel agarrar as faturas aos pagamentos: %', SQLERRM;
+END $$;
