@@ -377,6 +377,15 @@ async function alterar(id, b) {
   if (Array.isArray(b.subjects)) await gravarAssuntos(id, b.subjects);
   if (Array.isArray(b.documents)) await gravarDocumentos(id, b.documents);
   if (Array.isArray(b.items)) await gravarItens(id, b.items);
+  /* Quem paga e a pessoa do papel sao a mesma: escolher aqui o dono escreve-o
+     tambem no cartao da caixa de entrada de onde este pagamento veio, quando
+     esse cartao ainda nao diz de quem e o papel. O require e aqui dentro
+     porque o inbox.js e que pede este ficheiro - a volta ao contrario so se
+     pode fazer na hora. */
+  if (b.owner_id !== undefined && limpar(b.owner_id)) {
+    try { await require('./inbox').pessoaDoPagamento(id); }
+    catch (err) { console.warn('[farol] pessoa do pagamento ' + id + ':', err.message); }
+  }
   if (fecha) return fechar(id, b.status);
   return true;
 }

@@ -478,7 +478,7 @@ async function juntarAoPagamento(taskId, d) {
   /* Como estava antes: e o que se repoe se a fatura sair daqui. */
   const antes = (await all(
     `SELECT amount::float AS amount, payment_ref, to_char(due_on, 'YYYY-MM-DD') AS due_on,
-            payee, context_id, notes
+            payee, context_id, notes, owner_id
        FROM tasks WHERE id = $1`, [taskId]))[0] || null;
   const valor = d.amount === undefined || d.amount === null || d.amount === '' ? null : Number(d.amount);
   const bloco = notasCompletas(d, 'pagamento');
@@ -490,24 +490,39 @@ async function juntarAoPagamento(taskId, d) {
             due_on = COALESCE($4::date, due_on),
             payee = COALESCE(payee, $5),
             context_id = COALESCE(context_id, $6),
+            /* Quem paga: o pagamento que ja existia manda, mas se estava
+               vazio fica a pessoa do papel - a mesma que vai para o cartao. */
+            owner_id = COALESCE(owner_id, $8),
             notes = NULLIF(btrim(COALESCE(notes, '') || CASE WHEN $7::text IS NULL THEN ''
                       ELSE E'\n\n' || $7::text END, E' \n'), ''),
             updated_at = now()
       WHERE id = $1`,
     [taskId, Number.isFinite(valor) ? valor : null, limpar(d.payment_ref), soData(d.due_on),
      limpar(d.payee || d.merchant || d.entity), limpar(d.context_id),
-     bloco ? 'Fatura recebida a ' + dataPt(hoje) + ':\n' + bloco : null]);
+     bloco ? 'Fatura recebida a ' + dataPt(hoje) + ':\n' + bloco : null,
+     limpar(d.owner_id)]);
+  /* Por causa de quem: entra sempre, que isto nao tira nada a ninguem. */
+  for (const pid of d.subjects || []) {
+    await query('INSERT INTO task_subjects (task_id, person_id) VALUES ($1,$2) ON CONFLICT DO NOTHING',
+      [taskId, Number(pid)]).catch(() => {});
+  }
   return antes;
 }
 
 /* Desfaz o que a fatura escreveu num pagamento que ja existia. */
 async function reporPagamento(taskId, antes) {
   if (!antes) return;
+  /* As ligacoes antigas nao guardaram o dono: nessas, o dono fica como esta -
+     repor com um `undefined` apagava quem la estava. */
+  const dono = Object.prototype.hasOwnProperty.call(antes, 'owner_id')
+    ? ', owner_id = $8' : '';
+  const valores = [taskId, antes.amount, antes.payment_ref, antes.due_on, antes.payee,
+                   antes.context_id, antes.notes];
+  if (dono) valores.push(antes.owner_id === undefined ? null : antes.owner_id);
   await query(
     `UPDATE tasks SET amount = $2, payment_ref = $3, due_on = $4::date, payee = $5,
-                      context_id = $6, notes = $7, updated_at = now()
-      WHERE id = $1`,
-    [taskId, antes.amount, antes.payment_ref, antes.due_on, antes.payee, antes.context_id, antes.notes]);
+                      context_id = $6, notes = $7` + dono + `, updated_at = now()
+      WHERE id = $1`, valores);
 }
 
 const CRIAR = {
@@ -966,6 +981,14 @@ async function executarTriagem(id, destinos) {
       }
     }
 
+    /* A pessoa nao pode ficar diferente dos dois lados. Se o pagamento - o que
+       nasceu agora ou o que ja existia - diz quem paga e o cartao ainda nao diz
+       de quem e o papel, a pessoa passa de la para ca. O outro sentido ja
+       acontecia na leitura, em paraDestino. */
+    for (const p of criados.filter((c) => c.tipo === 'pagamento')) {
+      await pessoaDoPagamento(p.id);
+    }
+
     await query("UPDATE inbox_items SET status = 'catalogado', resolved_at = now() WHERE id = $1", [id]);
     /* So documentos e despesas esperam por uma aprovacao. Uma tarefa ou um
        evento sao para agir agora: ficam aprovados a nascenca, senao o numero
@@ -1077,6 +1100,103 @@ async function podeTerTarefas(pid) {
   if (!pid) return false;
   const r = await all('SELECT 1 FROM people WHERE id = $1 AND can_own_tasks', [pid]);
   return r.length > 0;
+}
+
+/* O nome de quem e faz parte do titulo, mas o nome antigo nao pode ficar la:
+   trocar a pessoa do cartao deixava «Fatura FA2026/14 - Marco Paulo -
+   Brownie», com quem ja nao e. Tira-se o que estiver no fim e for nome de
+   alguem da casa, antes de escrever o novo. */
+async function semNomeAntigo(titulo) {
+  const pessoas = await all('SELECT name FROM people');
+  let t = String(titulo || '').trim();
+  for (let volta = 0; volta < 4; volta++) {
+    const antes = t;
+    for (const p of pessoas) {
+      const fim = ' \u2014 ' + String(p.name || '').trim();
+      if (fim.length > 4 && t.length > fim.length && t.slice(-fim.length) === fim) {
+        t = t.slice(0, -fim.length).trim();
+      }
+    }
+    if (t === antes) break;
+  }
+  return t || String(titulo || '').trim();
+}
+
+/* Quem paga e de quem e o papel sao a mesma pessoa, e a regra vale nos dois
+   sentidos. Este e o sentido cartao -> resto: a pessoa escolhida no cartao da
+   caixa escreve-se no titulo, no documento, na despesa, no evento e no
+   pagamento que nasceram dele. Com `forcar` a falso so se preenche o que
+   estiver vazio - quem la estava foi escolhido por alguem. */
+async function espalharPessoa(id, pid, forcar) {
+  const item = (await all('SELECT id, title FROM inbox_items WHERE id = $1', [id]))[0];
+  if (!item) return false;
+  const pessoa = await nomeDaPessoa(pid);
+
+  await query(
+    forcar ? 'UPDATE inbox_items SET person_id = $2 WHERE id = $1'
+           : 'UPDATE inbox_items SET person_id = COALESCE(person_id, $2) WHERE id = $1',
+    [id, pid]);
+  if (item.title) {
+    const base = await semNomeAntigo(item.title);
+    const titulo = pessoa ? comPessoa(base, pessoa) : base;
+    if (titulo && titulo !== item.title) {
+      await query('UPDATE inbox_items SET title = $2 WHERE id = $1', [id, titulo]);
+    }
+  }
+
+  const links = await all(
+    'SELECT target_type, target_id, criado FROM inbox_links WHERE inbox_id = $1', [id]);
+  const dono = await podeTerTarefas(pid);
+  const campo = forcar ? '$2' : 'COALESCE(person_id, $2)';
+  for (const l of links) {
+    if (l.target_type === 'documento') {
+      await query('UPDATE documents SET person_id = ' + campo + ' WHERE id = $1', [l.target_id, pid]);
+    } else if (l.target_type === 'despesa') {
+      await query('UPDATE expenses SET person_id = ' + campo + ' WHERE id = $1', [l.target_id, pid]);
+    } else if (l.target_type === 'evento') {
+      const tem = await all('SELECT 1 FROM event_people WHERE event_id = $1 LIMIT 1', [l.target_id]);
+      if (forcar) await query('DELETE FROM event_people WHERE event_id = $1', [l.target_id]);
+      if (pid && (forcar || !tem.length)) {
+        await query('INSERT INTO event_people (event_id, person_id) VALUES ($1,$2) ON CONFLICT DO NOTHING',
+          [l.target_id, pid]);
+      }
+    } else if ((l.target_type === 'tarefa' || l.target_type === 'pagamento') && pid) {
+      await query('INSERT INTO task_subjects (task_id, person_id) VALUES ($1,$2) ON CONFLICT DO NOTHING',
+        [l.target_id, pid]);
+      /* Quem paga / quem faz passa a ser a pessoa escolhida. Num pagamento que
+         ja existia e so recebeu a fatura, so se preenche se estiver vazio. */
+      if (dono) {
+        await query(
+          `UPDATE tasks SET owner_id = CASE WHEN $3 THEN $2 ELSE COALESCE(owner_id, $2) END,
+                            updated_at = now()
+            WHERE id = $1`, [l.target_id, pid, Boolean(forcar) && l.criado !== false]);
+      }
+    }
+  }
+  return true;
+}
+
+/* O mesmo sentido ao contrario: o pagamento ja diz quem paga e o papel ainda
+   nao diz de quem e. A pessoa passa do pagamento para o cartao da caixa - e
+   dai para o documento que nasceu com ele - sem mexer no que ja estiver
+   escolhido. E o que faltava: a fatura da renda juntava-se a um pagamento
+   cujo «Quem paga» era o Marco Paulo e o cartao ficava sem pessoa nenhuma. */
+async function pessoaDoPagamento(taskId) {
+  const id = Number(taskId);
+  if (!id) return [];
+  const t = (await all('SELECT owner_id FROM tasks WHERE id = $1', [id]))[0];
+  if (!t || !t.owner_id) return [];
+  const links = await all(
+    `SELECT inbox_id FROM inbox_links
+      WHERE target_type IN ('pagamento','tarefa') AND target_id = $1`, [id]);
+  const feitos = [];
+  for (const l of links) {
+    const it = (await all('SELECT person_id FROM inbox_items WHERE id = $1', [l.inbox_id]))[0];
+    if (!it || it.person_id) continue;
+    await espalharPessoa(l.inbox_id, t.owner_id, false);
+    feitos.push(l.inbox_id);
+  }
+  return feitos;
 }
 
 async function paraDestino(d) {
@@ -1307,40 +1427,7 @@ function instalar(app) {
       const pessoa = await nomeDaPessoa(pid);
       if (pid && !pessoa) return res.status(404).json({ error: 'Essa pessoa nao existe.' });
 
-      await query('UPDATE inbox_items SET person_id = $2 WHERE id = $1', [id, pid]);
-      if (pessoa && item[0].title) {
-        await query('UPDATE inbox_items SET title = $2 WHERE id = $1',
-          [id, comPessoa(item[0].title, pessoa)]);
-      }
-
-      const links = await all(
-        'SELECT target_type, target_id, criado, antes FROM inbox_links WHERE inbox_id = $1', [id]);
-      const dono = await podeTerTarefas(pid);
-      for (const l of links) {
-        if (l.target_type === 'documento') {
-          await query('UPDATE documents SET person_id = $2 WHERE id = $1', [l.target_id, pid]);
-        } else if (l.target_type === 'despesa') {
-          await query('UPDATE expenses SET person_id = $2 WHERE id = $1', [l.target_id, pid]);
-        } else if (l.target_type === 'evento') {
-          await query('DELETE FROM event_people WHERE event_id = $1', [l.target_id]);
-          if (pid) {
-            await query('INSERT INTO event_people (event_id, person_id) VALUES ($1,$2) ON CONFLICT DO NOTHING',
-              [l.target_id, pid]);
-          }
-        } else if ((l.target_type === 'tarefa' || l.target_type === 'pagamento') && pid) {
-          await query('INSERT INTO task_subjects (task_id, person_id) VALUES ($1,$2) ON CONFLICT DO NOTHING',
-            [l.target_id, pid]);
-          /* Quem paga / quem faz passa a ser a pessoa escolhida. Num pagamento
-             que ja existia e so recebeu a fatura, so se preenche se estiver
-             vazio: quem la estava foi escolhido por alguem. */
-          if (dono) {
-            await query(
-              `UPDATE tasks SET owner_id = CASE WHEN $3 THEN $2 ELSE COALESCE(owner_id, $2) END,
-                                updated_at = now()
-                WHERE id = $1`, [l.target_id, pid, l.criado !== false]);
-          }
-        }
-      }
+      await espalharPessoa(id, pid, true);
 
       res.json(await carregar(req.query.estado || 'por_triar'));
     } catch (err) {
@@ -1557,6 +1644,8 @@ function instalar(app) {
           `INSERT INTO task_documents (task_id, document_id, papel) VALUES ($1,$2,'fatura')
            ON CONFLICT (task_id, document_id) DO UPDATE SET papel = 'fatura'`, [alvo, doc.target_id]);
       }
+      /* Mudou de pagamento: a pessoa do cartao volta a ser a de quem paga. */
+      await pessoaDoPagamento(alvo);
       await query('COMMIT');
       console.log('[farol] item', id, 'pagamento', lp.target_id, '->', alvo);
       res.json({ ok: true, pagamento: alvo, ...(await carregar(req.query.estado || 'catalogado')) });
@@ -1946,4 +2035,5 @@ function instalar(app) {
 /* pontuarPagamentos sai tambem: e a regra que decide se uma fatura se junta a
    um pagamento que ja existe ou faz nascer um novo, e da para a exercitar
    sozinha contra a base de dados. */
-module.exports = { instalar, bucketPronto, arquivoPronto: () => pronto('arquivo'), pontuarPagamentos };
+module.exports = { instalar, bucketPronto, arquivoPronto: () => pronto('arquivo'),
+  pontuarPagamentos, pessoaDoPagamento };
