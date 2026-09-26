@@ -107,7 +107,13 @@ app.get('/api/bootstrap', async (_req, res) => {
                   (avatar IS NOT NULL) AS tem_avatar
              FROM people WHERE active ORDER BY sort`),
       all('SELECT code, name, color FROM calendars ORDER BY sort'),
-      all("SELECT id, to_char(day,'YYYY-MM-DD') AS day, at, title, calendar, detail, context_id FROM events ORDER BY day, at NULLS FIRST, id"),
+      all(`SELECT e.id, to_char(e.day,'YYYY-MM-DD') AS day, e.at, e.title, e.calendar, e.detail, e.context_id,
+                  /* Os papeis agarrados ao evento: a convocatoria, o mapa. */
+                  COALESCE((SELECT json_agg(json_build_object('id', i.document_id, 'papel', i.papel)
+                                            ORDER BY i.document_id)
+                              FROM item_documents i
+                             WHERE i.tipo = 'evento' AND i.item_id = e.id), '[]'::json) AS papeis
+             FROM events e ORDER BY e.day, e.at NULLS FIRST, e.id`),
       all(`SELECT * FROM (
              SELECT 'tarefa' AS origem, t.id,
                     t.title AS title,

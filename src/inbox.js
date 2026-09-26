@@ -814,6 +814,30 @@ function instalar(app) {
     return { ok: true, documento: docId, inbox_id: itemId, repetido: igual.length > 0 };
   }
 
+  /* A linha completa de um documento, com as mesmas colunas do /api/bootstrap:
+     o ecra junta-a a lista que ja tem em memoria, e meia linha com ar de linha
+     inteira e a maneira mais silenciosa de mentir. */
+  const linhaDocumento = async (docId) => (await all(
+    `SELECT d.id, d.name, d.entity, d.person_id, d.kind, d.context_id,
+            d.status_label, d.status_level,
+            to_char(d.issued_on,'YYYY-MM-DD') AS issued_on,
+            to_char(d.valid_on,'YYYY-MM-DD')  AS valid_on,
+            d.valid_until, (d.read_at IS NOT NULL) AS lido,
+            (SELECT l.inbox_id FROM inbox_links l
+              WHERE l.target_type = 'documento' AND l.target_id = d.id
+              ORDER BY l.inbox_id DESC LIMIT 1) AS inbox_id,
+            ARRAY(SELECT l.inbox_id FROM inbox_links l
+                   WHERE l.target_type = 'documento' AND l.target_id = d.id
+                   ORDER BY l.inbox_id) AS ficheiros,
+            COALESCE((SELECT json_agg(json_build_object(
+                               'task_id', t.id, 'title', t.title, 'tipo', t.tipo,
+                               'papel', td.papel,
+                               'paid_on', to_char(t.paid_on, 'YYYY-MM-DD'))
+                             ORDER BY t.paid_on DESC NULLS LAST, t.id DESC)
+                        FROM task_documents td JOIN tasks t ON t.id = td.task_id
+                       WHERE td.document_id = d.id), '[]'::json) AS tarefas
+       FROM documents d WHERE d.id = $1`, [docId]))[0];
+
   const falhaDoc = (res, err, onde) => {
     if (err.status) return res.status(err.status).json({ error: err.message });
     console.error('[farol] ' + onde + ':', err.message);
@@ -889,32 +913,108 @@ function instalar(app) {
          ON CONFLICT (task_id, document_id) DO UPDATE SET papel = EXCLUDED.papel`,
         [taskId, docId, papel]);
 
-      /* Devolve-se a linha com as mesmas colunas do /api/bootstrap: o ecra vai
-         junta-la a lista de documentos que ja tem em memoria, e meia linha com
-         ar de linha inteira e a maneira mais silenciosa de mentir. */
-      const doc = (await all(
-        `SELECT d.id, d.name, d.entity, d.person_id, d.kind, d.context_id,
-                d.status_label, d.status_level,
-                to_char(d.issued_on,'YYYY-MM-DD') AS issued_on,
-                to_char(d.valid_on,'YYYY-MM-DD')  AS valid_on,
-                d.valid_until, (d.read_at IS NOT NULL) AS lido,
-                (SELECT l.inbox_id FROM inbox_links l
-                  WHERE l.target_type = 'documento' AND l.target_id = d.id
-                  ORDER BY l.inbox_id DESC LIMIT 1) AS inbox_id,
-                ARRAY(SELECT l.inbox_id FROM inbox_links l
-                       WHERE l.target_type = 'documento' AND l.target_id = d.id
-                       ORDER BY l.inbox_id) AS ficheiros,
-                /* As mesmas colunas do /api/bootstrap, incluindo a quem ja serve. */
-                COALESCE((SELECT json_agg(json_build_object(
-                                   'task_id', t.id, 'title', t.title, 'tipo', t.tipo,
-                                   'papel', td.papel,
-                                   'paid_on', to_char(t.paid_on, 'YYYY-MM-DD'))
-                                 ORDER BY t.paid_on DESC NULLS LAST, t.id DESC)
-                            FROM task_documents td JOIN tasks t ON t.id = td.task_id
-                           WHERE td.document_id = d.id), '[]'::json) AS tarefas
-           FROM documents d WHERE d.id = $1`, [docId]))[0];
+      const doc = await linhaDocumento(docId);
       res.status(201).json({ ok: true, documento: doc, papel, repetido });
     } catch (err) { falhaDoc(res, err, 'POST anexo da tarefa'); }
+  });
+
+  /* ---------------------------------------------------------------- *
+   * Anexar ficheiros a outras coisas: um evento, uma despesa
+   *
+   * A mesma ideia da tarefa - o ficheiro nasce documento no arquivo - mas a
+   * ligacao vive na item_documents, com o tipo a dizer de quem e. A area e a
+   * pessoa herdam-se do item, como na tarefa.
+   * ---------------------------------------------------------------- */
+
+  const ITENS = {
+    evento: { tabela: 'events', pessoa: 'NULL::int AS person_id', titulo: 'title' },
+    despesa: { tabela: 'expenses', pessoa: 'person_id', titulo: 'description AS title' }
+  };
+
+  const lerItem = async (tipo, id) => {
+    const cfg = ITENS[tipo];
+    if (!cfg) return null;
+    return (await all(
+      `SELECT id, ${cfg.titulo}, context_id, ${cfg.pessoa} FROM ${cfg.tabela} WHERE id = $1`, [id]))[0] || null;
+  };
+
+  const papeisDoItem = async (tipo, id) => all(
+    `SELECT document_id AS id, papel FROM item_documents
+      WHERE tipo = $1 AND item_id = $2 ORDER BY document_id`, [tipo, id]);
+
+  app.post('/api/anexos/:tipo/:id(\\d+)/ficheiro', upload.single('ficheiro'), async (req, res) => {
+    const tipo = String(req.params.tipo);
+    const id = Number(req.params.id);
+    const f = req.file;
+    if (!ITENS[tipo]) return res.status(400).json({ error: 'Tipo desconhecido.' });
+    if (!f) return res.status(400).json({ error: 'Escolhe um ficheiro.' });
+    if (!bucketPronto()) return res.status(503).json({ error: 'O armazenamento de ficheiros ainda não está configurado.' });
+    const papel = PAPEIS.includes(req.body && req.body.papel) ? req.body.papel : 'anexo';
+    try {
+      const item = await lerItem(tipo, id);
+      if (!item) return res.status(404).json({ error: 'Não encontrei a que agarrar o ficheiro.' });
+
+      const checksum = crypto.createHash('sha256').update(f.buffer).digest('hex');
+      const jaHa = (await all(
+        `SELECT l.target_id AS documento
+           FROM inbox_items i
+           JOIN inbox_links l ON l.inbox_id = i.id AND l.target_type = 'documento'
+          WHERE i.checksum = $1 AND i.status <> 'descartado'
+          ORDER BY i.id LIMIT 1`, [checksum]))[0];
+
+      let docId, repetido = false;
+      if (jaHa) {
+        docId = jaHa.documento;
+        repetido = true;
+      } else {
+        const nome = String((req.body && req.body.nome) || '').trim()
+          || f.originalname.replace(/\.[^.]+$/, '')
+          || item.title;
+        docId = (await all(
+          `INSERT INTO documents (name, person_id, context_id, aprovado, origin, sort)
+           VALUES ($1,$2,$3,TRUE,'real',
+                   COALESCE((SELECT max(sort) + 1 FROM documents), 1))
+           RETURNING id`,
+          [nome, item.person_id, item.context_id]))[0].id;
+        await anexarAoDocumento(docId, f.buffer, f.originalname, f.mimetype);
+      }
+
+      await query(
+        `INSERT INTO item_documents (tipo, item_id, document_id, papel) VALUES ($1,$2,$3,$4)
+         ON CONFLICT (tipo, item_id, document_id) DO UPDATE SET papel = EXCLUDED.papel`,
+        [tipo, id, docId, papel]);
+
+      res.status(201).json({
+        ok: true, papel, repetido,
+        documento: await linhaDocumento(docId),
+        papeis: await papeisDoItem(tipo, id)
+      });
+    } catch (err) { falhaDoc(res, err, 'POST anexo de ' + tipo); }
+  });
+
+  /* Gravar e sempre a lista inteira, como nas tarefas: o que vier substitui
+     o que la estava. */
+  app.patch('/api/anexos/:tipo/:id(\\d+)', async (req, res) => {
+    const tipo = String(req.params.tipo);
+    const id = Number(req.params.id);
+    if (!ITENS[tipo]) return res.status(400).json({ error: 'Tipo desconhecido.' });
+    const lista = Array.isArray(req.body && req.body.documents) ? req.body.documents : null;
+    if (!lista) return res.status(400).json({ error: 'Faltam os documentos.' });
+    try {
+      if (!(await lerItem(tipo, id))) return res.status(404).json({ error: 'Não encontrei o item.' });
+      const refs = lista.map((x) => ({
+        id: Number(x && x.id !== undefined ? x.id : x),
+        papel: PAPEIS.includes(x && x.papel) ? x.papel : 'anexo'
+      })).filter((x) => Number.isInteger(x.id));
+      await query('DELETE FROM item_documents WHERE tipo = $1 AND item_id = $2', [tipo, id]);
+      for (const r of refs) {
+        await query(
+          `INSERT INTO item_documents (tipo, item_id, document_id, papel) VALUES ($1,$2,$3,$4)
+           ON CONFLICT (tipo, item_id, document_id) DO UPDATE SET papel = EXCLUDED.papel`,
+          [tipo, id, r.id, r.papel]);
+      }
+      res.json({ ok: true, papeis: await papeisDoItem(tipo, id) });
+    } catch (err) { falhaDoc(res, err, 'PATCH anexos de ' + tipo); }
   });
 
   app.post('/api/documentos/:id/ficheiro', upload.single('ficheiro'), async (req, res) => {

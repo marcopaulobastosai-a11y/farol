@@ -131,6 +131,11 @@ function instalar(app) {
                 /* A area vai junto: os ecras das areas mostram as despesas
                    que sao delas, e sem isto nao ha como saber quais sao. */
                 e.context_id, e.project_id,
+                /* Os papeis agarrados a despesa: o talao, a fatura. */
+                COALESCE((SELECT json_agg(json_build_object('id', i.document_id, 'papel', i.papel)
+                                          ORDER BY i.document_id)
+                            FROM item_documents i
+                           WHERE i.tipo = 'despesa' AND i.item_id = e.id), '[]'::json) AS papeis,
                 p.name AS pessoa,
                 /* O ficheiro da despesa: o do papel dela, ou o que a caixa
                    guardou quando a catalogou. Sem isto a linha do dinheiro
