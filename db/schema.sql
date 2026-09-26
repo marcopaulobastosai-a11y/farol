@@ -921,3 +921,15 @@ BEGIN
 EXCEPTION WHEN OTHERS THEN
   RAISE WARNING '[farol] nao foi possivel preencher quem paga: %', SQLERRM;
 END $$;
+
+
+-- ---------------------------------------------------------------------------
+-- TROCAR O PAGAMENTO A QUE UMA FATURA FOI JUNTADA
+--
+-- Quando a fatura se junta a um pagamento que ja existia, o pagamento fica com o
+-- valor, a referencia e o prazo dela. Para poder trocar de pagamento (ou criar
+-- um novo) sem estragar o antigo, a ligacao guarda o que a fatura trouxe
+-- (dados) e como o pagamento estava antes (antes).
+-- ---------------------------------------------------------------------------
+ALTER TABLE inbox_links ADD COLUMN IF NOT EXISTS dados JSONB;
+ALTER TABLE inbox_links ADD COLUMN IF NOT EXISTS antes JSONB;
