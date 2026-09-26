@@ -859,3 +859,36 @@ BEGIN
 EXCEPTION WHEN OTHERS THEN
   RAISE WARNING '[farol] nao foi possivel agarrar as faturas aos pagamentos: %', SQLERRM;
 END $$;
+
+
+-- ---------------------------------------------------------------------------
+-- O QUE NASCEU DE UM FICHEIRO E O QUE SO LHE FOI ASSOCIADO
+--
+-- Apagar um ficheiro da caixa apaga tudo o que nasceu dele (tarefa, pagamento,
+-- despesa, documento, evento). Mas ha ligacoes a coisas que ja existiam: um
+-- ficheiro pendurado num documento do TickTick, ou a fatura deste mes juntada ao
+-- pagamento recorrente que ja la estava. Essas nao se apagam - solta-se so a
+-- ligacao. criado = TRUE quer dizer «nasceu deste ficheiro».
+-- ---------------------------------------------------------------------------
+ALTER TABLE inbox_links ADD COLUMN IF NOT EXISTS criado BOOLEAN NOT NULL DEFAULT TRUE;
+
+-- Os ficheiros pendurados em documentos que ja existiam entraram pela rota do
+-- «+ Ficheiro»: nascem catalogados e aprovados no mesmo instante, sem leitura.
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM settings WHERE key = 'inbox_links_criado') THEN
+    RETURN;
+  END IF;
+  UPDATE inbox_links l
+     SET criado = FALSE
+    FROM inbox_items i
+   WHERE i.id = l.inbox_id
+     AND l.target_type = 'documento'
+     AND i.ai_status = 'nenhum'
+     AND i.resolved_at IS NOT NULL
+     AND abs(extract(epoch FROM i.resolved_at - i.captured_at)) < 5;
+  INSERT INTO settings (key, value) VALUES ('inbox_links_criado', now()::text)
+  ON CONFLICT (key) DO NOTHING;
+EXCEPTION WHEN OTHERS THEN
+  RAISE WARNING '[farol] nao foi possivel marcar as ligacoes antigas: %', SQLERRM;
+END $$;
