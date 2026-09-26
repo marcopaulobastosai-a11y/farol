@@ -30,7 +30,32 @@ var AR_CSS =
   '.ar-dlgc h3{margin:0;font-size:1.0625rem}' +
   '.ar-dlgc label{display:block;font-size:.75rem;color:var(--muted);margin-bottom:.25rem}' +
   '.ar-dlgc input,.ar-dlgc select{width:100%;padding:.5rem .6rem;border:1px solid var(--line);border-radius:8px;background:var(--ground);color:var(--ink);font:inherit;font-size:.875rem}' +
-  '.ar-dlga{display:flex;justify-content:flex-end;gap:.5rem;margin-top:.25rem}';
+  '.ar-dlga{display:flex;justify-content:flex-end;gap:.5rem;margin-top:.25rem}' +
+  '#view-areas .ar-cor{width:14px;height:14px;border-radius:4px;flex:none;border:1px solid var(--line)}' +
+  '#view-areas .ar-cor.vazia{background:repeating-linear-gradient(45deg,transparent 0 3px,var(--line) 3px 4px)}' +
+  '.ar-cores{display:flex;flex-wrap:wrap;gap:6px;align-items:center}' +
+  '.ar-cores button{width:28px;height:28px;border-radius:7px;border:1px solid var(--line);cursor:pointer;padding:0}' +
+  '.ar-cores button.on{outline:2px solid var(--accent);outline-offset:2px}' +
+  '.ar-cores button.sem{background:repeating-linear-gradient(45deg,transparent 0 4px,var(--line) 4px 5px)}' +
+  '.ar-dlgc .ar-cores input[type=color]{width:34px;height:30px;padding:2px;border-radius:7px;cursor:pointer}' +
+  '.ar-dlgc .ar-cores small{font-size:.72rem;color:var(--muted)}' +
+  '.attn article.ar-tinta{background:color-mix(in srgb, var(--ar-cor) 13%, var(--surface));border-color:color-mix(in srgb, var(--ar-cor) 35%, var(--line))}';
+
+/* Cores a mao, para nao ter de escolher num circulo de cores. Sao fundos: a
+   percentagem baixa com que pintam os cartoes do Hoje (13%) chega para as
+   distinguir em claro e em escuro sem tapar o texto. */
+var AR_CORES = ['#2a78d6', '#1baf7a', '#eda100', '#eb6834', '#e87ba4', '#8a63d2', '#0f9aa8', '#7a8a8b'];
+
+/* A cor que vale para um contexto: a dele, senao a da area de cima. */
+function arCorDe(id) {
+  var cs = (window.G && G.contextos) || [];
+  var c = cs.filter(function (x) { return x.id === id; })[0];
+  if (!c) return null;
+  if (c.color) return c.color;
+  if (!c.parent_id) return null;
+  var p = cs.filter(function (x) { return x.id === c.parent_id; })[0];
+  return (p && p.color) || null;
+}
 
 function arEstilo() {
   if (document.getElementById('arCss')) return;
@@ -112,6 +137,10 @@ function arRender() {
   clear(box);
   AR.linhas.forEach(function (c) {
     var w = el('div', 'ar-linha' + (c.parent_id ? ' ar-sub' : '') + (c.active ? '' : ' ar-off'));
+    var sw = el('span', 'ar-cor' + (c.color ? '' : ' vazia'));
+    if (c.color) sw.style.background = c.color;
+    sw.title = c.color ? 'Cor ' + c.color : (c.parent_id ? 'Sem cor: usa a da \u00e1rea' : 'Sem cor');
+    w.appendChild(sw);
     var corpo = el('div', 'ar-corpo');
     corpo.appendChild(el('div', 'ar-nome', c.name));
     var abaixo = [];
@@ -178,6 +207,42 @@ function arJanela(c, paiId) {
     cx.appendChild(campoPai);
   }
 
+  /* A cor do fundo dos cartoes do Hoje. */
+  var corEscolhida = (c && c.color) || null;
+  var campoCor = el('div');
+  campoCor.appendChild(el('label', null, c && c.parent_id || paiId
+    ? 'Cor (sem cor, usa a da \u00e1rea)' : 'Cor dos cart\u00f5es no Hoje'));
+  var cores = el('div', 'ar-cores');
+  var iCor = el('input');
+  iCor.type = 'color';
+  iCor.title = 'Outra cor';
+  iCor.value = '#7a8a8b';
+  function marcarCor() {
+    cores.querySelectorAll('button').forEach(function (b) {
+      b.classList.toggle('on', (b.dataset.cor || null) === corEscolhida);
+    });
+    if (corEscolhida) iCor.value = corEscolhida;
+  }
+  var bSem = el('button', 'sem');
+  bSem.type = 'button';
+  bSem.title = 'Sem cor';
+  bSem.addEventListener('click', function () { corEscolhida = null; marcarCor(); });
+  cores.appendChild(bSem);
+  AR_CORES.forEach(function (k) {
+    var b = el('button');
+    b.type = 'button';
+    b.dataset.cor = k;
+    b.style.background = k;
+    b.title = k;
+    b.addEventListener('click', function () { corEscolhida = k; marcarCor(); });
+    cores.appendChild(b);
+  });
+  iCor.addEventListener('input', function () { corEscolhida = iCor.value.toLowerCase(); marcarCor(); });
+  cores.appendChild(iCor);
+  campoCor.appendChild(cores);
+  cx.appendChild(campoCor);
+  marcarCor();
+
   var iActiva = null;
   if (c) {
     var campoEstado = el('div');
@@ -200,7 +265,7 @@ function arJanela(c, paiId) {
   var gravar = el('button', 'btn primary', 'Gravar');
   gravar.type = 'button';
   gravar.addEventListener('click', function () {
-    var corpo = { name: iNome.value.trim(), note: iNota.value.trim() || null };
+    var corpo = { name: iNome.value.trim(), note: iNota.value.trim() || null, color: corEscolhida };
     if (iActiva) corpo.active = iActiva.value === '1';
     if (iPai && Number(iPai.value) !== c.parent_id) corpo.parent_id = Number(iPai.value);
     if (!c && paiId) corpo.parent_id = paiId;
@@ -213,6 +278,8 @@ function arJanela(c, paiId) {
       AR.linhas = d.contextos || AR.linhas;
       arRender();
       dlg.close(); dlg.remove();
+      /* As cores vivem tambem no /api/gestao: rele-se para o Hoje as ver. */
+      if (typeof loadGestao === 'function') loadGestao();
     }).catch(function (e) { toast(e.message || 'N\u00e3o foi poss\u00edvel gravar.'); });
   });
   pe.appendChild(cancelar); pe.appendChild(gravar);
@@ -254,3 +321,33 @@ document.addEventListener('click', function (e) {
   }
   setTimeout(function () { esperarApp(tentativa + 1); }, 400);
 })();
+
+/* ------------------------------------------------------------------ *
+ * O Hoje com as cores das areas (27 set)
+ *
+ * Cada cartao do Hoje que pertence a uma area leva o fundo na cor dela. O
+ * app.js nao se toca: embrulha-se o attnCard, que o renderHoje chama pelo
+ * nome. As cores vem no /api/gestao, que pode chegar depois do /api/bootstrap:
+ * quando chega, o Hoje desenha-se outra vez.
+ * ------------------------------------------------------------------ */
+if (typeof attnCard === 'function') {
+  var _arAttnCard = attnCard;
+  attnCard = function (x) {
+    var art = _arAttnCard(x);
+    var ctx = x && x.a && x.a.context_id;
+    var k = ctx ? arCorDe(ctx) : null;
+    if (k) {
+      art.classList.add('ar-tinta');
+      art.style.setProperty('--ar-cor', k);
+    }
+    return art;
+  };
+}
+if (typeof renderGestao === 'function') {
+  var _arRenderGestao = renderGestao;
+  renderGestao = function () {
+    _arRenderGestao();
+    try { if (window.D && D.attention && typeof renderHoje === 'function') { arEstilo(); renderHoje(); } }
+    catch (e) { console.error('[farol] hoje com cores', e); }
+  };
+}
