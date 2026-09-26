@@ -41,6 +41,11 @@ var AX_CSS = [
   ".ax-res small{color:var(--muted)}",
   ".ax.sobre{outline:2px dashed var(--accent);outline-offset:4px;border-radius:8px}",
   ".ax-erro{font-size:.75rem;color:var(--bad);padding:3px 0}",
+  /* O clipe que abre os anexos a partir de uma linha (evento, despesa). */
+  ".ax-clipe{flex:none;display:inline-flex;align-items:center;gap:3px;border:0;background:none;padding:2px 5px;border-radius:6px;color:var(--faint);cursor:pointer;font:inherit;font-size:.68rem;font-family:var(--mono);opacity:0}",
+  ".tf-row:hover .ax-clipe,.ax-clipe:focus{opacity:1}",
+  ".ax-clipe.tem{opacity:1;color:var(--accent-ink)}",
+  ".ax-clipe:hover{background:var(--surface-2);color:var(--accent-ink)}",
   /* Os ecras que recebem o bloco tem regras suas para select e input
      dentro das grelhas; estas duas devolvem-lhe a largura. */
   ".ax .ax-papel{width:auto}",
@@ -57,9 +62,19 @@ function axEstilo(){
 
 /* O papel que a app propoe. Fica a sugestao, nao a decisao: a linha traz um
    seletor onde se corrige sem ter de apagar e voltar a juntar. */
-function axPapelProposto(t){
+function axPapelProposto(t, opts){
+  /* Numa despesa o dinheiro ja saiu: o que se junta e quase sempre a prova. */
+  if (opts && opts.tipo === 'despesa') return 'comprovativo';
   if (!t || (t.tipo || 'tarefa') !== 'pagamento') return 'anexo';
   return t.paid_on || t.status === 'concluida' ? 'comprovativo' : 'fatura';
+}
+
+/* De quem sao estes anexos: de uma tarefa (o caso de sempre), de um evento ou
+   de uma despesa. O bloco e o mesmo; muda para onde escreve. */
+function axTipo(opts){ return (opts && opts.tipo) || 'tarefa'; }
+function axNomeAlvo(opts){
+  var t = axTipo(opts);
+  return t === 'evento' ? 'evento' : (t === 'despesa' ? 'despesa' : 'tarefa');
 }
 
 function axRefs(t){
@@ -88,6 +103,19 @@ function axNomeDoc(id){
    dois pedidos a discutir qual e a ligacao que fica. */
 function axGravar(t, refs, box, opts){
   var p;
+  if (axTipo(opts) !== 'tarefa'){
+    p = apiGestao('/api/anexos/' + axTipo(opts) + '/' + t.id, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ documents: refs })
+    }).then(function(r){ t.papeis = (r && r.papeis) || refs; });
+    return p.then(function(){
+      t.documents = (t.papeis || []).map(function(r){ return r.id; });
+      if (box.isConnected) axDesenhar(box, t, opts);
+      if (opts && opts.aoMudar) opts.aoMudar();
+    }).catch(function(e){
+      axDesenhar(box, t, opts, (e && e.message) || 'Não deu para gravar.');
+    });
+  }
   if (typeof tfGravar === 'function'){
     p = tfGravar(t.id, { documents: refs });
   } else {
@@ -122,7 +150,10 @@ function axEnviar(t, ficheiros, box, opts){
     axDesenhar(box, t, opts, 'O ficheiro «' + grande[0].name + '» passa dos 25 MB.');
     return Promise.resolve();
   }
-  var papel = axPapelProposto(t);
+  var papel = axPapelProposto(t, opts);
+  var url = axTipo(opts) === 'tarefa'
+    ? '/api/tarefas/' + t.id + '/anexo'
+    : '/api/anexos/' + axTipo(opts) + '/' + t.id + '/ficheiro';
   axDesenhar(box, t, opts, null, 'A enviar ' + (fila.length > 1 ? fila.length + ' ficheiros…' : '«' + fila[0].name + '»…'));
 
   var repetidos = 0;
@@ -131,15 +162,38 @@ function axEnviar(t, ficheiros, box, opts){
     var fd = new FormData();
     fd.append('ficheiro', fila[i]);
     fd.append('papel', papel);
-    return apiGestao('/api/tarefas/' + t.id + '/anexo', { method: 'POST', body: fd })
+    return apiGestao(url, { method: 'POST', body: fd })
       .then(function(r){
         if (r && r.repetido) repetidos++;
         if (r && r.documento && window.D && D.documents && !axDoc(r.documento.id)){
           D.documents.push(r.documento);
         }
+        if (r && r.papeis) t.papeis = r.papeis;
         return seguinte(i + 1);
       });
   };
+
+  var fim = function(){
+    if (typeof toast === 'function'){
+      toast(repetidos
+        ? (repetidos === fila.length
+            ? 'Este ficheiro já estava no arquivo: ficou ligado o documento que lá estava.'
+            : 'Guardado. ' + repetidos + ' já estavam no arquivo.')
+        : (fila.length > 1 ? fila.length + ' ficheiros guardados no arquivo.' : 'Ficheiro guardado no arquivo.'));
+    }
+  };
+
+  if (axTipo(opts) !== 'tarefa'){
+    return seguinte(0).then(function(){
+      t.documents = (t.papeis || []).map(function(r){ return r.id; });
+      if (typeof renderDocumentos === 'function') { try { renderDocumentos(); } catch (e) {} }
+      if (box.isConnected) axDesenhar(box, t, opts);
+      if (opts && opts.aoMudar) opts.aoMudar();
+      fim();
+    }).catch(function(e){
+      axDesenhar(box, t, opts, (e && e.message) || 'Não deu para enviar o ficheiro.');
+    });
+  }
 
   return seguinte(0).then(function(){
     if (typeof renderDocumentos === 'function') { try { renderDocumentos(); } catch (e) {} }
@@ -153,13 +207,7 @@ function axEnviar(t, ficheiros, box, opts){
       if (typeof renderGestao === 'function') renderGestao();
       if (box.isConnected) axDesenhar(box, t, opts);
       if (opts && opts.aoMudar) opts.aoMudar();
-      if (typeof toast === 'function'){
-        toast(repetidos
-          ? (repetidos === fila.length
-              ? 'Este ficheiro já estava no arquivo: ficou ligado o documento que lá estava.'
-              : 'Guardado. ' + repetidos + ' já estavam no arquivo.')
-          : (fila.length > 1 ? fila.length + ' ficheiros guardados no arquivo.' : 'Ficheiro guardado no arquivo.'));
-      }
+      fim();
     });
   }).catch(function(e){
     axDesenhar(box, t, opts, (e && e.message) || 'Não deu para enviar o ficheiro.');
@@ -189,7 +237,7 @@ function axLinha(t, ref, box, opts){
   var sp = el('select', 'ax-papel' + (ref.papel === 'comprovativo' || ref.papel === 'recibo' ? ' prova' : ''));
   AX_PAPEIS.forEach(function(p){ sp.appendChild(new Option(p, p)); });
   sp.value = ref.papel;
-  sp.title = 'O que este documento é para esta tarefa';
+  sp.title = 'O que este documento é para est' + (axTipo(opts) === 'despesa' ? 'a despesa' : (axTipo(opts) === 'evento' ? 'e evento' : 'a tarefa'));
   sp.addEventListener('change', function(){
     var refs = axRefs(t).map(function(r){
       return r.id === ref.id ? { id: r.id, papel: sp.value } : r;
@@ -200,7 +248,7 @@ function axLinha(t, ref, box, opts){
 
   var x = el('button', 'ax-x', '×');
   x.type = 'button';
-  x.title = 'Desligar este documento da tarefa (fica no arquivo)';
+  x.title = 'Desligar este documento d' + (axTipo(opts) === 'evento' ? 'o evento' : (axTipo(opts) === 'despesa' ? 'a despesa' : 'a tarefa')) + ' (fica no arquivo)';
   x.setAttribute('aria-label', 'Desligar ' + axNomeDoc(ref.id));
   x.addEventListener('click', function(){
     axGravar(t, axRefs(t).filter(function(r){ return r.id !== ref.id; }), box, opts);
@@ -250,7 +298,7 @@ function axProcura(t, box, opts){
         b.addEventListener('mousedown', function(ev){
           ev.preventDefault();
           var refs = axRefs(t);
-          refs.push({ id: d.id, papel: axPapelProposto(t) });
+          refs.push({ id: d.id, papel: axPapelProposto(t, opts) });
           axGravar(t, refs, box, opts);
         });
         res.appendChild(b);
@@ -324,3 +372,53 @@ function axBloco(t, opts){
   axDesenhar(box, t, opts || {});
   return box;
 }
+
+
+/* ------------------------------------------------------------------ *
+ * a janelinha dos anexos
+ *
+ * Uma tarefa tem ecra onde caibam os documentos; um evento e uma despesa sao
+ * uma linha. Os anexos abrem-se numa janelinha por cima da linha - o mesmo
+ * bloco, o mesmo arrastar-e-largar, vários ficheiros de uma vez.
+ * ------------------------------------------------------------------ */
+
+function axPop(alvo, opts, ancora){
+  axEstilo();
+  if (typeof tfFecharPop === 'function') tfFecharPop();
+  var p = el('div', 'tf-pop');
+  p.style.width = '340px';
+  var cab = el('div', null, alvo.title || alvo.description || 'Documentos');
+  cab.style.cssText = 'font-weight:500;font-size:.8125rem;color:var(--ink);line-height:1.35';
+  p.appendChild(cab);
+  var sub = el('div', null, 'Podes largar aqui vários ficheiros de uma vez.');
+  sub.style.cssText = 'font-size:.7rem;color:var(--muted);margin:2px 0 8px';
+  p.appendChild(sub);
+  p.appendChild(axBloco(alvo, opts || {}));
+  var ac = el('div', 'tf-acoes');
+  var b = el('button', 'btn small', 'Fechar');
+  b.type = 'button';
+  b.addEventListener('click', tfFecharPop);
+  ac.appendChild(b);
+  p.appendChild(ac);
+  tfPosicionar(p, ancora);
+}
+
+/* O clipe da linha: diz quantos papeis ja la estao e abre a janelinha. */
+function axClipe(alvo, opts){
+  var n = ((alvo && alvo.papeis) || []).length;
+  var b = el('button', 'ax-clipe' + (n ? ' tem' : ''));
+  b.type = 'button';
+  b.dataset.tfpop = '1';
+  b.title = n ? n + (n === 1 ? ' documento agarrado' : ' documentos agarrados') : 'Anexar ficheiros';
+  b.setAttribute('aria-label', b.title);
+  b.innerHTML = AX_CLIPE_SVG;
+  if (n) b.appendChild(document.createTextNode(String(n)));
+  b.addEventListener('click', function(ev){
+    ev.stopPropagation();
+    axPop(alvo, opts, b);
+  });
+  return b;
+}
+
+var AX_CLIPE_SVG = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">' +
+  '<path d="M21 11.5l-8.6 8.6a5 5 0 0 1-7.1-7.1l8.6-8.6a3.3 3.3 0 0 1 4.7 4.7l-8.6 8.6a1.7 1.7 0 0 1-2.4-2.4l7.9-7.9"/></svg>';

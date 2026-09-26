@@ -102,7 +102,7 @@ function evLista(){
     if (!passaOnde(real ? e.context_id : null) || !passaQuando(e.day)) return;
     out.push({ id: e.id, title: e.title, day: e.day, at: e.at, detail: e.detail,
                context_id: e.context_id, onde: real ? areaNome(e.context_id) : 'aniversário',
-               apagavel: real });
+               apagavel: real, orig: e });
   });
   ((window.G && G.tasks) || []).forEach(function(t){
     if (tfTipo(t) !== 'lembrete' || tfFechada(t) || !t.due_on) return;

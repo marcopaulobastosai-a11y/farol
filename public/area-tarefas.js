@@ -518,6 +518,11 @@ function aeLinhaDespesa(x, comArea){
   r.appendChild(corpo);
   r.appendChild(el('div', 'tf-val', tfEuros(x.amount)));
   r.appendChild(el('div', 'tf-r', tfDataCurta(x.spent_on)));
+  /* Os papeis da despesa - o talao, a fatura - agarram-se aqui, varios de uma
+     vez, sem sair da linha. */
+  if (typeof axClipe === 'function'){
+    r.appendChild(axClipe(x, { tipo: 'despesa', aoMudar: function(){ if (typeof aeRender === 'function') aeRender(); } }));
+  }
   /* Uma despesa que nasceu de uma leitura errada tem de poder sair. Era o que
      a tabela das Financas fazia e o widget nao sabia. */
   if (typeof dpApagar === 'function'){
@@ -566,6 +571,9 @@ function aeLinhaEvento(x){
       if (typeof avAbrir === 'function') avAbrir({ origem: 'tarefa', id: x.tarefa, quando: x.day, detail: areaNome(x.context_id) });
       else { show('tarefas'); tfAbrir(x.tarefa); }
     });
+  }
+  if (x.apagavel && x.orig && typeof axClipe === 'function'){
+    r.appendChild(axClipe(x.orig, { tipo: 'evento', aoMudar: function(){ if (typeof renderAll === 'function') renderAll(); } }));
   }
   if (x.apagavel){
     var bx = el('button', 'ae-apagar');
@@ -966,7 +974,7 @@ function aeRenderArea(a){
     var aniv = a.view === 'familia' && e.calendar === 'aniversarios';
     if ((!meu && !aniv) || !passaDia(e.day)) return;
     eventos.push({ id: e.id, title: e.title, day: e.day, at: e.at, detail: e.detail,
-                   context_id: e.context_id, apagavel: typeof e.id === 'number' });
+                   context_id: e.context_id, apagavel: typeof e.id === 'number', orig: e });
   });
   var semData = 0;
   lembretes.forEach(function(t){
