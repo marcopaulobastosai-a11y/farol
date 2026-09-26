@@ -220,7 +220,7 @@ const APROVAVEIS = { documento: 'documents', despesa: 'expenses' };
 /* O conteudo das linhas que nasceram destes ficheiros, para o cartao da caixa
    poder mostrar - e deixar corrigir - o que esta gravado. */
 async function conteudoDosAlvos(ligacoes) {
-  const fora = { documento: {}, despesa: {} };
+  const fora = { documento: {}, despesa: {}, pagamento: {}, tarefa: {}, evento: {} };
   const ids = (tipo) => ligacoes.filter((l) => l.target_type === tipo).map((l) => l.target_id);
 
   const docs = ids('documento');
@@ -242,7 +242,84 @@ async function conteudoDosAlvos(ligacoes) {
          FROM expenses WHERE id = ANY($1)`, [desp]);
     linhas.forEach((e) => { fora.despesa[e.id] = e; });
   }
+
+  /* Pagamentos e tarefas vivem na mesma tabela. Sem isto o separador dos
+     arrumados dizia «pagamento» e mais nada: nem quanto, nem ate quando. */
+  const tar = ids('pagamento').concat(ids('tarefa'));
+  if (tar.length) {
+    const linhas = await all(
+      `SELECT id, tipo, title, amount::float AS amount, payee, payment_ref,
+              context_id, owner_id, project_id, status, done,
+              to_char(due_on, 'YYYY-MM-DD') AS due_on
+         FROM tasks WHERE id = ANY($1)`, [tar]);
+    linhas.forEach((t) => { fora.pagamento[t.id] = t; fora.tarefa[t.id] = t; });
+  }
+
+  const evs = ids('evento');
+  if (evs.length) {
+    const linhas = await all(
+      `SELECT id, title, at, context_id, to_char(day, 'YYYY-MM-DD') AS day
+         FROM events WHERE id = ANY($1)`, [evs]);
+    linhas.forEach((e) => { fora.evento[e.id] = e; });
+  }
   return fora;
+}
+
+/* Desfazer uma catalogacao para a fazer outra vez. O ficheiro fica onde esta
+   (no arquivo); o que se apaga e o que nasceu dele. Uma linha que tambem
+   esteja agarrada a outro ficheiro da caixa nao se apaga - so se solta esta
+   ligacao, porque o outro ficheiro continua a precisar dela. */
+const TABELA_DO_ALVO = {
+  documento: 'documents', despesa: 'expenses', pagamento: 'tasks', tarefa: 'tasks', evento: 'events'
+};
+
+async function descatalogar(id) {
+  await query('BEGIN');
+  try {
+    const item = await all('SELECT id, status FROM inbox_items WHERE id = $1 FOR UPDATE', [id]);
+    if (!item.length) throw new Error('Item não encontrado.');
+    if (item[0].status !== 'catalogado') throw new Error('Este ficheiro ainda não foi catalogado.');
+    const ligados = await all(
+      'SELECT target_type, target_id FROM inbox_links WHERE inbox_id = $1', [id]);
+    /* Um pagamento ja pago ou uma tarefa ja feita tem historia (a despesa que
+       o pagamento escreveu, a data em que se fechou). Desfazer isso por aqui
+       apagava-a em silencio: corrige-se nas Tarefas. */
+    const tarefas = ligados.filter((l) => l.target_type === 'pagamento' || l.target_type === 'tarefa')
+      .map((l) => l.target_id);
+    if (tarefas.length) {
+      const feitas = await all('SELECT 1 FROM tasks WHERE id = ANY($1) AND done LIMIT 1', [tarefas]);
+      if (feitas.length) {
+        throw new Error('Isto já foi pago ou feito. Corrige-o nas Tarefas, para não perder o que ficou registado.');
+      }
+    }
+    await query('DELETE FROM inbox_links WHERE inbox_id = $1', [id]);
+    const apagados = [];
+    for (const l of ligados) {
+      const tabela = TABELA_DO_ALVO[l.target_type];
+      if (!tabela) continue;
+      const outros = await all(
+        'SELECT 1 FROM inbox_links WHERE target_type = $1 AND target_id = $2 LIMIT 1',
+        [l.target_type, l.target_id]);
+      if (outros.length) continue;
+      /* item_documents nao tem chave estrangeira para o item (serve despesas e
+         eventos): as linhas dele saem a mao, senao ficavam a apontar para nada. */
+      if (l.target_type === 'despesa' || l.target_type === 'evento') {
+        await query('DELETE FROM item_documents WHERE tipo = $1 AND item_id = $2',
+          [l.target_type, l.target_id]);
+      }
+      await query('DELETE FROM ' + tabela + ' WHERE id = $1', [l.target_id]);
+      apagados.push(l.target_type + ' ' + l.target_id);
+    }
+    await query(
+      "UPDATE inbox_items SET status = 'por_triar', resolved_at = NULL, approved_at = NULL WHERE id = $1",
+      [id]);
+    await query('COMMIT');
+    console.log('[farol] item', id, 'volta a por triar; apagado:', apagados.join(', ') || 'nada');
+    return apagados;
+  } catch (err) {
+    await query('ROLLBACK').catch(() => {});
+    throw err;
+  }
 }
 
 /* ------------------------------------------------------------------ *
@@ -262,6 +339,12 @@ const SELECT_ITEM = `
    falhou), o item continua a aparecer, porque isso e uma falha por resolver
    e nao arrumacao feita. */
 function filtroDoEstado(estado) {
+  /* Arrumados: o que ja saiu da caixa. A caixa continua a ser uma fila de
+     trabalho, mas sem este separador nao havia como saber para onde tinha
+     ido um ficheiro que se catalogou sozinho (a fatura da MEO, 26 set). */
+  if (estado === 'arrumado') {
+    return "i.status = 'catalogado' AND i.approved_at IS NOT NULL";
+  }
   if (estado === 'catalogado') {
     return pronto('arquivo')
       ? "i.status = 'catalogado' AND (i.approved_at IS NULL" +
@@ -275,7 +358,7 @@ async function carregar(estado) {
   const filtra = estado && estado !== 'todos';
   const where = filtra ? 'WHERE ' + filtroDoEstado(estado) : '';
   const itens = await all(`${SELECT_ITEM} ${where} ORDER BY i.captured_at DESC, i.id DESC`,
-    filtra && estado !== 'catalogado' ? [estado] : []);
+    filtra && estado !== 'catalogado' && estado !== 'arrumado' ? [estado] : []);
   const [{ n }] = await all("SELECT count(*)::int AS n FROM inbox_items WHERE status = 'por_triar'");
   /* Duas filas, dois numeros: o que ainda ninguem leu e o que ja esta lido a
      espera de uma decisao. */
@@ -717,6 +800,18 @@ function instalar(app) {
     } catch (err) {
       console.error('[farol] PATCH pessoa:', err.message);
       res.status(400).json({ error: 'Nao foi possivel relacionar a pessoa.' });
+    }
+  });
+
+  app.post('/api/inbox/:id/recatalogar', async (req, res) => {
+    const id = Number(req.params.id);
+    if (!id) return res.status(400).json({ error: 'Falta dizer o que recatalogar.' });
+    try {
+      const apagados = await descatalogar(id);
+      res.json({ ok: true, id, apagados, ...(await carregar(req.query.estado || 'por_triar')) });
+    } catch (err) {
+      console.error('[farol] POST recatalogar:', err.message);
+      res.status(400).json({ error: err.message || 'Não foi possível desfazer a catalogação.' });
     }
   });
 
