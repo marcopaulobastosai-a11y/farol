@@ -11,14 +11,15 @@
 
 var IB = { itens: [], porTriar: 0, porAprovar: 0, estado: 'por_triar', triando: null, montado: false, carregado: false };
 
-var IB_CSS = "#view-inbox .ib-drop{display:flex;align-items:center;gap:.75rem;padding:1.25rem;border:1px dashed var(--line);border-radius:var(--radius);background:var(--surface-2);cursor:pointer;transition:border-color .15s,background .15s}\n#view-inbox .ib-drop:hover,#view-inbox .ib-drop.is-over{border-color:var(--accent);background:var(--accent-soft)}\n#view-inbox .ib-drop input[type=file]{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}\n#view-inbox .ib-dropi{flex:0 0 auto;width:34px;height:34px;border-radius:8px;background:var(--surface);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;color:var(--accent);font-family:var(--mono);font-size:1rem}\n#view-inbox .ib-dropt{font-weight:500;color:var(--ink-2)}\n#view-inbox .ib-drops{font-size:.8125rem;color:var(--muted);margin-top:.125rem}\n#view-inbox .ib-item{display:flex;gap:.875rem;padding:.9rem 0;border-top:1px solid var(--line-soft);align-items:flex-start}\n#view-inbox .ib-item:first-child{border-top:0;padding-top:.25rem}\n#view-inbox .ib-thumb{flex:0 0 52px;width:52px;height:52px;border-radius:8px;border:1px solid var(--line);background:var(--surface-2);display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:var(--fs-mono);color:var(--faint);text-transform:uppercase;overflow:hidden}\n#view-inbox .ib-thumb img{width:100%;height:100%;object-fit:cover;display:block}\n#view-inbox .ib-body{flex:1 1 auto;min-width:0}\n#view-inbox .ib-title{font-weight:500;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\n#view-inbox .ib-meta{font-size:.8125rem;color:var(--muted);margin-top:.15rem}\n#view-inbox .ib-note{font-size:.875rem;color:var(--ink-2);margin:.4rem 0 0}\n#view-inbox .ib-acts{display:flex;gap:.375rem;flex-wrap:wrap;margin-top:.55rem}\n#view-inbox .ib-dest{border:1px solid var(--line);border-radius:var(--radius);padding:.55rem .8rem;margin-bottom:.35rem;background:var(--surface)}\n#view-inbox .ib-dest.is-on{border-color:var(--accent);background:var(--accent-soft)}\n#view-inbox .ib-desth{display:flex;align-items:center;gap:.5rem;font-weight:500;cursor:pointer;color:var(--ink)}\n#view-inbox .ib-destc{margin-top:.75rem}\n#view-inbox .ib-alvo{font-family:var(--mono);font-size:var(--fs-mono);color:var(--accent-ink);background:var(--accent-soft);border-radius:6px;padding:.3rem .5rem;display:inline-block;margin:.1rem 0 .7rem}\n#view-inbox .ib-empty{padding:2.25rem 1rem;text-align:center;color:var(--muted);font-size:.9375rem}\n#view-inbox .ib-drop{padding:1.4rem 1.25rem;border-radius:12px;border-width:1.5px;gap:1rem}\n#view-inbox .ib-dropi{width:40px;height:40px;border-radius:10px;font-size:1.35rem;line-height:1}\n#view-inbox .ib-dropt{font-size:.9375rem;color:var(--ink)}\n#view-inbox .field{gap:6px;margin:1.1rem 0 0}\n#view-inbox input[type=text],#view-inbox input[type=number],#view-inbox input[type=date],#view-inbox input[type=time],#view-inbox select{font:inherit;font-size:.875rem;color:var(--ink);background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:9px 11px;width:100%;min-width:0;transition:border-color .15s ease,box-shadow .15s ease}\n#view-inbox input::placeholder{color:var(--faint)}\n#view-inbox input:focus,#view-inbox select:focus{outline:0;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}\n#view-inbox .form-actions{display:flex;justify-content:flex-end;gap:.5rem;margin-top:1rem}\n#view-inbox .form-actions .btn{padding:8px 16px;font-size:.875rem}\n#view-inbox .tabs{margin:1.1rem 0}\n#view-inbox .ib-empty{padding:3rem 1rem}\n#view-inbox .ib-sug{display:flex;gap:.55rem;align-items:baseline;flex-wrap:wrap;border:1px solid var(--accent);background:var(--accent-soft);color:var(--ink-2);border-radius:10px;padding:.65rem .85rem;margin:.1rem 0 .9rem;font-size:.875rem}\n#view-inbox .ib-sugt{font-family:var(--mono);font-size:var(--fs-mono);letter-spacing:.07em;text-transform:uppercase;color:var(--accent-ink)}\n#view-inbox .ib-conf{margin-left:auto;font-family:var(--mono);font-size:var(--fs-mono);text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}\n#view-inbox .ib-conf.alta{color:var(--good)}\n#view-inbox .ib-ia{font-size:.8125rem;color:var(--muted);margin-top:.2rem}\n#view-inbox .ib-ia.pronta{color:var(--accent-ink)}\n#view-inbox .ib-ia.falhou{color:var(--bad)}\n#view-inbox .ib-ia .btn{margin-left:.5rem;padding:2px 9px;font-size:.75rem;vertical-align:1px}";
+var IB_CSS = "#view-inbox .ib-drop{display:flex;align-items:center;gap:.75rem;padding:1.25rem;border:1px dashed var(--line);border-radius:var(--radius);background:var(--surface-2);cursor:pointer;transition:border-color .15s,background .15s}\n#view-inbox .ib-drop:hover,#view-inbox .ib-drop.is-over{border-color:var(--accent);background:var(--accent-soft)}\n#view-inbox .ib-drop input[type=file]{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}\n#view-inbox .ib-dropi{flex:0 0 auto;width:34px;height:34px;border-radius:8px;background:var(--surface);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;color:var(--accent);font-family:var(--mono);font-size:1rem}\n#view-inbox .ib-dropt{font-weight:500;color:var(--ink-2)}\n#view-inbox .ib-drops{font-size:.8125rem;color:var(--muted);margin-top:.125rem}\n#view-inbox .ib-item{display:flex;gap:.875rem;padding:.9rem 0;border-top:1px solid var(--line-soft);align-items:flex-start}\n#view-inbox .ib-item:first-child{border-top:0;padding-top:.25rem}\n#view-inbox .ib-thumb{flex:0 0 52px;width:52px;height:52px;border-radius:8px;border:1px solid var(--line);background:var(--surface-2);display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:var(--fs-mono);color:var(--faint);text-transform:uppercase;overflow:hidden}\n#view-inbox .ib-thumb img{width:100%;height:100%;object-fit:cover;display:block}\n#view-inbox .ib-body{flex:1 1 auto;min-width:0}\n#view-inbox .ib-title{font-weight:500;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\n#view-inbox .ib-meta{font-size:.8125rem;color:var(--muted);margin-top:.15rem}\n#view-inbox .ib-note{font-size:.875rem;color:var(--ink-2);margin:.4rem 0 0}\n#view-inbox .ib-acts{display:flex;gap:.375rem;flex-wrap:wrap;margin-top:.55rem}\n#view-inbox .ib-dest{border:1px solid var(--line);border-radius:var(--radius);padding:.55rem .8rem;margin-bottom:.35rem;background:var(--surface)}\n#view-inbox .ib-dest.is-on{border-color:var(--accent);background:var(--accent-soft)}\n#view-inbox .ib-desth{display:flex;align-items:center;gap:.5rem;font-weight:500;cursor:pointer;color:var(--ink)}\n#view-inbox .ib-destc{margin-top:.75rem}\n#view-inbox .ib-alvo{font-family:var(--mono);font-size:var(--fs-mono);color:var(--accent-ink);background:var(--accent-soft);border-radius:6px;padding:.3rem .5rem;display:inline-block;margin:.1rem 0 .7rem}\n#view-inbox .ib-empty{padding:2.25rem 1rem;text-align:center;color:var(--muted);font-size:.9375rem}\n#view-inbox .ib-drop{padding:1.4rem 1.25rem;border-radius:12px;border-width:1.5px;gap:1rem}\n#view-inbox .ib-dropi{width:40px;height:40px;border-radius:10px;font-size:1.35rem;line-height:1}\n#view-inbox .ib-dropt{font-size:.9375rem;color:var(--ink)}\n#view-inbox .field{gap:6px;margin:1.1rem 0 0}\n#view-inbox input[type=text],#view-inbox input[type=number],#view-inbox input[type=date],#view-inbox input[type=time],#view-inbox select,#view-inbox textarea{font:inherit;font-size:.875rem;color:var(--ink);background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:9px 11px;width:100%;min-width:0;transition:border-color .15s ease,box-shadow .15s ease}\n#view-inbox input::placeholder{color:var(--faint)}\n#view-inbox textarea{resize:vertical;line-height:1.45;font-family:inherit}\n#view-inbox input:focus,#view-inbox select:focus,#view-inbox textarea:focus{outline:0;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}\n#view-inbox .form-actions{display:flex;justify-content:flex-end;gap:.5rem;margin-top:1rem}\n#view-inbox .form-actions .btn{padding:8px 16px;font-size:.875rem}\n#view-inbox .tabs{margin:1.1rem 0}\n#view-inbox .ib-empty{padding:3rem 1rem}\n#view-inbox .ib-sug{display:flex;gap:.55rem;align-items:baseline;flex-wrap:wrap;border:1px solid var(--accent);background:var(--accent-soft);color:var(--ink-2);border-radius:10px;padding:.65rem .85rem;margin:.1rem 0 .9rem;font-size:.875rem}\n#view-inbox .ib-sugt{font-family:var(--mono);font-size:var(--fs-mono);letter-spacing:.07em;text-transform:uppercase;color:var(--accent-ink)}\n#view-inbox .ib-conf{margin-left:auto;font-family:var(--mono);font-size:var(--fs-mono);text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}\n#view-inbox .ib-conf.alta{color:var(--good)}\n#view-inbox .ib-ia{font-size:.8125rem;color:var(--muted);margin-top:.2rem}\n#view-inbox .ib-ia.pronta{color:var(--accent-ink)}\n#view-inbox .ib-ia.falhou{color:var(--bad)}\n#view-inbox .ib-ia .btn{margin-left:.5rem;padding:2px 9px;font-size:.75rem;vertical-align:1px}";
 
 var IB_DESTINOS = [
   { tipo: 'tarefa', nome: 'Tarefa', campos: [
     { k: 'title', l: 'O que é preciso fazer', tipo: 'text' },
     { k: 'due_on', l: 'Prazo', tipo: 'date' },
     { k: 'owner_id', l: 'Quem faz', tipo: 'pessoa' },
-    { k: 'project_id', l: 'Projeto', tipo: 'projeto' }
+    { k: 'project_id', l: 'Projeto', tipo: 'projeto' },
+    { k: 'notes', l: 'Notas \u2014 o que fazer, entidades, refer\u00eancias, montantes', tipo: 'textarea' }
   ] },
   { tipo: 'pagamento', nome: 'Pagamento', campos: [
     { k: 'title', l: 'O que se paga', tipo: 'text' },
@@ -27,7 +28,8 @@ var IB_DESTINOS = [
     { k: 'payee', l: 'A quem', tipo: 'text' },
     { k: 'payment_ref', l: 'IBAN ou referência', tipo: 'text' },
     { k: 'context_id', l: 'Área', tipo: 'area' },
-    { k: 'owner_id', l: 'Quem paga', tipo: 'pessoa' }
+    { k: 'owner_id', l: 'Quem paga', tipo: 'pessoa' },
+    { k: 'notes', l: 'Notas \u2014 o que fazer, entidades, refer\u00eancias, montantes', tipo: 'textarea' }
   ] },
   { tipo: 'evento', nome: 'Evento na Agenda', campos: [
     { k: 'title', l: 'Título', tipo: 'text' },
@@ -678,9 +680,9 @@ function ibPessoaPorNome(nome) {
    campo aponta para um valor comum, para que mudar de destino na triagem nao
    deite fora o que ja estava escrito - nem o que a IA leu. */
 var IB_COMUM = {
-  tarefa: { title: 'titulo', due_on: 'prazo', owner_id: 'pessoa', project_id: 'projeto' },
+  tarefa: { title: 'titulo', due_on: 'prazo', owner_id: 'pessoa', project_id: 'projeto', notes: 'notas' },
   pagamento: { title: 'titulo', amount: 'valor', due_on: 'prazo', payee: 'entidade',
-    payment_ref: 'ref', context_id: 'area', owner_id: 'pessoa' },
+    payment_ref: 'ref', context_id: 'area', owner_id: 'pessoa', notes: 'notas' },
   evento: { title: 'titulo', day: 'dia', at: 'hora', person_id: 'pessoa' },
   documento: { name: 'titulo', entity: 'entidade', issued_on: 'data', valid_on: 'validade',
     person_id: 'pessoa', context_id: 'area' },
@@ -721,6 +723,7 @@ function ibValoresIniciais(item, semente) {
     pos('validade', ibDataCurta(x.valid_on));
     pos('entidade', x.payee || x.entity || x.merchant);
     pos('ref', x.payment_ref);
+    pos('notas', x.notes);
     if (x.pessoa) pos('pessoa', ibPessoaPorNome(x.pessoa));
     if (x.area) pos('area', ibContextoPorNome(x.area));
     pos('area', x.context_id);
@@ -805,10 +808,13 @@ function ibDesenharTriagem() {
       /* Os campos nascem de novo a cada escolha, a partir do que ja se sabe. */
       var valores = ibValoresDe(d.tipo);
       var par = null;
-      d.campos.forEach(function (c, i) {
-        if (i % 2 === 0) { par = el('div', 'field-row'); b.campos.appendChild(par); }
+      d.campos.forEach(function (c) {
+        if (c.tipo === 'textarea') { par = el('div'); b.campos.appendChild(par); }
+        else if (!par || par.children.length >= 2 || !par.classList.contains('field-row')) {
+          par = el('div', 'field-row'); b.campos.appendChild(par);
+        }
         var f = ibCampo(d.tipo, c, valores);
-        var inp = f.querySelector('input, select');
+        var inp = f.querySelector('input, select, textarea');
         var comum = (IB_COMUM[d.tipo] || {})[c.k];
         if (inp && comum) {
           var guardar = function () { IB.val[comum] = inp.value === '-' ? '' : inp.value; };
@@ -884,6 +890,13 @@ function ibCampo(tipo, c, valores, prefixo) {
       o.value = x.id;
       input.appendChild(o);
     });
+  } else if (c.tipo === 'textarea') {
+    /* As notas sao o que se le quando se vai tratar do assunto: varias linhas,
+       uma coisa por linha. Vazias, o servidor escreve-as com o que ficou nos
+       campos (entidade, referencia, montante, prazo). */
+    input = el('textarea');
+    input.rows = 4;
+    input.placeholder = 'Vazio: escrevo eu a entidade, a refer\u00eancia, o montante e o prazo.';
   } else {
     input = el('input');
     input.type = c.tipo;
@@ -1187,8 +1200,11 @@ function ibEditarAlvo(item, link) {
     : 'O que ficar aqui e o que vai para os ecras quando aprovares.'));
 
   var par = null;
-  d.campos.forEach(function (c, i) {
-    if (i % 2 === 0) { par = el('div', 'field-row'); cx.appendChild(par); }
+  d.campos.forEach(function (c) {
+    if (c.tipo === 'textarea') { par = el('div'); cx.appendChild(par); }
+    else if (!par || par.children.length >= 2 || !par.classList.contains('field-row')) {
+      par = el('div', 'field-row'); cx.appendChild(par);
+    }
     par.appendChild(ibCampo(link.tipo, c, valores, 'ibE_'));
   });
 
