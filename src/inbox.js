@@ -260,8 +260,10 @@ async function conteudoDosAlvos(ligacoes) {
   const evs = ids('evento');
   if (evs.length) {
     const linhas = await all(
-      `SELECT id, title, at, context_id, to_char(day, 'YYYY-MM-DD') AS day
-         FROM events WHERE id = ANY($1)`, [evs]);
+      `SELECT e.id, e.title, e.at, e.context_id, to_char(e.day, 'YYYY-MM-DD') AS day,
+              (SELECT p.person_id FROM event_people p WHERE p.event_id = e.id
+                ORDER BY p.person_id LIMIT 1) AS person_id
+         FROM events e WHERE e.id = ANY($1)`, [evs]);
     linhas.forEach((e) => { fora.evento[e.id] = e; });
   }
   return fora;
