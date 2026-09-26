@@ -933,3 +933,12 @@ END $$;
 -- ---------------------------------------------------------------------------
 ALTER TABLE inbox_links ADD COLUMN IF NOT EXISTS dados JSONB;
 ALTER TABLE inbox_links ADD COLUMN IF NOT EXISTS antes JSONB;
+
+-- ---------------------------------------------------------------------------
+-- A cor de uma area (27 set)
+--
+-- Escolhida no ecra das Areas. Pinta o fundo dos cartoes do Hoje que sao dela,
+-- para se ver de relance de onde vem cada coisa. Uma sub-area sem cor usa a
+-- da area de cima. NULL e sem cor.
+-- ---------------------------------------------------------------------------
+ALTER TABLE contexts ADD COLUMN IF NOT EXISTS color TEXT;
