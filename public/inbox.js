@@ -802,35 +802,89 @@ function ibLinhaComprovativo(p) {
 /* Um comprovativo pode pagar varias faturas: aqui escolhem-se caixas, e a
    soma escolhida confere-se com o montante transferido. O que sobrar pode
    virar um pagamento novo (a fatura que ainda nao estava no Farol). */
+/* As areas por baixo de uma: escolher «Profissional» traz tambem a «Cupula
+   Arejada», que e onde os pagamentos costumam estar. */
+function ibAreasFilhas(id) {
+  var out = [Number(id)];
+  var ctx = (window.G && G.contextos) || [];
+  var cresceu = true;
+  while (cresceu) {
+    cresceu = false;
+    ctx.forEach(function (c) {
+      if (c.parent_id && out.indexOf(c.parent_id) >= 0 && out.indexOf(c.id) < 0) {
+        out.push(c.id); cresceu = true;
+      }
+    });
+  }
+  return out;
+}
+
+/* A area onde este papel acabou de ser catalogado. E por ela que as listas de
+   pagamentos comecam filtradas: um comprovativo da loja nao prova a renda de
+   casa, e ver os dois ao lado um do outro so atrapalha. */
+function ibAreaDoItem(item) {
+  var com = (item.links || []).filter(function (l) { return l.dados && l.dados.context_id; });
+  var doc = com.filter(function (l) { return l.tipo === 'documento'; })[0];
+  var l = doc || com[0];
+  return l ? l.dados.context_id : null;
+}
+
+function ibSelectAreas(valor) {
+  var sel = el('select');
+  sel.style.cssText = 'font:inherit;font-size:.8125rem;padding:5px 8px;border:1px solid var(--line);border-radius:8px;background:var(--surface-2);color:var(--ink);max-width:260px';
+  sel.appendChild(new Option('Todas as áreas', 'tudo'));
+  sel.appendChild(new Option('— sem área —', 'sem'));
+  ((window.G && G.contextos) || []).filter(function (c) { return !c.parent_id && c.active; })
+    .forEach(function (area) {
+      var g = document.createElement('optgroup');
+      g.label = area.name;
+      g.appendChild(new Option(area.name, area.id));
+      (G.contextos || []).filter(function (c) { return c.parent_id === area.id && c.active; })
+        .forEach(function (sub) { g.appendChild(new Option('   ' + sub.name, sub.id)); });
+      sel.appendChild(g);
+    });
+  sel.value = String(valor);
+  if (!sel.value) sel.value = 'tudo';
+  return sel;
+}
+
+function ibPassaArea(p, area) {
+  if (area === 'tudo') return true;
+  if (area === 'sem') return !p.context_id;
+  return ibAreasFilhas(area).indexOf(p.context_id) >= 0;
+}
+
 function ibEscolherComprovativo(item, r) {
+  var porId = {};
+  (r.atuais || []).concat(r.candidatos || []).forEach(function (p) { porId[p.id] = p; });
+  var escolhidos = {};
+  (r.atuais || []).forEach(function (p) { escolhidos[p.id] = true; });
+  var areaDoc = ibAreaDoItem(item);
+  var filtro = { area: areaDoc ? String(areaDoc) : 'tudo' };
+
   var dlg = el('dialog', 'ib-dlg larga');
   var cx = el('div', 'ib-dlgc');
   cx.appendChild(el('h3', null, 'Que pagamentos prova este comprovativo' + String.fromCharCode(63)));
-  cx.appendChild(el('p', null, 'Ao aprovar, os que estiverem por pagar ficam pagos com a data e o valor da transfer\u00eancia.'));
+  cx.appendChild(el('p', null, 'Ao aprovar, os que estiverem por pagar ficam pagos com a data e o valor da transferência.'));
+
+  /* O papel foi catalogado numa area, e quase sempre e nela que esta o
+     pagamento: a lista comeca por essa area, e abre-se a tudo num clique. */
+  var barra = el('div');
+  barra.style.cssText = 'display:flex;align-items:center;gap:8px;margin:0 0 10px;flex-wrap:wrap';
+  var rot = el('span', null, 'Área');
+  rot.style.cssText = 'font-family:var(--mono);font-size:var(--fs-mono);letter-spacing:.07em;text-transform:uppercase;color:var(--faint)';
+  barra.appendChild(rot);
+  var selArea = ibSelectAreas(filtro.area);
+  selArea.onchange = function () { filtro.area = selArea.value; desenhar(); };
+  barra.appendChild(selArea);
+  var quantos = el('span');
+  quantos.style.cssText = 'font-size:.8125rem;color:var(--faint)';
+  barra.appendChild(quantos);
+  cx.appendChild(barra);
+
   var lista = el('div', 'ib-cpl');
-  var caixas = [];
-  function linha(p, marcado) {
-    var w = el('label', 'ib-cpi');
-    var c = el('input'); c.type = 'checkbox'; c.checked = Boolean(marcado); c.value = String(p.id);
-    c.dataset.valor = p.amount === null || p.amount === undefined ? '' : String(p.amount);
-    c.onchange = conta;
-    w.appendChild(c);
-    w.appendChild(el('span', null, ibLinhaComprovativo(p)));
-    caixas.push(c);
-    return w;
-  }
-  (r.atuais || []).forEach(function (p) { lista.appendChild(linha(p, true)); });
-  var parecidos = (r.candidatos || []).filter(function (c) { return c.serve; });
-  var outros = (r.candidatos || []).filter(function (c) { return !c.serve; });
-  if (parecidos.length) {
-    lista.appendChild(el('div', 'ib-cpg', 'Parecidos'));
-    parecidos.forEach(function (p) { lista.appendChild(linha(p, false)); });
-  }
-  if (outros.length) {
-    lista.appendChild(el('div', 'ib-cpg', 'Outros por pagar ou pagos sem prova'));
-    outros.forEach(function (p) { lista.appendChild(linha(p, false)); });
-  }
   cx.appendChild(lista);
+
   var novoW = el('label', 'ib-cpi ib-cpn');
   var novo = el('input'); novo.type = 'checkbox'; novo.id = 'ibCpNovo'; novo.onchange = conta;
   var novoT = el('span', null, '');
@@ -838,21 +892,75 @@ function ibEscolherComprovativo(item, r) {
   cx.appendChild(novoW);
   var soma = el('p', 'ib-atual', '');
   cx.appendChild(soma);
+
+  function linha(p) {
+    var w = el('label', 'ib-cpi');
+    var c = el('input'); c.type = 'checkbox'; c.checked = Boolean(escolhidos[p.id]); c.value = String(p.id);
+    c.onchange = function () {
+      if (c.checked) escolhidos[p.id] = true; else delete escolhidos[p.id];
+      conta();
+    };
+    w.appendChild(c);
+    var txt = ibLinhaComprovativo(p);
+    /* Com o filtro aberto a tudo, a area de cada um evita enganos. */
+    if (filtro.area === 'tudo' && p.context_id && typeof areaNome === 'function') {
+      txt += ' · ' + areaNome(p.context_id);
+    }
+    w.appendChild(el('span', null, txt));
+    return w;
+  }
+
+  function desenhar() {
+    clear(lista);
+    var passa = function (p) { return escolhidos[p.id] || ibPassaArea(p, filtro.area); };
+    var atuais = (r.atuais || []);
+    var parecidos = (r.candidatos || []).filter(function (c) { return c.serve && passa(c); });
+    var outros = (r.candidatos || []).filter(function (c) { return !c.serve && passa(c); });
+    if (atuais.length) {
+      lista.appendChild(el('div', 'ib-cpg', 'Já ligados'));
+      atuais.forEach(function (p) { lista.appendChild(linha(p)); });
+    }
+    if (parecidos.length) {
+      lista.appendChild(el('div', 'ib-cpg', 'Parecidos'));
+      parecidos.forEach(function (p) { lista.appendChild(linha(p)); });
+    }
+    if (outros.length) {
+      lista.appendChild(el('div', 'ib-cpg', 'Outros por pagar ou pagos sem prova'));
+      outros.forEach(function (p) { lista.appendChild(linha(p)); });
+    }
+    var total = parecidos.length + outros.length;
+    if (!total && !atuais.length) {
+      var vazio = el('div', 'ib-cpg', filtro.area === 'tudo'
+        ? 'Não há pagamentos por pagar.'
+        : 'Nenhum pagamento nesta área. Escolhe «Todas as áreas» para ver o resto.');
+      lista.appendChild(vazio);
+    }
+    var escondidos = (r.candidatos || []).length - total;
+    quantos.textContent = total + (total === 1 ? ' pagamento' : ' pagamentos') +
+      (escondidos > 0 ? ' · ' + escondidos + ' noutras áreas' : '');
+    conta();
+  }
+
   function conta() {
     var s = 0;
-    caixas.forEach(function (c) { if (c.checked && c.dataset.valor !== '') s += Number(c.dataset.valor); });
+    Object.keys(escolhidos).forEach(function (id) {
+      var p = porId[id];
+      if (p && p.amount !== null && p.amount !== undefined) s += Number(p.amount);
+    });
     var falta = r.valor !== null && r.valor !== undefined ? Math.round((r.valor - s) * 100) / 100 : null;
     novoT.textContent = 'Criar um pagamento novo' + (falta !== null && falta > 0.005 ? ' com o que falta (' + ibEuros(falta) + ')' : '') +
-      ((r.faltam || []).length ? ' \u2014 fatura ' + r.faltam.join(', ') : '');
+      ((r.faltam || []).length ? ' — fatura ' + r.faltam.join(', ') : '');
     soma.textContent = r.valor !== null && r.valor !== undefined
       ? 'Escolhido: ' + ibEuros(s) + ' de ' + ibEuros(r.valor) + ' transferidos.' : '';
   }
-  conta();
+
+  desenhar();
+
   var pe = el('div', 'ib-dlga');
   var gravar = el('button', 'btn primary', 'Gravar');
   gravar.type = 'button';
   gravar.onclick = function () {
-    var paras = caixas.filter(function (c) { return c.checked; }).map(function (c) { return Number(c.value); });
+    var paras = Object.keys(escolhidos).map(Number);
     gravar.disabled = true;
     apiGestao('/api/inbox/' + item.id + '/pagamento?estado=' + IB.estado, {
       method: 'POST',
@@ -864,7 +972,7 @@ function ibEscolherComprovativo(item, r) {
       toast('Gravado. Os pagamentos ficam pagos quando aprovares.');
     }).catch(function (e) {
       gravar.disabled = false;
-      toast(e.message || 'N\u00e3o foi poss\u00edvel gravar.');
+      toast(e.message || 'Não foi possível gravar.');
     });
   };
   var fecha = el('button', 'btn', 'Cancelar');
@@ -891,25 +999,59 @@ function ibTrocarPagamento(item) {
       cx.appendChild(el('p', 'ib-atual', 'Agora: ' + ibLinhaPagamento(atual) +
         (atual.criado ? ' (nasceu desta fatura)' : ' (já existia)')));
     }
+    /* A mesma ideia do comprovativo: esta fatura foi catalogada numa area, e e
+       nela que o pagamento costuma estar. */
+    var areaDoc = ibAreaDoItem(item);
+    var filtro = { area: areaDoc ? String(areaDoc) : 'tudo' };
+    var barra = el('div');
+    barra.style.cssText = 'display:flex;align-items:center;gap:8px;margin:0 0 10px;flex-wrap:wrap';
+    var rot = el('span', null, '\u00c1rea');
+    rot.style.cssText = 'font-family:var(--mono);font-size:var(--fs-mono);letter-spacing:.07em;text-transform:uppercase;color:var(--faint)';
+    barra.appendChild(rot);
+    var selArea = ibSelectAreas(filtro.area);
+    selArea.onchange = function () { filtro.area = selArea.value; opcoes(); };
+    barra.appendChild(selArea);
+    var quantos = el('span');
+    quantos.style.cssText = 'font-size:.8125rem;color:var(--faint)';
+    barra.appendChild(quantos);
+    cx.appendChild(barra);
+
     var sel = el('select');
     sel.id = 'ibTrocaSel';
     function opcao(v, txt, pai) {
       var o = el('option', null, txt); o.value = String(v); (pai || sel).appendChild(o); return o;
     }
-    if (atual) opcao(atual.id, 'Manter: ' + ibLinhaPagamento(atual)).selected = true;
-    var parecidos = cands.filter(function (c) { return c.serve; });
-    var outros = cands.filter(function (c) { return !c.serve; });
-    if (parecidos.length) {
-      var g1 = el('optgroup'); g1.label = 'Parecidos';
-      parecidos.forEach(function (c) { opcao(c.id, ibLinhaPagamento(c), g1); });
-      sel.appendChild(g1);
+    function rotulo(c) {
+      return ibLinhaPagamento(c) +
+        (filtro.area === 'tudo' && c.context_id && typeof areaNome === 'function'
+          ? ' \u00b7 ' + areaNome(c.context_id) : '');
     }
-    if (outros.length) {
-      var g2 = el('optgroup'); g2.label = 'Outros por pagar';
-      outros.forEach(function (c) { opcao(c.id, ibLinhaPagamento(c), g2); });
-      sel.appendChild(g2);
+    function opcoes() {
+      var antes = sel.value;
+      clear(sel);
+      if (atual) opcao(atual.id, 'Manter: ' + ibLinhaPagamento(atual)).selected = true;
+      var passa = function (c) { return ibPassaArea(c, filtro.area); };
+      var parecidos = cands.filter(function (c) { return c.serve && passa(c); });
+      var outros = cands.filter(function (c) { return !c.serve && passa(c); });
+      if (parecidos.length) {
+        var g1 = el('optgroup'); g1.label = 'Parecidos';
+        parecidos.forEach(function (c) { opcao(c.id, rotulo(c), g1); });
+        sel.appendChild(g1);
+      }
+      if (outros.length) {
+        var g2 = el('optgroup'); g2.label = 'Outros por pagar';
+        outros.forEach(function (c) { opcao(c.id, rotulo(c), g2); });
+        sel.appendChild(g2);
+      }
+      opcao('novo', '\u2014 Nenhum: criar um pagamento novo \u2014');
+      if (antes) sel.value = antes;
+      if (!sel.value) sel.value = atual ? String(atual.id) : 'novo';
+      var total = parecidos.length + outros.length;
+      var escondidos = cands.length - total;
+      quantos.textContent = total + (total === 1 ? ' pagamento' : ' pagamentos') +
+        (escondidos > 0 ? ' \u00b7 ' + escondidos + ' noutras \u00e1reas' : '');
     }
-    opcao('novo', '— Nenhum: criar um pagamento novo —');
+    opcoes();
     cx.appendChild(sel);
 
     var pe = el('div', 'ib-dlga');
