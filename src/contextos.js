@@ -25,6 +25,13 @@ const LIGACOES = [
   ['sub-areas', 'SELECT count(*)::int AS n FROM contexts  WHERE parent_id  = $1']
 ];
 
+/* Uma cor e #rrggbb ou nada. O que vier de outra forma nao se grava. */
+function cor(v) {
+  if (v === null || v === undefined || v === '') return null;
+  const s = String(v).trim();
+  return /^#[0-9a-fA-F]{6}$/.test(s) ? s.toLowerCase() : undefined;
+}
+
 function slugificar(nome) {
   return String(nome || '')
     .normalize('NFD')
@@ -50,7 +57,7 @@ async function slugLivre(nome, id) {
 async function arvore() {
   const linhas = await all(
     `SELECT c.id, c.slug, c.name, c.parent_id, c.note, c.owner_id, c.sort, c.active,
-            p.name AS parent_name
+            c.color, p.name AS parent_name
        FROM contexts c LEFT JOIN contexts p ON p.id = c.parent_id
       ORDER BY COALESCE(p.sort, c.sort), COALESCE(p.id, c.id), c.parent_id NULLS FIRST, c.sort, c.id`);
   return linhas;
@@ -83,10 +90,10 @@ function instalar(app) {
       }
       const slug = await slugLivre(nome, null);
       const rows = await all(
-        `INSERT INTO contexts (slug, name, parent_id, note, owner_id, sort)
-         VALUES ($1,$2,$3,$4,$5,COALESCE($6, (SELECT COALESCE(max(sort),0)+1 FROM contexts WHERE parent_id IS NOT DISTINCT FROM $3)))
+        `INSERT INTO contexts (slug, name, parent_id, note, owner_id, sort, color)
+         VALUES ($1,$2,$3,$4,$5,COALESCE($6, (SELECT COALESCE(max(sort),0)+1 FROM contexts WHERE parent_id IS NOT DISTINCT FROM $3)),$7)
          RETURNING id`,
-        [slug, nome, pai, limpar(b.note), limpar(b.owner_id), limpar(b.sort)]);
+        [slug, nome, pai, limpar(b.note), limpar(b.owner_id), limpar(b.sort), cor(b.color) || null]);
       console.log('[farol] area criada:', slug);
       res.status(201).json({ id: rows[0].id, contextos: await arvore() });
     } catch (err) {
@@ -131,6 +138,12 @@ function instalar(app) {
         [id, limpar(b.name), tem('note'), limpar(b.note),
          tem('owner_id'), limpar(b.owner_id),
          tem('active') ? Boolean(b.active) : null, limpar(b.sort)]);
+
+      if (tem('color')) {
+        const c = cor(b.color);
+        if (c === undefined) return res.status(400).json({ error: 'A cor tem de ser #rrggbb.' });
+        await query('UPDATE contexts SET color = $2 WHERE id = $1', [id, c]);
+      }
 
       if (novoPai) {
         await query(
