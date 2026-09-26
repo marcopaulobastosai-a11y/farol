@@ -621,6 +621,29 @@ const CRIAR = {
    segundo olhar antes de entrar nas Tarefas. */
 const APROVAVEIS = { documento: 'documents', despesa: 'expenses', pagamento: 'tasks' };
 
+/* Um papel pode pertencer a uma tarefa, a um pagamento, a um evento ou a uma
+   despesa. As tarefas e os pagamentos vivem na task_documents (sao a mesma
+   tabela); os eventos e as despesas na item_documents. Esta consulta junta os
+   dois sitios num so, para quem olha para o documento nao ter de saber disso. */
+const SQL_RELACOES = (col) => `COALESCE((
+  SELECT json_agg(r ORDER BY r.tipo, r.id) FROM (
+    SELECT CASE WHEN t.tipo = 'pagamento' THEN 'pagamento' ELSE 'tarefa' END AS tipo,
+           t.id, t.title, td.papel, t.done
+      FROM task_documents td JOIN tasks t ON t.id = td.task_id
+     WHERE td.document_id = ${col}
+    UNION ALL
+    SELECT 'evento' AS tipo, e.id, e.title, i.papel, FALSE AS done
+      FROM item_documents i JOIN events e ON e.id = i.item_id
+     WHERE i.tipo = 'evento' AND i.document_id = ${col}
+    UNION ALL
+    SELECT 'despesa' AS tipo, x.id, x.description AS title, i.papel, FALSE AS done
+      FROM item_documents i JOIN expenses x ON x.id = i.item_id
+     WHERE i.tipo = 'despesa' AND i.document_id = ${col}
+  ) r), '[]'::json)`;
+
+const relacoesDoDocumento = async (docId) => (await all(
+  `SELECT ${SQL_RELACOES('$1::int')} AS relacoes`, [docId]))[0].relacoes || [];
+
 /* O conteudo das linhas que nasceram destes ficheiros, para o cartao da caixa
    poder mostrar - e deixar corrigir - o que esta gravado. */
 async function conteudoDosAlvos(ligacoes) {
@@ -630,10 +653,14 @@ async function conteudoDosAlvos(ligacoes) {
   const docs = ids('documento');
   if (docs.length) {
     const linhas = await all(
-      `SELECT id, name, entity, kind, context_id, person_id, aprovado,
-              to_char(issued_on, 'YYYY-MM-DD') AS issued_on,
-              to_char(valid_on,  'YYYY-MM-DD') AS valid_on
-         FROM documents WHERE id = ANY($1)`, [docs]);
+      `SELECT d.id, d.name, d.entity, d.kind, d.context_id, d.person_id, d.aprovado,
+              to_char(d.issued_on, 'YYYY-MM-DD') AS issued_on,
+              to_char(d.valid_on,  'YYYY-MM-DD') AS valid_on,
+              /* Com o que este papel esta relacionado: a tarefa, o pagamento,
+                 o evento. Sem isto o cartao da caixa nao tinha como dizer que
+                 o recibo ja pertence ao ordenado de setembro. */
+              ${SQL_RELACOES('d.id')} AS relacoes
+         FROM documents d WHERE d.id = ANY($1)`, [docs]);
     linhas.forEach((d) => { fora.documento[d.id] = d; });
   }
 
@@ -1988,6 +2015,89 @@ function instalar(app) {
       }
       res.json({ ok: true, papeis: await papeisDoItem(tipo, id) });
     } catch (err) { falhaDoc(res, err, 'PATCH anexos de ' + tipo); }
+  });
+
+  /* ---------------------------------------------------------------- *
+   * Relacionar um papel que ja existe com uma tarefa, um pagamento ou um
+   * evento
+   *
+   * O sentido contrario ja se podia fazer - estando na tarefa, anexar um
+   * papel. Faltava este: estou a olhar para o recibo de vencimento e quero
+   * dizer a que e que ele pertence, sem ter de ir a tarefa procura-lo.
+   * ---------------------------------------------------------------- */
+
+  const RELACIONAVEIS = {
+    tarefa:    { tabela: 'tasks',    onde: "tipo <> 'pagamento' AND origin = 'real'" },
+    pagamento: { tabela: 'tasks',    onde: "tipo = 'pagamento' AND origin = 'real'" },
+    evento:    { tabela: 'events',   onde: "origin = 'real'" },
+    despesa:   { tabela: 'expenses', onde: 'TRUE' }
+  };
+
+  const lerRelacao = (req) => {
+    const b = req.body || {};
+    const tipo = String(b.tipo || req.query.tipo || '');
+    const item = Number(b.item_id !== undefined ? b.item_id : req.query.item_id);
+    const papel = PAPEIS.includes(b.papel) ? b.papel : 'anexo';
+    return { tipo, item, papel, cfg: RELACIONAVEIS[tipo] };
+  };
+
+  app.get('/api/documentos/:id(\\d+)/relacionar', async (req, res) => {
+    try {
+      res.json({ ok: true, relacoes: await relacoesDoDocumento(Number(req.params.id)) });
+    } catch (err) {
+      console.error('[farol] GET relacionar:', err.message);
+      res.status(500).json({ error: 'Nao foi possivel ler as relacoes.' });
+    }
+  });
+
+  app.post('/api/documentos/:id(\\d+)/relacionar', async (req, res) => {
+    const docId = Number(req.params.id);
+    const { tipo, item, papel, cfg } = lerRelacao(req);
+    if (!cfg) return res.status(400).json({ error: 'So da para relacionar com tarefa, pagamento, evento ou despesa.' });
+    if (!item) return res.status(400).json({ error: 'Falta dizer com o que se relaciona.' });
+    try {
+      if (!(await all('SELECT 1 FROM documents WHERE id = $1', [docId])).length) {
+        return res.status(404).json({ error: 'Documento nao encontrado.' });
+      }
+      const ok = await all(
+        `SELECT 1 FROM ${cfg.tabela} WHERE id = $1 AND ${cfg.onde}`, [item]);
+      if (!ok.length) return res.status(404).json({ error: 'Nao encontrei isso para relacionar.' });
+
+      if (tipo === 'tarefa' || tipo === 'pagamento') {
+        await query(
+          `INSERT INTO task_documents (task_id, document_id, papel) VALUES ($1,$2,$3)
+           ON CONFLICT (task_id, document_id) DO UPDATE SET papel = EXCLUDED.papel`,
+          [item, docId, papel]);
+      } else {
+        await query(
+          `INSERT INTO item_documents (tipo, item_id, document_id, papel) VALUES ($1,$2,$3,$4)
+           ON CONFLICT (tipo, item_id, document_id) DO UPDATE SET papel = EXCLUDED.papel`,
+          [tipo, item, docId, papel]);
+      }
+      console.log('[farol] documento', docId, 'relacionado com', tipo, item, '(' + papel + ')');
+      res.json({ ok: true, relacoes: await relacoesDoDocumento(docId) });
+    } catch (err) {
+      console.error('[farol] POST relacionar:', err.message);
+      res.status(400).json({ error: 'Nao foi possivel relacionar.' });
+    }
+  });
+
+  app.delete('/api/documentos/:id(\\d+)/relacionar', async (req, res) => {
+    const docId = Number(req.params.id);
+    const { tipo, item, cfg } = lerRelacao(req);
+    if (!cfg || !item) return res.status(400).json({ error: 'Falta dizer o que desligar.' });
+    try {
+      if (tipo === 'tarefa' || tipo === 'pagamento') {
+        await query('DELETE FROM task_documents WHERE task_id = $1 AND document_id = $2', [item, docId]);
+      } else {
+        await query('DELETE FROM item_documents WHERE tipo = $1 AND item_id = $2 AND document_id = $3',
+          [tipo, item, docId]);
+      }
+      res.json({ ok: true, relacoes: await relacoesDoDocumento(docId) });
+    } catch (err) {
+      console.error('[farol] DELETE relacionar:', err.message);
+      res.status(400).json({ error: 'Nao foi possivel desligar.' });
+    }
   });
 
   app.post('/api/documentos/:id/ficheiro', upload.single('ficheiro'), async (req, res) => {
