@@ -6,15 +6,22 @@
  * dela. As tarefas soltas (sem projeto) sao a operacao corrente: o ordenado
  * da loja, a renda da casa, o IUC.
  *
- * Todos os ecras das areas sao agora iguais: a mesma barra de filtros e os
- * mesmos cinco widgets, pela ordem que o Marco escolheu.
+ * Todos os ecras das areas sao iguais (desenho de 27 set, aprovado pelo
+ * Marco num mockup):
  *
- *   linha 1: Tarefas    | Pagamentos   (abertos)
- *   linha 2: Eventos    | Documentos   (abertos)
- *   linha 3: Despesas                  (recolhido)
- *   linha 4: Projetos                  (recolhido)
+ *   numeros: por fazer · em atraso · a pagar · na agenda · Despesas (abre a
+ *            pagina das Despesas ja filtrada) · Documentos (abre os
+ *            Documentos ja filtrados)
+ *   3/4 a esquerda: Tarefas - tarefas e pagamentos numa lista so, por prazo
+ *            (em atraso, proximos 14 dias, mais tarde, sem prazo), com um
+ *            seletor Todas · Tarefas · Pagamentos
+ *   1/4 a direita: Agenda (eventos e lembretes da area ou sub-area) e, por
+ *            baixo, Projetos - ambos abertos
  *
- * Os Eventos sao o que a area tem marcado no calendario - e um aniversario e
+ * As Despesas e os Documentos deixaram de ser widgets: vivem nas suas
+ * paginas, e aqui ficam os cards que la levam.
+ *
+ * A Agenda e o que a area tem marcado no calendario - e um aniversario e
  * um evento, nao uma tarefa: os lembretes aparecem aqui, nao nas Tarefas.
  *
  * Cada widget recolhe-se pelo cabecalho e, recolhido, continua a dizer o
@@ -171,9 +178,28 @@ var AE_CSS =
   '.ae-ev-dia span{display:block;font-size:.625rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}' +
   '.ae-ev-dia.hoje b,.ae-ev-dia.hoje span{color:var(--accent-ink)}' +
   '.ae-ev-dia.passou b,.ae-ev-dia.passou span{color:var(--faint)}' +
-  '.ae-topo{display:flex;justify-content:flex-end;margin-bottom:8px}';
+  '.ae-topo{display:flex;justify-content:flex-end;margin-bottom:8px}' +
+  /* 27 set: a lista unica a 3/4 e a coluna da direita (Agenda, Projetos) */
+  '.ae-main{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,1fr);gap:14px;align-items:start}' +
+  '.ae-dir{display:flex;flex-direction:column;gap:14px;min-width:0}' +
+  '@container (max-width:980px){.ae-main{grid-template-columns:minmax(0,1fr)}}' +
+  '.ae-tipo{flex:none;width:22px;height:22px;border-radius:6px;display:flex;align-items:center;justify-content:center;margin-top:-1px}' +
+  '.ae-tipo.pag{background:var(--warn-soft);color:var(--warn)}' +
+  '.ae-tipo.tar{background:var(--accent-soft);color:var(--accent-ink)}' +
+  '.ae-sub{color:var(--accent-ink)}' +
+  '.ae-lseg{display:flex;align-items:center;gap:10px;padding:0 16px 6px}' +
+  '.ae-lseg .ae-seg{margin:0}' +
+  '.ae-grp > h4.bad{color:var(--bad)}' +
+  '.ae-grp > h4.acc{color:var(--accent-ink)}' +
+  '.ae-kpi.ae-link{border-color:var(--accent);box-shadow:var(--shadow)}' +
+  '.ae-kpi.ae-link b{display:flex;gap:8px;align-items:baseline;width:100%}' +
+  '.ae-kpi.ae-link b i{margin-left:auto;font-style:normal;font-family:var(--sans);font-size:.8rem;color:var(--accent-ink)}' +
+  '.ae-kpi small{font-size:.7rem;color:var(--warn)}' +
+  '.ae-spark{display:flex;align-items:flex-end;gap:3px;height:16px;margin-top:3px}' +
+  '.ae-spark i{width:8px;border-radius:2px 2px 0 0;background:var(--line);min-height:2px}' +
+  '.ae-spark i.agora{background:var(--accent)}';
 
-var AE = { filtro: {}, fechados: {}, despesas: null, aLerDespesas: false };
+var AE = { filtro: {}, fechados: {}, despesas: null, aLerDespesas: false, tipo: {} };
 function aeLerGuardado(chave){
   try { return JSON.parse(localStorage.getItem(chave) || '{}') || {}; } catch (e) { return {}; }
 }
@@ -183,7 +209,7 @@ AE.fechados = aeLerGuardado('aeFechados');
 
 /* O que a area tem por fazer e o que tem marcado ficam a vista; o dinheiro ja
    gasto e os projetos abrem-se quando se quiserem. */
-var AE_INICIO_FECHADO = { despesas: true, projetos: true,
+var AE_INICIO_FECHADO = { despesas: true,
   /* O que ja esta fechado nao tem de estar aberto: mostra-se a contagem e
      estende-se quem quiser ver. */
   'fim:tarefas': true, 'fim:pagamentos': true, 'fim:eventos': true };
@@ -277,6 +303,11 @@ function aeArrumarNav(){
   admin.parentNode.insertBefore(b, admin.nextSibling);
 }
 
+function aeCtxDe(id){
+  var cs = (window.G && G.contextos) || [];
+  for (var i = 0; i < cs.length; i++) if (cs[i].id === id) return cs[i];
+  return null;
+}
 function aeNorm(s){ return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase(); }
 
 /* A area de topo de um ecra, encontrada pelo nome e nao pelo id: os ids sao
@@ -501,7 +532,7 @@ function aeDocsDaTarefa(t){
   return box;
 }
 
-function aeLinha(t){
+function aeLinha(t, comSub){
   var li = el('div', 'tf-row');
   var caixa = tfCaixa(t, function(){
     /* Um pagamento fecha-se com valor e prova, e a janela abre aqui mesmo,
@@ -513,6 +544,12 @@ function aeLinha(t){
     tfAlternar(t);
   });
   li.appendChild(caixa);
+  if (comSub !== undefined){
+    var tp = el('span', 'ae-tipo ' + (tfTipo(t) === 'pagamento' ? 'pag' : 'tar'));
+    tp.innerHTML = tfTipo(t) === 'pagamento' ? aeIcone(AE_I.pagamentos, 12) : aeIcone(AE_I.tarefas, 12);
+    tp.title = tfTipo(t) === 'pagamento' ? 'Pagamento' : 'Tarefa';
+    li.appendChild(tp);
+  }
   var corpo = el('div', 'tf-body');
   corpo.appendChild(el('span', 'tf-t', t.title));
   var m = el('div', 'tf-m');
@@ -525,6 +562,10 @@ function aeLinha(t){
   /* O estado ve-se e muda-se aqui, sem sair da area: e a mesma etiqueta da
      pagina das Tarefas, e num pagamento «Pago» abre a janela do dinheiro. */
   if (tfTipo(t) === 'tarefa' || tfTipo(t) === 'pagamento') m.appendChild(tfEtiquetaEstado(t));
+  if (comSub && t.context_id){
+    var cx = aeCtxDe(t.context_id);
+    if (cx) m.appendChild(el('span', 'ae-sub', cx.name));
+  }
   if (tfTipo(t) === 'pagamento' && t.payee) m.appendChild(el('span', null, t.payee));
   if (tfTipo(t) === 'lembrete') m.appendChild(el('span', null, 'lembrete'));
   if (t.repeat_rule){
@@ -1416,77 +1457,161 @@ function aeRenderArea(a){
   /* ---- os numeros, que sao botoes ---- */
   var atrasadas = soltas.filter(function(t){ return tfNivelData(t) === 'bad'; }).length;
   var aPagar = pags.reduce(function(s, t){ return s + Number(t.amount || 0); }, 0);
-  var gasto = despesas.reduce(function(s, x){ return s + Number(x.amount || 0); }, 0);
-  var porLer = docs.filter(function(d){ return !d.lido; }).length;
-
   function abrirW(chave){ return function(){ aeFecharW(a, chave, false); }; }
+
+  /* A sub-area a que as Despesas e os Documentos devem abrir: a unica
+     escolhida no Onde, senao a area inteira. */
+  var alvoId = escolhidas.length === 1 && escolhidas[0].k !== 'geral' ? Number(escolhidas[0].k) : area.id;
+  var alvoNome = escolhidas.length === 1 ? escolhidas[0].nome : area.name;
+
   var kpis = el('div', 'ae-kpis');
-  kpis.appendChild(aeKpi(String(soltas.length), 'por fazer', '', abrirW('tarefas')));
+  kpis.appendChild(aeKpi(String(soltas.length), 'por fazer', '', function(){
+    AE.tipo[a.view] = 'todas'; aeFecharW(a, 'tarefas', false);
+  }));
   kpis.appendChild(aeKpi(String(atrasadas), 'em atraso', atrasadas ? 'bad' : '', function(){ aePor(a, 'periodos', ['atraso']); }));
-  kpis.appendChild(aeKpi(tfEuros(aPagar), 'a pagar', '', abrirW('pagamentos')));
-  kpis.appendChild(aeKpi(tfEuros(gasto), 'já gasto', '', abrirW('despesas')));
-  kpis.appendChild(aeKpi(String(eventos.length), eventos.length === 1 ? 'marcado' : 'marcados', '', abrirW('eventos')));
-  kpis.appendChild(aeKpi(String(docs.length), docs.length === 1 ? 'papel' : 'papéis', '', abrirW('documentos')));
+  kpis.appendChild(aeKpi(tfEuros(aPagar), 'a pagar', '', function(){
+    AE.tipo[a.view] = 'pagamento'; aeFecharW(a, 'tarefas', false);
+  }));
+  kpis.appendChild(aeKpi(String(eventos.length), 'na agenda', '', abrirW('eventos')));
+
+  /* As despesas: o mes corrente da area (ou da sub-area), com os ultimos nove
+     meses em miniatura. O detalhe - graficos, quadro, periodos - vive na
+     pagina das Despesas, que abre ja filtrada. */
+  var despAqui = AE.despesas === null ? null : despTodas.filter(naAreaDesp);
+  var hojeD = tfHoje();
+  var meses9 = [];
+  for (var mi = 8; mi >= 0; mi--){
+    var dm = new Date(hojeD.getFullYear(), hojeD.getMonth() - mi, 1);
+    meses9.push(tfISO(dm).slice(0, 7));
+  }
+  var porMes = {};
+  (despAqui || []).forEach(function(x){ var k = String(x.spent_on || '').slice(0, 7); porMes[k] = (porMes[k] || 0) + Number(x.amount || 0); });
+  var esteMes = porMes[meses9[8]] || 0;
+  var bD = el('button', 'ae-kpi ae-link');
+  bD.type = 'button';
+  var vD = el('b', null, despAqui === null ? '…' : tfEuros(esteMes));
+  vD.appendChild(el('i', null, '→'));
+  bD.appendChild(vD);
+  bD.appendChild(el('span', null, 'despesas · ' + MESES[hojeD.getMonth()]));
+  var sp = el('span', 'ae-spark');
+  var maxM = Math.max.apply(null, meses9.map(function(k){ return porMes[k] || 0; }).concat([1]));
+  meses9.forEach(function(k, ix){
+    var barra = el('i', ix === 8 ? 'agora' : '');
+    barra.style.height = Math.max(2, Math.round((porMes[k] || 0) / maxM * 16)) + 'px';
+    sp.appendChild(barra);
+  });
+  bD.appendChild(sp);
+  bD.title = 'Ver o detalhe das despesas de ' + alvoNome;
+  bD.addEventListener('click', function(){
+    if (typeof dpAbrir === 'function') dpAbrir(alvoId); else show('despesas');
+  });
+  kpis.appendChild(bD);
+
+  /* Os documentos da area, sem o periodo: e o arquivo dela. Abre os
+     Documentos ja filtrados. */
+  var docsAqui = docsTodos.filter(naArea);
+  var porLerAqui = docsAqui.filter(function(d){ return !d.lido; }).length;
+  var bO = el('button', 'ae-kpi ae-link');
+  bO.type = 'button';
+  var vO = el('b', null, String(docsAqui.length));
+  vO.appendChild(el('i', null, '→'));
+  bO.appendChild(vO);
+  bO.appendChild(el('span', null, 'documentos · ' + alvoNome));
+  if (porLerAqui) bO.appendChild(el('small', null, porLerAqui + ' por ler'));
+  bO.title = 'Abrir os Documentos de ' + alvoNome;
+  bO.addEventListener('click', function(){
+    if (typeof DOCS_AREA !== 'undefined') DOCS_AREA = alvoId;
+    show('documentos');
+    if (typeof renderDocumentos === 'function') renderDocumentos();
+  });
+  kpis.appendChild(bO);
   box.appendChild(kpis);
 
-  /* ---- os seis widgets, pela ordem escolhida:
-         tarefas | pagamentos · eventos | documentos · despesas · projetos ---- */
+  var MAXT = 40;
   /* Uma lista vazia diz coisas diferentes conforme a area nao ter nada, ou
      ter e o filtro estar a tapar. */
   var temTarefas = abertas.some(function(t){ return tfTipo(t) === 'tarefa'; });
   var temPagamentos = abertas.some(function(t){ return tfTipo(t) === 'pagamento'; });
-  var MAXT = 12, MAXD = 8;
+  var comSub = grupos.length > 1;
 
-  var cols1 = el('div', 'ae-cols');
-  cols1.appendChild(aeWidget(a, 'tarefas', {
+  /* ---- a esquerda (3/4): tarefas e pagamentos numa lista so, por prazo ---- */
+  var tipoSel = AE.tipo[a.view] || 'todas';
+  var lista = soltas.filter(function(t){ return tipoSel === 'todas' || tfTipo(t) === tipoSel; }).sort(aeOrdem);
+  var fechadasT = tarefasFechadas.concat(pagamentosFechados)
+    .filter(function(t){ return tipoSel === 'todas' || tfTipo(t) === tipoSel; }).sort(aeOrdem);
+  var limite14 = tfISO(tfMais(tfHoje(), 14));
+  var gAtraso = [], gProx = [], gDepois = [], gSem = [];
+  lista.forEach(function(t){
+    if (!t.due_on) gSem.push(t);
+    else if (tfNivelData(t) === 'bad') gAtraso.push(t);
+    else if (t.due_on <= limite14) gProx.push(t);
+    else gDepois.push(t);
+  });
+  var nAtrasoL = gAtraso.length;
+  var aPagarL = lista.filter(function(t){ return tfTipo(t) === 'pagamento'; })
+    .reduce(function(s2, t){ return s2 + Number(t.amount || 0); }, 0);
+
+  var main = el('div', 'ae-main');
+  main.appendChild(aeWidget(a, 'tarefas', {
     titulo: 'Tarefas',
-    n: outras.length,
-    resumo: outras.filter(function(t){ return tfNivelData(t) === 'bad'; }).length
-      ? outras.filter(function(t){ return tfNivelData(t) === 'bad'; }).length + ' em atraso' : 'em dia',
-    aviso: outras.some(function(t){ return tfNivelData(t) === 'bad'; }),
+    n: lista.length,
+    resumo: [nAtrasoL ? nAtrasoL + ' em atraso' : 'em dia', aPagarL ? tfEuros(aPagarL) + ' a pagar' : ''].filter(Boolean).join(' · '),
+    aviso: nAtrasoL > 0,
     corpo: function(card){
-      aeCorpoTarefas(card, outras.slice(0, MAXT), grupos, area,
-        temTarefas ? 'Nada por fazer no que está filtrado.' : 'Nada por fazer fora dos projetos.');
-      if (notas) card.appendChild(el('p', 'ae-nota', notas + (notas === 1 ? ' nota' : ' notas') + ' nas Tarefas › Notas.'));
-      aeGrupoFechados(a, card, 'tarefas', 'Já feitas', tarefasFechadas, function(c){
-        var rows = el('div', 'tf-rows');
-        tarefasFechadas.slice(0, MAXT).forEach(function(t){
-          var li = aeLinha(t); li.classList.add('done'); rows.appendChild(li);
-        });
-        c.appendChild(rows);
-        if (tarefasFechadas.length > MAXT) c.appendChild(el('p', 'ae-nota', 'e mais ' + (tarefasFechadas.length - MAXT) + ' no histórico das Tarefas.'));
+      var ls = el('div', 'ae-lseg');
+      var seg = el('div', 'ae-seg');
+      [['todas', 'Todas', soltas.length],
+       ['tarefa', 'Tarefas', soltas.filter(function(t){ return tfTipo(t) === 'tarefa'; }).length],
+       ['pagamento', 'Pagamentos', pags.length]].forEach(function(o){
+        var b = el('button', tipoSel === o[0] ? 'on' : '', o[1] + ' ' + o[2]);
+        b.type = 'button';
+        b.addEventListener('click', function(){ AE.tipo[a.view] = o[0]; aeRenderArea(a); });
+        seg.appendChild(b);
       });
-      aeBotaoNovo(card, '+ Nova tarefa', function(b){ aePopNovo(a, b, area, subs, 'tarefa'); });
-      aeRodape(card, outras.length > MAXT ? 'Ver as ' + outras.length + ' nas Tarefas' : 'Abrir as Tarefas',
-        function(){ show('tarefas'); });
-    }
-  }));
-  cols1.appendChild(aeWidget(a, 'pagamentos', {
-    titulo: 'Pagamentos',
-    n: pags.length,
-    resumo: pags.length ? tfEuros(aPagar) : '',
-    aviso: pags.some(function(t){ return tfNivelData(t) === 'bad'; }),
-    corpo: function(card){
-      aeCorpoTarefas(card, pags.slice(0, MAXT), grupos, area,
-        temPagamentos ? 'Nenhum pagamento no que está filtrado.' : 'Nenhum pagamento por fazer.');
-      aeGrupoFechados(a, card, 'pagamentos', 'Já pagos', pagamentosFechados, function(c){
-        var rows = el('div', 'tf-rows');
-        pagamentosFechados.slice(0, MAXT).forEach(function(t){
-          var li = aeLinha(t); li.classList.add('done'); rows.appendChild(li);
-        });
-        c.appendChild(rows);
-        if (pagamentosFechados.length > MAXT) c.appendChild(el('p', 'ae-nota', 'e mais ' + (pagamentosFechados.length - MAXT) + ' no histórico das Tarefas.'));
-      });
-      aeBotaoNovo(card, '+ Novo pagamento', function(b){ aePopNovo(a, b, area, subs, 'pagamento'); });
-      aeRodape(card, pags.length > MAXT ? 'Ver os ' + pags.length + ' nos Pagamentos' : 'Abrir os Pagamentos',
-        function(){ show('tarefas'); });
-    }
-  }));
-  box.appendChild(cols1);
+      ls.appendChild(seg);
+      card.appendChild(ls);
 
-  var cols2 = el('div', 'ae-cols');
-  cols2.appendChild(aeWidget(a, 'eventos', {
-    titulo: 'Eventos',
+      if (!lista.length){
+        card.appendChild(el('p', 'ae-vazio', (tipoSel === 'pagamento'
+          ? (temPagamentos ? 'Nenhum pagamento no que está filtrado.' : 'Nenhum pagamento por fazer.')
+          : (temTarefas || temPagamentos ? 'Nada por fazer no que está filtrado.' : 'Nada por fazer fora dos projetos.'))));
+      }
+      var usados = 0;
+      [['Em atraso', gAtraso, 'bad'], ['Próximos 14 dias', gProx, 'acc'], ['Mais tarde', gDepois, ''], ['Sem prazo', gSem, '']]
+        .forEach(function(g){
+          if (!g[1].length || usados >= MAXT) return;
+          var gr = el('div', 'ae-grp');
+          var h4 = el('h4', g[2], g[0]);
+          h4.appendChild(el('span', null, String(g[1].length)));
+          gr.appendChild(h4);
+          var rows = el('div', 'tf-rows');
+          g[1].slice(0, MAXT - usados).forEach(function(t){ rows.appendChild(aeLinha(t, comSub)); });
+          usados += g[1].length;
+          gr.appendChild(rows);
+          card.appendChild(gr);
+        });
+      if (lista.length > MAXT) card.appendChild(el('p', 'ae-nota', 'e mais ' + (lista.length - MAXT) + ' nas Tarefas.'));
+      if (notas) card.appendChild(el('p', 'ae-nota', notas + (notas === 1 ? ' nota' : ' notas') + ' nas Tarefas › Notas.'));
+      aeGrupoFechados(a, card, 'tarefas', 'Já feitas e pagas', fechadasT, function(c){
+        var rows = el('div', 'tf-rows');
+        fechadasT.slice(0, MAXT).forEach(function(t){
+          var li = aeLinha(t, comSub); li.classList.add('done'); rows.appendChild(li);
+        });
+        c.appendChild(rows);
+        if (fechadasT.length > MAXT) c.appendChild(el('p', 'ae-nota', 'e mais ' + (fechadasT.length - MAXT) + ' no histórico das Tarefas.'));
+      });
+      var bT = aeBotaoNovo(card, '+ Nova tarefa', function(b){ aePopNovo(a, b, area, subs, 'tarefa'); });
+      var bP = aeBotaoNovo(card, '+ Novo pagamento', function(b){ aePopNovo(a, b, area, subs, 'pagamento'); });
+      bP.className = 'btn small ae-mais';
+      bP.style.marginLeft = '6px';
+      aeRodape(card, 'Abrir as Tarefas', function(){ show('tarefas'); });
+    }
+  }));
+
+  /* ---- a direita (1/4): a agenda da sub-area e os projetos ---- */
+  var dir = el('div', 'ae-dir');
+  dir.appendChild(aeWidget(a, 'eventos', {
+    titulo: 'Agenda',
     n: eventos.length + eventosPassados.length,
     resumo: (function(){
       var h = tfISO(tfHoje());
@@ -1494,52 +1619,31 @@ function aeRenderArea(a){
       return prox ? (prox.day === h ? 'hoje' : tfDataCurta(prox.day)) : '';
     })(),
     corpo: function(card){
-      aeCorpoEventos(card, eventos.slice(0, MAXT), 'Nada marcado nesta área no que está filtrado.');
+      aeCorpoEventos(card, eventos.slice(0, 15), 'Nada marcado nesta área no que está filtrado.');
+      if (eventos.length > 15) card.appendChild(el('p', 'ae-nota', 'e mais ' + (eventos.length - 15) + ' nos Eventos.'));
       if (semData) card.appendChild(el('p', 'ae-nota', semData + (semData === 1 ? ' lembrete sem data' : ' lembretes sem data') + ', nas Tarefas › Lembretes.'));
       aeGrupoFechados(a, card, 'eventos', 'Já passaram', eventosPassados, function(c){
         var rows = el('div', 'tf-rows');
-        eventosPassados.slice(0, MAXT).forEach(function(x){
+        eventosPassados.slice(0, 15).forEach(function(x){
           var li = aeLinhaEvento(x); li.classList.add('done'); rows.appendChild(li);
         });
         c.appendChild(rows);
-        if (eventosPassados.length > MAXT) c.appendChild(el('p', 'ae-nota', 'e mais ' + (eventosPassados.length - MAXT) + ' nos Eventos.'));
       });
       aeBotaoNovo(card, '+ Marcar uma data', function(b){ aePopEvento(a, b, area, subs); });
     }
   }));
-  cols2.appendChild(aeWidget(a, 'documentos', {
-    titulo: 'Documentos',
-    n: docs.length,
-    resumo: porLer ? porLer + ' por ler' : '',
-    corpo: function(card){
-      aeCorpoDocs(card, docs.slice(0, MAXD), area, grupos, docsTodos.length > 0);
-      aeRodape(card, docs.length > MAXD ? 'Ver os ' + docs.length + ' nos Documentos' : 'Abrir os Documentos',
-        function(){ show('documentos'); });
-    }
-  }));
-  box.appendChild(cols2);
-
-  box.appendChild(aeWidget(a, 'despesas', {
-    titulo: 'Despesas',
-    n: despesas.length,
-    resumo: despesas.length ? tfEuros(gasto) : '',
-    corpo: function(card){
-      aeCorpoDespesas(card, despesas.slice(0, MAXD), despTodas.length > 0);
-      aeRodape(card, despesas.length > MAXD ? 'Ver as ' + despesas.length + ' nas Finanças' : 'Abrir as Finanças',
-        function(){ show('financas'); });
-    }
-  }));
-
-  box.appendChild(aeWidget(a, 'projetos', {
+  dir.appendChild(aeWidget(a, 'projetos', {
     titulo: 'Projetos',
     n: pjs.length,
-    resumo: pjs.reduce(function(s, p){ return s + ((p.contagem || {}).abertas || 0); }, 0) + ' por fazer',
+    resumo: pjs.reduce(function(s3, p){ return s3 + ((p.contagem || {}).abertas || 0); }, 0) + ' por fazer',
     aviso: pjs.some(function(p){ return (p.contagem || {}).atrasadas; }),
     corpo: function(card){
       aeCorpoProjetos(card, pjs, tudo);
       aeRodape(card, 'Abrir os Projetos', function(){ show('projetos'); });
     }
   }));
+  main.appendChild(dir);
+  box.appendChild(main);
 }
 
 /* ------------------------------------------------------------------ *
