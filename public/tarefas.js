@@ -1003,6 +1003,31 @@ function tfAbrir(id){
   }).catch(function(){});
 }
 
+/* Vir de fora - do Hoje, de um ecra de area, de um projeto - e abrir esta
+   tarefa aqui. Nao basta mostrar o detalhe: a lista ao lado tem de a conter,
+   senao a pessoa chega as Tarefas e ve o detalhe de uma tarefa que nao esta em
+   lado nenhum da lista. Escolhe-se o separador do tipo dela (um pagamento vive
+   nos Pagamentos) e uma vista que a apanhe, e a linha fica marcada e a vista. */
+function tfIrPara(id){
+  show('tarefas');
+  var t = tfPorId(id);
+  if (!t) return false;
+  TF.tipo = tfTipo(t);
+  var fechada = tfFechada(t);
+  TF.vista = fechada ? (t.status === 'cancelada' ? 'naofarei' : 'concluidas') : 'todas';
+  if (fechada){
+    TF.historico = []; TF.histFim = false; TF.histVista = TF.vista;
+    tfCarregarHistorico();
+  }
+  tfRender();
+  tfAbrir(id);
+  setTimeout(function(){
+    var sel = document.querySelector('#tfLista .tf-row.sel');
+    if (sel && sel.scrollIntoView) sel.scrollIntoView({ block: 'center' });
+  }, 60);
+  return true;
+}
+
 function tfFecharDetalhe(){
   TF.aberta = null; TF.detalhe = null;
   var d = $('tfDet'); if (d){ d.hidden = true; clear(d); }

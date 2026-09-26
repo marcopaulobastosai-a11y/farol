@@ -166,6 +166,15 @@ function avGravar(botao, rota, corpo, tambemGestao){
   });
 }
 
+/* Levar a tarefa as Tarefas: la dentro, o tfIrPara poe a lista no separador
+   certo e abre o detalhe. Sem o ficheiro das Tarefas carregado, vai-se na
+   mesma para la - mais vale a pagina certa do que nada. */
+function avIrLista(id){
+  if (typeof tfIrPara === 'function'){ tfIrPara(id); return; }
+  show('tarefas');
+  if (typeof tfAbrir === 'function') setTimeout(function(){ tfAbrir(id); }, 0);
+}
+
 /* ---------------- os tres tipos de aviso ---------------- */
 
 var AV_ESTADOS = [['aberta', 'Por iniciar'], ['em_curso', 'Em execução'],
@@ -196,8 +205,7 @@ function avTarefa(a){
 
   avBotoes(s, 'Abrir na lista', function(){
     avFechar();
-    show('tarefas');
-    if (typeof tfAbrir === 'function') setTimeout(function(){ tfAbrir(t.id); }, 0);
+    avIrLista(t.id);
   }, function(botao){
     avGravar(botao, '/api/gestao/tarefas/' + t.id, {
       title: iTit.value.trim() || t.title,

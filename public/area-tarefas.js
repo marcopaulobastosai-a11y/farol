@@ -493,7 +493,7 @@ function aeLinha(t){
   li.appendChild(el('div', 'tf-r ' + tfNivelData(t), tfDataTxt(t.due_on, t.due_time)));
   li.addEventListener('click', function(){
     if (typeof avAbrir === 'function') avAbrir({ origem: 'tarefa', id: t.id, quando: t.due_on || null, detail: areaNome(t.context_id) });
-    else { show('tarefas'); tfAbrir(t.id); }
+    else if (typeof tfIrPara === 'function') tfIrPara(t.id);
   });
   return li;
 }
@@ -579,7 +579,7 @@ function aeLinhaEvento(x){
     r.style.cursor = 'pointer';
     r.addEventListener('click', function(){
       if (typeof avAbrir === 'function') avAbrir({ origem: 'tarefa', id: x.tarefa, quando: x.day, detail: areaNome(x.context_id) });
-      else { show('tarefas'); tfAbrir(x.tarefa); }
+      else if (typeof tfIrPara === 'function') tfIrPara(x.tarefa);
     });
   }
   if (x.apagavel && x.orig && typeof axClipe === 'function'){

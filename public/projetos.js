@@ -1009,7 +1009,7 @@ function pjPainelTarefa(box){
   var tipo = (t.tipo || 'tarefa');
   pjCabecaPainel(box, 'Tarefa', function(){
     show('tarefas');
-    if (typeof tfAbrir === 'function') setTimeout(function(){ tfAbrir(t.id); }, 0);
+    if (typeof tfIrPara === 'function') setTimeout(function(){ tfIrPara(t.id); }, 0);
   }, 'Abrir nas Tarefas');
 
   var topo = el('div');
@@ -1578,7 +1578,7 @@ function pjLinhaTarefa(t){
      la em vez de se desenhar um segundo, que depressa ficaria diferente. */
   li.addEventListener('click', function(){
     show('tarefas');
-    if (typeof tfAbrir === 'function') setTimeout(function(){ tfAbrir(t.id); }, 0);
+    if (typeof tfIrPara === 'function') setTimeout(function(){ tfIrPara(t.id); }, 0);
   });
   return li;
 }
