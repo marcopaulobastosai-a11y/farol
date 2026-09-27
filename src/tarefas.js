@@ -699,6 +699,11 @@ function instalar(app, { carregarGestao, quem, ehAdmin }) {
                    (SELECT id FROM projects WHERE parent_id = ${x}))`);
     }
     if (req.query.q) cond.push('t.title ILIKE ' + p('%' + req.query.q + '%'));
+    /* O ecra de uma area pede o que ja fechou nas suas sub-areas. */
+    if (req.query.contextos) {
+      const ids = String(req.query.contextos).split(',').map(Number).filter(Number.isInteger);
+      if (ids.length) cond.push('t.context_id = ANY(' + p(ids) + '::int[])');
+    }
     if (req.query.antes) cond.push('t.completed_at < ' + p(req.query.antes));
     const limite = Math.min(200, Number(req.query.limite) || 60);
     try {
