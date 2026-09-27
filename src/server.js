@@ -721,6 +721,11 @@ tarefas.instalar(app, {
 
 inbox.instalar(app);
 
+/* Mandar os papeis de um pagamento a quem se paga, pelo Gmail. */
+require('./emails').instalar(app, {
+  ehAdmin: (req) => { if (!auth.ativa()) return true; const x = auth.sessao(req); return Boolean(x && acessos.ehAdmin(x.email)); }
+});
+
 app.get('*', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'index.html')));
 
 (async () => {
