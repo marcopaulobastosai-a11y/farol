@@ -958,3 +958,51 @@ ALTER TABLE contexts ADD COLUMN IF NOT EXISTS color TEXT;
 -- ---------------------------------------------------------------------------
 ALTER TABLE tasks          ADD COLUMN IF NOT EXISTS junta_faturas TEXT;
 ALTER TABLE task_documents ADD COLUMN IF NOT EXISTS valor NUMERIC(10,2);
+
+-- ---------------------------------------------------------------------------
+-- Enviar os papeis de um pagamento a quem se paga (27 set)
+--
+-- Um destinatario e a quem se manda o email de um pagamento: o senhorio, o
+-- British, o contabilista. Configura-se na Administracao. «termos» diz de que
+-- pagamentos e (pelo nome de quem recebe ou pelo titulo); um pagamento pode
+-- tambem apontar para um destinatario a mao. «quando»: manual (so ao
+-- carregar em Enviar), rever (fica a espera de o reveres) ou auto (sai
+-- sozinho quando o comprovativo e aprovado).
+--
+-- O email sai sempre da conta do Gmail ligada na Administracao; o acesso
+-- (so para enviar) guarda-se cifrado em settings, na chave 'gmail'.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS destinatarios (
+  id                  SERIAL PRIMARY KEY,
+  nome                TEXT NOT NULL,
+  email               TEXT NOT NULL,
+  cc                  TEXT,
+  termos              TEXT,
+  quando              TEXT NOT NULL DEFAULT 'manual',
+  assunto             TEXT,
+  texto               TEXT,
+  anexar_faturas      BOOLEAN NOT NULL DEFAULT TRUE,
+  anexar_comprovativo BOOLEAN NOT NULL DEFAULT TRUE,
+  ativo               BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS destinatario_id INTEGER REFERENCES destinatarios(id) ON DELETE SET NULL;
+
+CREATE TABLE IF NOT EXISTS email_envios (
+  id              SERIAL PRIMARY KEY,
+  task_id         INTEGER REFERENCES tasks(id) ON DELETE SET NULL,
+  destinatario_id INTEGER REFERENCES destinatarios(id) ON DELETE SET NULL,
+  estado          TEXT NOT NULL,              -- enviado | erro
+  automatico      BOOLEAN NOT NULL DEFAULT FALSE,
+  de              TEXT,
+  para            TEXT,
+  cc              TEXT,
+  assunto         TEXT,
+  corpo           TEXT,
+  anexos          JSONB NOT NULL DEFAULT '[]'::jsonb,
+  gmail_id        TEXT,
+  erro            TEXT,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS email_envios_task_idx ON email_envios (task_id);
