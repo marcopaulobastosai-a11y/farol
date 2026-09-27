@@ -211,7 +211,8 @@ var AE_CSS =
   '.ae-spark i{width:8px;border-radius:2px 2px 0 0;background:var(--line);min-height:2px}' +
   '.ae-spark i.agora{background:var(--accent)}';
 
-var AE = { filtro: {}, fechados: {}, despesas: null, aLerDespesas: false, tipo: {}, pagina: {}, det: null };
+var AE = { filtro: {}, fechados: {}, despesas: null, aLerDespesas: false, tipo: {}, pagina: {}, det: null,
+           feitas: {}, hist: {} };
 function aeLerGuardado(chave){
   try { return JSON.parse(localStorage.getItem(chave) || '{}') || {}; } catch (e) { return {}; }
 }
@@ -586,6 +587,12 @@ function aeLinha(t, comSub){
     m.appendChild(r);
   }
   if (tfSemProva(t)) m.appendChild(pill('falta comprovativo', 'warn'));
+  if (tfTipo(t) === 'pagamento' && t.paid_on){
+    m.appendChild(pill('pago ' + (typeof tfDataCurta === 'function' ? tfDataCurta(t.paid_on) : t.paid_on) +
+      (t.paid_amount != null ? ' \u00b7 ' + tfEuros(t.paid_amount) : ''), 'good'));
+  } else if (t.status === 'cancelada'){
+    m.appendChild(pill('n\u00e3o farei', ''));
+  }
   if (tfTipo(t) === 'pagamento' && !t.paid_on && t.paid_amount != null && Number(t.paid_amount) > 0){
     m.appendChild(pill('pago ' + tfEuros(t.paid_amount) + (t.amount != null ? ' de ' + tfEuros(t.amount) : ''), 'warn'));
   }
@@ -1598,7 +1605,28 @@ function aeRenderArea(a){
         seg.appendChild(b);
       });
       ls.appendChild(seg);
+      /* Por fazer ou ja feitas: as feitas vem do historico inteiro da area,
+         nao so das ultimas duas semanas, para se poder confirmar o que foi
+         pago e quando. */
+      var segF = el('div', 'ae-seg');
+      [[false, 'Por fazer'], [true, 'Feitas e pagas']].forEach(function(o){
+        var b = el('button', !!AE.feitas[a.view] === o[0] ? 'on' : '', o[1]);
+        b.type = 'button';
+        b.addEventListener('click', function(){ AE.feitas[a.view] = o[0]; aeRenderArea(a); });
+        segF.appendChild(b);
+      });
+      ls.appendChild(segF);
       card.appendChild(ls);
+
+      if (AE.feitas[a.view]){
+        aeCorpoFeitas(a, card, idsTodos, function(t){
+          if (t.parent_id || !naArea(t)) return false;
+          if (tfTipo(t) !== 'tarefa' && tfTipo(t) !== 'pagamento') return false;
+          if (tipoSel !== 'todas' && tfTipo(t) !== tipoSel) return false;
+          return aePassaPessoa(f, t.owner_id, t.subjects);
+        }, comSub);
+        return;
+      }
 
       if (!lista.length){
         card.appendChild(el('p', 'ae-vazio', (tipoSel === 'pagamento'
@@ -1655,6 +1683,59 @@ function aeRenderArea(a){
     aeEmprestar('det', aeNo('det', 'tfDet'), slot);
   }
   box.appendChild(main);
+}
+
+/* O que ja fechou na area, do historico todo, por mes em que fechou. Fica em
+   memoria por ecra; relê-se quando a gestao se relê (uma gravacao). */
+function aeHistorico(a, ids){
+  var k = ids.join(',');
+  var h = AE.hist[a.view];
+  if (h && h.k === k) return h.lista;
+  if (h && h.k === k + ':a-ler') return null;
+  AE.hist[a.view] = { k: k + ':a-ler', lista: null };
+  apiGestao('/api/tarefas/historico?limite=200&contextos=' + encodeURIComponent(k)).then(function(l){
+    l = Array.isArray(l) ? l : [];
+    AE.hist[a.view] = { k: k, lista: l };
+    /* O detalhe procura as tarefas pelo id: as do historico tem de estar a mao. */
+    if (window.TF){
+      var ja = {};
+      TF.historico.forEach(function(x){ ja[x.id] = true; });
+      l.forEach(function(x){ if (!ja[x.id]) TF.historico.push(x); });
+    }
+    aeRenderArea(a);
+  }).catch(function(){ AE.hist[a.view] = { k: k, lista: [] }; aeRenderArea(a); });
+  return null;
+}
+
+function aeCorpoFeitas(a, card, ids, passa, comSub){
+  var lista = aeHistorico(a, ids);
+  if (lista === null){ card.appendChild(el('p', 'ae-vazio', 'A ler o que j\u00e1 foi feito\u2026')); return; }
+  var vistas = {};
+  var todas = lista.concat((G.tasks || []).filter(function(t){ return !aeAberta(t); }))
+    .filter(function(t){ if (vistas[t.id]) return false; vistas[t.id] = true; return passa(t); });
+  if (!todas.length){ card.appendChild(el('p', 'ae-vazio', 'Nada feito ou pago no que est\u00e1 filtrado.')); return; }
+  var quando = function(t){ return String(t.paid_on || t.completed_at || t.due_on || ''); };
+  todas.sort(function(x, y){ return quando(y).localeCompare(quando(x)) || (y.id - x.id); });
+  var grupos = [], porMes = {};
+  todas.forEach(function(t){
+    var q = quando(t).slice(0, 7);
+    if (!porMes[q]){ porMes[q] = []; grupos.push(q); }
+    porMes[q].push(t);
+  });
+  grupos.forEach(function(q){
+    var gr = el('div', 'ae-grp');
+    var nome = q ? MESES[Number(q.slice(5, 7)) - 1] + ' ' + q.slice(0, 4) : 'Sem data';
+    var h4 = el('h4', null, nome.charAt(0).toUpperCase() + nome.slice(1));
+    h4.appendChild(el('span', null, String(porMes[q].length)));
+    var pagoMes = porMes[q].reduce(function(s, t){ return s + (t.paid_on ? Number(t.paid_amount != null ? t.paid_amount : t.amount || 0) : 0); }, 0);
+    if (pagoMes) h4.appendChild(el('span', null, tfEuros(pagoMes) + ' pagos'));
+    gr.appendChild(h4);
+    var rows = el('div', 'tf-rows');
+    porMes[q].forEach(function(t){ var li = aeLinha(t, comSub); li.classList.add('done'); rows.appendChild(li); });
+    gr.appendChild(rows);
+    card.appendChild(gr);
+  });
+  if (lista.length >= 200) card.appendChild(el('p', 'ae-nota', 'Mostram-se os 200 mais recentes; o resto est\u00e1 no hist\u00f3rico das Tarefas.'));
 }
 
 /* ------------------------------------------------------------------ *
@@ -2005,6 +2086,8 @@ function aeRender(){
 
 var _aeRenderGestao = renderGestao;
 renderGestao = function(){
+  /* Gravou-se alguma coisa: o historico das areas pode ter mudado. */
+  AE.hist = {};
   _aeRenderGestao();
   aeRender();
 };
