@@ -167,6 +167,13 @@ var AE_CSS =
   '.tf-row:hover .ae-apagar{opacity:1}' +
   '.ae-apagar:hover{color:var(--bad);background:var(--bad-soft)}' +
   '.ae-ficha{border-style:dashed;color:var(--accent-ink)}' +
+  '.ae-agregado{display:flex;flex-wrap:wrap;gap:10px;padding:2px 2px 10px;margin-bottom:2px;border-bottom:1px solid var(--line-soft)}' +
+  '.ae-pess{display:flex;flex-direction:column;align-items:center;gap:5px;width:62px;border:0;background:none;font:inherit;padding:3px 0 2px;border-radius:10px;cursor:pointer}' +
+  '.ae-pess:hover,.ae-pess:focus-visible{background:var(--surface-2);outline:none}' +
+  '.ae-pess .av{width:42px;height:42px;border-radius:50%;display:flex;align-items:center;justify-content:center;overflow:hidden;color:#fff;font-family:var(--mono);font-size:.72rem;letter-spacing:.03em}' +
+  '.ae-pess .av img{width:100%;height:100%;object-fit:cover;display:block}' +
+  '.ae-pess:hover .av,.ae-pess:focus-visible .av{box-shadow:0 0 0 3px var(--accent-soft)}' +
+  '.ae-pess b{font-weight:500;font-size:.72rem;line-height:1.2;color:var(--ink-2);text-align:center;overflow-wrap:anywhere}' +
   '.ae-fim{display:flex;align-items:center;gap:8px;width:100%;text-align:left;border:0;background:none;cursor:pointer;font:inherit;padding:8px 16px;margin-top:4px;border-top:1px solid var(--line-soft);font-family:var(--mono);font-size:var(--fs-mono);letter-spacing:.07em;text-transform:uppercase;color:var(--muted)}' +
   '.ae-fim:hover{background:var(--surface-2);color:var(--ink-2)}' +
   '.ae-fim .n{color:var(--faint)}' +
@@ -1195,6 +1202,58 @@ function aeFila(rotulo){
   return linha;
 }
 
+/* ------------------------------------------------------------------ *
+ * O agregado no topo da Familia
+ *
+ * Os cartoes das pessoas sairam quando a Familia passou a ecra de area, e
+ * com eles o caminho para a ficha de cada um. Volta so o essencial: uma fila
+ * de avatares por cima dos filtros. Clicar abre a ficha (o ficha.js escuta
+ * o data-ficha), que e onde esta o detalhe da pessoa.
+ * ------------------------------------------------------------------ */
+/* A fotografia so vem no /api/bootstrap; o /api/gestao nao a traz. */
+function aeTemFoto(id){
+  var ps = (window.D && D.people) || [];
+  for (var i = 0; i < ps.length; i++) if (ps[i].id === id) return !!ps[i].tem_avatar;
+  return false;
+}
+
+function aeIniciais(p){
+  if (p.initials) return p.initials;
+  var ps = String(p.name || '?').trim().split(/\s+/);
+  return ((ps[0] || '?')[0] + (ps.length > 1 ? ps[ps.length - 1][0] : '')).toUpperCase();
+}
+
+function aeAgregado(){
+  var gente = (G.people || []).filter(function(p){ return p.active !== false; });
+  if (!gente.length) return null;
+  var fila = el('div', 'ae-agregado');
+  gente.forEach(function(p){
+    var b = el('button', 'ae-pess');
+    b.type = 'button';
+    b.dataset.ficha = p.id;
+    b.title = 'Abrir a ficha de ' + p.name + (p.role ? ' \u00b7 ' + p.role : '');
+    var av = el('span', 'av');
+    av.style.background = p.color || 'var(--c1)';
+    if (aeTemFoto(p.id)){
+      var img = document.createElement('img');
+      img.src = '/api/pessoas/' + p.id + '/avatar';
+      img.alt = '';
+      /* Sem fotografia servida, ficam as iniciais em vez de um buraco. */
+      img.addEventListener('error', function(){
+        if (img.parentNode) img.parentNode.removeChild(img);
+        av.appendChild(document.createTextNode(aeIniciais(p)));
+      });
+      av.appendChild(img);
+    } else {
+      av.appendChild(document.createTextNode(aeIniciais(p)));
+    }
+    b.appendChild(av);
+    b.appendChild(el('b', null, p.name));
+    fila.appendChild(b);
+  });
+  return fila;
+}
+
 function aeKpi(valor, nome, cls, fn){
   var b = el('button', 'ae-kpi');
   b.type = 'button';
@@ -1355,6 +1414,10 @@ function aeRenderArea(a){
 
   /* ---- a barra dos filtros: uma linha, listas pendentes ---- */
   var barra = el('div', 'card ae-filtros');
+  if (a.view === 'familia'){
+    var agregado = aeAgregado();
+    if (agregado) barra.appendChild(agregado);
+  }
   var dds = el('div', 'ae-dds');
   barra.appendChild(dds);
 
