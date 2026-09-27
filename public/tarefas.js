@@ -967,6 +967,13 @@ function tfAlternar(t){
    estado: numa rotina fica o registo e a tarefa anda para a proxima data. */
 function tfFechar(t, estado){
   if (tfFechada(t)) return tfGravar(t.id, { status: estado });
+  /* Um pagamento que tem email a quem se paga trata do email antes de fechar,
+     venha de onde vier o fecho. «Nao farei» nao manda email nenhum. */
+  if (estado === 'concluida' && tfTipo(t) === 'pagamento' && typeof emAntesDeFechar === 'function' && !t.__emailVisto){
+    return emAntesDeFechar(t.id, {}, { enviar: 'Enviar e concluir', sem: 'Concluir sem enviar' })
+      .then(function(){ t.__emailVisto = true; return tfFechar(t, estado); },
+            function(){ toast('Ficou por concluir.'); });
+  }
   var rotina = Boolean(t.repeat_rule);
   var feita = estado === 'concluida';
   return tfGravar(t.id, { status: estado }).then(function(){
@@ -1825,12 +1832,29 @@ function tfPopPagar(t, ancora){
     if (rec.valor() && rec.valor() !== fat.valor() && rec.valor() !== comp.valor()) docs.push({ id: rec.valor(), papel: 'recibo' });
     var rotina = Boolean(t.repeat_rule);
     tfFecharPop();
-    apiGestao('/api/tarefas/' + t.id + '/pagar', {
+    /* Se este pagamento tem email a quem se paga, a janela do email abre
+       antes de o pagamento fechar, ja com a data, o valor e os papeis daqui.
+       Quem nao tem destinatario segue direto, como sempre. */
+    var v = { paid_on: iD.value || null, paid_amount: iV.value || null,
+              payment_method: sM.value || null, criar_despesa: cx.checked, documentos: docs };
+    var porGravar = { paid_on: v.paid_on, paid_amount: v.paid_amount, documentos: docs };
+    var pagar = function(){ tfPagarMesmo(t, v, rotina); };
+    if (typeof emAntesDeFechar === 'function'){
+      emAntesDeFechar(t.id, porGravar, { enviar: 'Enviar e dar por pago', sem: 'Dar por pago sem enviar' })
+        .then(pagar, function(){ toast('Ficou por pagar.'); });
+    } else pagar();
+  });
+  ac.appendChild(bC); ac.appendChild(bOk);
+  p.appendChild(ac);
+  tfPosicionar(p, ancora);
+}
+
+/* O registo do pagamento em si, depois de tratado o email. */
+function tfPagarMesmo(t, v, rotina){
+    var docs = v.documentos || [];
+    return apiGestao('/api/tarefas/' + t.id + '/pagar', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        paid_on: iD.value || null, paid_amount: iV.value || null,
-        payment_method: sM.value || null, criar_despesa: cx.checked, documentos: docs
-      })
+      body: JSON.stringify(v)
     }).then(function(d){
       /* O documento passa a estar agarrado a este pagamento ja, sem esperar
          pelo proximo /api/bootstrap. Numa rotina a prova fica com a copia que
@@ -1839,7 +1863,7 @@ function tfPopPagar(t, ancora){
         var doc = (window.D && D.documents || []).filter(function(y){ return y.id === x.id; })[0];
         if (!doc) return;
         doc.tarefas = (doc.tarefas || []).concat([{ task_id: rotina ? null : t.id, title: t.title, tipo: 'pagamento',
-          papel: x.papel, paid_on: iD.value || null }]);
+          papel: x.papel, paid_on: v.paid_on }]);
       });
       G = d;
       renderGestao();
@@ -1849,10 +1873,6 @@ function tfPopPagar(t, ancora){
         ? 'Pago. Próximo: ' + tfDataTxt(n.due_on) + '.' + falta
         : 'Pagamento registado.' + falta);
     }).catch(function(e){ toast(e.message || 'Não deu para registar o pagamento.'); });
-  });
-  ac.appendChild(bC); ac.appendChild(bOk);
-  p.appendChild(ac);
-  tfPosicionar(p, ancora);
 }
 
 /* ------------------------------------------------------------------ *

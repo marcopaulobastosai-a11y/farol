@@ -294,10 +294,39 @@ function emDesenharBloco(id){
   }
 }
 
-function emJanelaEnvio(id, d){
+/* Fechar um pagamento que tem email a quem se paga nao e so carregar no
+   botao: a janela abre antes, ja com a data, o valor e os papeis que se
+   acabaram de escolher, e so depois de decidir o email e que o pagamento
+   fecha. Quem nao tem destinatario (ou nao tem o Gmail ligado) fecha como
+   sempre - isto nunca fica no caminho.
+   Devolve uma promessa: cumpre-se com 'enviado', 'sem-envio' ou 'nada' e
+   falha se a pessoa carregar em Cancelar. */
+function emAntesDeFechar(id, porGravar, rotulos){
+  return new Promise(function(resolve, reject){
+    var segue = function(){ resolve('nada'); };
+    if (typeof apiGestao !== 'function') return segue();
+    apiGestao('/api/emails/pagamento/' + id + '/preparar', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(porGravar || {})
+    }).then(function(d){
+      if (!d || !d.destinatario || !d.gmail || !d.gmail.ligado) return segue();
+      if ((d.envios || []).some(function(e){ return e.estado === 'enviado'; })) return segue();
+      emEstilo();
+      emJanelaEnvio(id, d, {
+        fechar: true,
+        rotuloEnviar: (rotulos && rotulos.enviar) || 'Enviar e fechar',
+        rotuloSem: (rotulos && rotulos.sem) || 'Fechar sem enviar',
+        ok: resolve, cancelar: function(){ reject(new Error('cancelado')); }
+      });
+    }).catch(segue);
+  });
+}
+
+function emJanelaEnvio(id, d, modo){
+  modo = modo || {};
   var dlg = el('dialog', 'em-dlg');
   var cx = el('div', 'em-dlgc');
-  cx.appendChild(el('h3', null, 'Rever antes de enviar'));
+  cx.appendChild(el('h3', null, modo.fechar ? 'Antes de fechar: o email a quem se paga' : 'Rever antes de enviar'));
   cx.appendChild(el('div', 'em-sub', 'De ' + d.de + ' · ' + d.pagamento.titulo + (d.pagamento.total ? ' · ' + d.pagamento.total : '')));
   var iPara = emInput('text', d.para, 'email de quem recebe');
   var iCc = emInput('text', d.cc, 'opcional');
@@ -316,9 +345,18 @@ function emJanelaEnvio(id, d){
   if (!d.anexos.length) anx.appendChild(el('span', 'em-sub', 'Nenhum papel para anexar.'));
   cx.appendChild(anx);
   var pe = el('div', 'em-dlga');
+  var sair = function(){ try { dlg.close(); } catch (e) {} dlg.remove(); };
   var bC = el('button', 'btn', 'Cancelar'); bC.type = 'button';
-  bC.addEventListener('click', function(){ dlg.close(); dlg.remove(); });
-  var bE = el('button', 'btn primary', 'Enviar'); bE.type = 'button';
+  bC.addEventListener('click', function(){ sair(); if (modo.cancelar) modo.cancelar(); });
+  /* A fechar um pagamento: dá para seguir sem enviar, mas é uma escolha, não
+     um esquecimento - é para isto que a janela aparece antes de fechar. */
+  var bS = null;
+  if (modo.fechar){
+    bS = el('button', 'btn', modo.rotuloSem || 'Fechar sem enviar'); bS.type = 'button';
+    bS.addEventListener('click', function(){ sair(); if (modo.ok) modo.ok('sem-envio'); });
+  }
+  var rotulo = modo.fechar ? (modo.rotuloEnviar || 'Enviar e fechar') : 'Enviar';
+  var bE = el('button', 'btn primary', rotulo); bE.type = 'button';
   if (!d.gmail.ligado){ bE.disabled = true; bE.title = 'Liga primeiro o Gmail na Administração'; }
   bE.addEventListener('click', function(){
     bE.disabled = true; bE.textContent = 'A enviar…';
@@ -328,12 +366,19 @@ function emJanelaEnvio(id, d){
         anexos: marcas.filter(function(m){ return m.i.checked; }).map(function(m){ return m.a.id; }) })
     }).then(function(){
       toast('Email enviado.');
-      dlg.close(); dlg.remove();
+      sair();
       emLerPagamento(id, true);
-      if (typeof loadGestao === 'function') loadGestao();
-    }).catch(function(e){ toast(e.message || 'Não foi possível enviar.'); bE.disabled = false; bE.textContent = 'Enviar'; emLerPagamento(id, true); });
+      if (modo.ok) modo.ok('enviado');
+      else if (typeof loadGestao === 'function') loadGestao();
+    }).catch(function(e){
+      toast(e.message || 'Não foi possível enviar.');
+      bE.disabled = false; bE.textContent = rotulo;
+      emLerPagamento(id, true);
+    });
   });
-  pe.appendChild(bC); pe.appendChild(bE);
+  pe.appendChild(bC);
+  if (bS) pe.appendChild(bS);
+  pe.appendChild(bE);
   cx.appendChild(pe);
   dlg.appendChild(cx);
   dlg.addEventListener('cancel', function(){ setTimeout(function(){ dlg.remove(); }, 0); });
