@@ -592,8 +592,7 @@ function ibItem(item) {
       acoes.appendChild(ed);
     });
     ibBotaoTrocar(item, acoes);
-    var ok = el('button', 'btn primary', ibPagaAoAprovar(item) ? 'Aprovar e dar como pago'
-      : ibComprovativo(item) && !(item.links || []).some(function (l) { return l.tipo === 'pagamento'; })
+    var ok = el('button', 'btn primary', ibComprovativo(item) && !(item.links || []).some(function (l) { return l.tipo === 'pagamento'; })
         ? 'Aprovar como despesa' : 'Aprovar');
     ok.type = 'button';
     ok.onclick = function () { ibAprovar(item.id); };
@@ -865,7 +864,7 @@ function ibEscolherComprovativo(item, r) {
   var dlg = el('dialog', 'ib-dlg larga');
   var cx = el('div', 'ib-dlgc');
   cx.appendChild(el('h3', null, 'Que pagamentos prova este comprovativo' + String.fromCharCode(63)));
-  cx.appendChild(el('p', null, 'Ao aprovar, os que estiverem por pagar ficam pagos com a data e o valor da transferência.'));
+  cx.appendChild(el('p', null, 'Ao aprovar, o comprovativo fica em cada pagamento com o valor que pagou. Fechar o pagamento \u00e9 contigo, nas Tarefas.'));
 
   /* O papel foi catalogado numa area, e quase sempre e nela que esta o
      pagamento: a lista comeca por essa area, e abre-se a tudo num clique. */
@@ -969,7 +968,7 @@ function ibEscolherComprovativo(item, r) {
     }).then(function (d) {
       IB.itens = d.itens || []; IB.porTriar = d.porTriar || 0; IB.porAprovar = d.porAprovar || 0; ibRender();
       dlg.close(); dlg.remove();
-      toast('Gravado. Os pagamentos ficam pagos quando aprovares.');
+      toast('Gravado.');
     }).catch(function (e) {
       gravar.disabled = false;
       toast(e.message || 'Não foi possível gravar.');
@@ -1430,7 +1429,7 @@ function ibSubmeterTriagem() {
     /* Quando a fatura era de um pagamento que ja existia, diz-se qual: e
        a diferenca entre «criei outro» e «juntei ao que la estava». */
     toast(IB.juntou && IB.juntou.comprovativo
-      ? 'Comprovativo agarrado a: ' + (IB.juntou.titulo || '') + '. Fica pago quando aprovares.'
+      ? 'Comprovativo agarrado a: ' + (IB.juntou.titulo || '') + '. Fechas o pagamento nas Tarefas.'
       : IB.juntou
         ? 'Juntei a fatura ao pagamento que j\u00e1 existia: ' + (IB.juntou.titulo || '') + '.'
         : 'Catalogado.');
