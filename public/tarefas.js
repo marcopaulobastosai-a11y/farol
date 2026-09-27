@@ -1869,6 +1869,12 @@ function tfPopPagar(t, ancora){
   lin2.appendChild(document.createTextNode(t.expense_id ? 'Registar outra despesa nas Finanças' : 'Registar a despesa nas Finanças'));
   p.appendChild(lin2);
 
+  /* A mesma despesa pode ir para o Splitwise, no grupo certo, com quem pagou
+     e a divisao a vista. O bloco vem do splitwise.js; sem ele, nada muda. */
+  var sw = typeof swBlocoPagar === 'function'
+    ? swBlocoPagar(t, function(){ return Number(String(iV.value).replace(',', '.')) || 0; }) : null;
+  if (sw) p.appendChild(sw.no);
+
   var ac = el('div', 'tf-acoes');
   var bC = el('button', 'btn small', 'Cancelar'); bC.type = 'button'; bC.addEventListener('click', tfFecharPop);
   var bOk = el('button', 'btn small primary', 'Dar por pago'); bOk.type = 'button';
@@ -1884,8 +1890,21 @@ function tfPopPagar(t, ancora){
        Quem nao tem destinatario segue direto, como sempre. */
     var v = { paid_on: iD.value || null, paid_amount: iV.value || null,
               payment_method: sM.value || null, criar_despesa: cx.checked, documentos: docs };
+    var swPedido = sw ? sw.valor() : null;
     var porGravar = { paid_on: v.paid_on, paid_amount: v.paid_amount, documentos: docs };
-    var pagar = function(){ tfPagarMesmo(t, v, rotina); };
+    var pagar = function(){
+      return tfPagarMesmo(t, v, rotina).then(function(){
+        /* Depois de pago, e so depois: se o Splitwise falhar, o pagamento
+           ficou registado na mesma. */
+        if (swPedido && typeof swLancar === 'function'){
+          swLancar(t.id, swPedido, {
+            descricao: t.title, valor: Number(String(iV.value).replace(',', '.')) || Number(t.amount) || 0,
+            data: v.paid_on, detalhe: v.payment_method ? 'Pago por ' + v.payment_method + ' · Farol' : 'Farol'
+          });
+          if (t.splitwise_grupo !== swPedido.grupo) tfGravar(t.id, { splitwise_grupo: swPedido.grupo });
+        }
+      });
+    };
     if (typeof emAntesDeFechar === 'function'){
       emAntesDeFechar(t.id, porGravar, { enviar: 'Enviar e dar por pago', sem: 'Dar por pago sem enviar' })
         .then(pagar, function(){ toast('Ficou por pagar.'); });
