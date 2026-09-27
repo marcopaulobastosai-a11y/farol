@@ -307,6 +307,12 @@ async function fechar(id, estado) {
      SELECT $2, document_id, papel, valor FROM task_documents WHERE task_id = $1`, [id, copia.id]);
   await query(
     "DELETE FROM task_documents WHERE task_id = $1 AND papel IN ('fatura','comprovativo','recibo')", [id]);
+  /* Os ficheiros da caixa que deram a fatura e o comprovativo desta vez vao
+     com ela: nos Arrumados o cartao aponta para o que se pagou, nao para a
+     rotina que ja anda no mes seguinte. */
+  await query(
+    `UPDATE inbox_links SET target_id = $2
+      WHERE target_type IN ('pagamento', 'tarefa') AND target_id = $1`, [id, copia.id]);
   await query(
     `INSERT INTO task_items (task_id, title, done, sort, completed_at)
      SELECT $2, title, done, sort, completed_at FROM task_items WHERE task_id = $1`, [id, copia.id]);
@@ -649,8 +655,15 @@ function instalar(app, { carregarGestao, quem, ehAdmin }) {
      comprovativo» - a vida real nao espera pelo PDF. */
   app.post('/api/tarefas/:id(\\d+)/pagar', async (req, res) => {
     try {
-      const ok = await pagar(Number(req.params.id), req.body || {});
+      const id = Number(req.params.id);
+      const ok = await pagar(id, req.body || {});
       if (!ok) return res.status(404).json({ error: 'Pagamento não encontrado.' });
+      /* Pago de todo: o email a quem se paga sai agora, se o destinatario
+         estiver para enviar sozinho. Vinha da aprovacao de um comprovativo na
+         caixa; desde 27 set quem fecha e o Marco, aqui. Uma falha no envio
+         nao desfaz o pagamento. */
+      try { await require('./emails').aoPagar(id); }
+      catch (e) { console.warn('[farol] email do pagamento', id + ':', e.message); }
       res.json(await carregarGestao());
     } catch (err) { falha(res, err, 'POST pagar'); }
   });
