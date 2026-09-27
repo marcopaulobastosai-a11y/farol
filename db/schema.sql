@@ -1006,3 +1006,32 @@ CREATE TABLE IF NOT EXISTS email_envios (
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS email_envios_task_idx ON email_envios (task_id);
+
+-- ---------------------------------------------------------------------------
+-- Splitwise: a despesa que se divide com alguem
+--
+-- Um pagamento ja escreve a despesa nas Financas. Quando o dinheiro e de dois
+-- (a renda, as contas da casa, a escola dos miudos), a mesma despesa tem de
+-- ir tambem para o Splitwise, no grupo certo - senao ha que a copiar a mao, e
+-- e ai que se perde.
+--
+-- Os grupos nao se inventam aqui: leem-se da API do Splitwise e guardam-se
+-- como estao, com os membros, para se poder escolher a divisao sem voltar la.
+-- `ativo` e o que fica disponivel para escolher num pagamento; `omissao` e o
+-- que vem proposto.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS splitwise_grupos (
+  id       BIGINT PRIMARY KEY,          -- o id do grupo no Splitwise
+  nome     TEXT NOT NULL,
+  moeda    TEXT,
+  membros  JSONB NOT NULL DEFAULT '[]'::jsonb,  -- [{id, nome, email}]
+  ativo    BOOLEAN NOT NULL DEFAULT FALSE,
+  omissao  BOOLEAN NOT NULL DEFAULT FALSE,
+  lido_em  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- O grupo proposto para este pagamento (ou para a rotina de onde ele vem).
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS splitwise_grupo BIGINT;
+-- A despesa que ficou criada la, para nao se lancar a mesma coisa duas vezes.
+ALTER TABLE expenses ADD COLUMN IF NOT EXISTS splitwise_id BIGINT;
+CREATE INDEX IF NOT EXISTS expenses_splitwise_idx ON expenses (splitwise_id) WHERE splitwise_id IS NOT NULL;
