@@ -7,8 +7,8 @@
  *   Em atraso · Hoje · Amanha · Esta semana · Proxima semana · Este mes ·
  *   e depois um bloco por mes (outubro, novembro...).
  *
- * Cada periodo recolhe-se clicando no titulo; comecam todos abertos e a
- * escolha fica no browser. Cada aviso diz o que e por um icone (tarefa,
+ * Cada periodo recolhe-se clicando no titulo; comecam abertos, salvo o Em
+ * atraso, que comeca recolhido, e a escolha fica no browser. Cada aviso diz o que e por um icone (tarefa,
  * pagamento, lembrete, aniversario, documento, identificacao) e as tarefas e
  * os pagamentos tem a caixinha para fechar ali mesmo - um pagamento abre a
  * janela de pagar, como nas Tarefas e nas areas.
@@ -161,7 +161,11 @@ function hjRender() {
   Object.keys(grupos).map(function (k) { return grupos[k]; })
     .sort(function (a, b) { return a.p.ordem - b.p.ordem; })
     .forEach(function (g) {
-      var sec = el('section', 'hj-per ' + g.p.k + (HJ.fechados[g.p.k] ? ' fechado' : ''));
+      /* O atraso comeca recolhido (conta-se no titulo, abre-se quando se
+         quiser); os outros periodos comecam abertos. Depois vale o que a
+         pessoa escolheu. */
+      var fechado = HJ.fechados[g.p.k] !== undefined ? HJ.fechados[g.p.k] === true : g.p.k === 'atraso';
+      var sec = el('section', 'hj-per ' + g.p.k + (fechado ? ' fechado' : ''));
       var h = el('h4');
       h.innerHTML = hjSvg(HJ_I.seta, 12);
       h.appendChild(el('span', null, g.p.nome));
@@ -169,7 +173,7 @@ function hjRender() {
       h.addEventListener('click', function () {
         var fechar = !sec.classList.contains('fechado');
         sec.classList.toggle('fechado', fechar);
-        if (fechar) HJ.fechados[g.p.k] = true; else delete HJ.fechados[g.p.k];
+        HJ.fechados[g.p.k] = fechar;
         hjGuardar();
       });
       sec.appendChild(h);
