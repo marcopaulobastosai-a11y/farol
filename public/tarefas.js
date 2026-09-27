@@ -46,6 +46,18 @@ function tfSemProva(t){
   return t.tipo === 'pagamento' && t.paid_on && !tfPapel(t, 'comprovativo').length && !tfPapel(t, 'recibo').length;
 }
 function tfTipo(t){ return (t && t.tipo) || 'tarefa'; }
+/* O comprovativo ja chegou e cobre o valor, mas o pagamento ainda nao foi
+   fechado: e o Marco que o fecha, depois de ver se ha algo a apontar. */
+function tfPorFechar(t){
+  return t.tipo === 'pagamento' && !t.paid_on && t.paid_amount != null && Number(t.paid_amount) > 0 &&
+    (t.amount == null || Number(t.paid_amount) >= Number(t.amount) - 0.005);
+}
+/* A data da transferencia, tirada do comprovativo agarrado. */
+function tfDataDoComprovativo(t){
+  var ids = tfPapel(t, 'comprovativo');
+  var docs = ((window.D && D.documents) || []).filter(function(d){ return ids.indexOf(d.id) >= 0 && d.issued_on; });
+  return docs.length ? docs[0].issued_on : null;
+}
 
 var TF_ESTADOS = [['aberta', 'Por iniciar', ''], ['em_curso', 'Em execução', 'accent'], ['a_espera', 'À espera', 'warn']];
 var TF_ESTADOS_FIM = [['concluida', 'Concluída', 'good'], ['cancelada', 'Não farei', '']];
@@ -1080,7 +1092,7 @@ function tfRenderDetalhe(base){
   bData.addEventListener('click', function(e){ e.stopPropagation(); tfPopData(t, bData); });
   top.appendChild(bData);
   if (tfTipo(t) === 'pagamento' && !fechada){
-    var bPagar = el('button', 'btn small primary', t.paid_on ? 'Corrigir pagamento' : 'Pagar');
+    var bPagar = el('button', 'btn small primary', t.paid_on ? 'Corrigir pagamento' : tfPorFechar(t) ? 'Fechar pagamento' : 'Pagar');
     bPagar.type = 'button';
     bPagar.style.marginLeft = '6px';
     bPagar.dataset.tfpop = '1';
@@ -1262,7 +1274,13 @@ function tfRenderDetalhe(base){
     iVal.addEventListener('change', function(){ tfGravar(t.id, { amount: iVal.value }); });
     campo('Valor', iVal);
     /* Pago em parte: ha comprovativos, mas ainda nao somam o valor. */
-    if (!t.paid_on && t.paid_amount != null && Number(t.paid_amount) > 0){
+    if (tfPorFechar(t)){
+      var pf = el('div');
+      pf.appendChild(pill('pago ' + tfEuros(t.paid_amount), 'good'));
+      if (t.payment_method) pf.appendChild(document.createTextNode(' \u00b7 ' + t.payment_method));
+      pf.appendChild(document.createTextNode(' \u00b7 falta fechar'));
+      campo('Comprovativo', pf);
+    } else if (!t.paid_on && t.paid_amount != null && Number(t.paid_amount) > 0){
       var falta = t.amount != null ? Number(t.amount) - Number(t.paid_amount) : null;
       var pp = el('div');
       pp.appendChild(pill('pago ' + tfEuros(t.paid_amount) + (t.amount != null ? ' de ' + tfEuros(t.amount) : ''), 'warn'));
@@ -1786,7 +1804,7 @@ function tfPopPagar(t, ancora){
   }
 
   p.appendChild(el('label', null, 'Pago a'));
-  var iD = el('input'); iD.type = 'date'; iD.value = t.paid_on || tfISO(tfHoje());
+  var iD = el('input'); iD.type = 'date'; iD.value = t.paid_on || tfDataDoComprovativo(t) || tfISO(tfHoje());
   p.appendChild(iD);
 
   p.appendChild(el('label', null, 'Valor'));
