@@ -1853,6 +1853,13 @@ function instalar(app) {
       await query('UPDATE inbox_items SET approved_at = now() WHERE id = $1', [id]);
       console.log('[farol] item', id, 'aprovado:', ligados.map((l) => l.target_type).join(', '),
         pagos.length ? '; pagos: ' + pagos.join(', ') : '');
+      /* Pago de todo: o email a quem se paga sai agora, se o destinatario
+         desse pagamento estiver para enviar sozinho. Uma falha no envio nao
+         desfaz a aprovacao - fica registada e ve-se no pagamento. */
+      for (const pid of pagos.filter((x) => typeof x === 'number')) {
+        try { await require('./emails').aoPagar(pid); }
+        catch (e) { console.warn('[farol] email do pagamento', pid + ':', e.message); }
+      }
       res.json({ ok: true, id, ...(await carregar(req.query.estado || 'catalogado')) });
     } catch (err) {
       console.error('[farol] POST aprovar:', err.message);
@@ -2260,5 +2267,11 @@ function instalar(app) {
 /* pontuarPagamentos sai tambem: e a regra que decide se uma fatura se junta a
    um pagamento que ja existe ou faz nascer um novo, e da para a exercitar
    sozinha contra a base de dados. */
+/* lerFicheiro sai para o envio por email (emails.js) ir buscar os papeis ao
+   bucket onde estao. */
+async function lerFicheiro(store, chave) {
+  return bytes((await ler(store || 'inbox', chave)).Body);
+}
+
 module.exports = { instalar, bucketPronto, arquivoPronto: () => pronto('arquivo'),
-  pontuarPagamentos, pessoaDoPagamento };
+  pontuarPagamentos, pessoaDoPagamento, lerFicheiro };
