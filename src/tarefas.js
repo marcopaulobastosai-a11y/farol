@@ -390,7 +390,15 @@ async function alterar(id, b) {
   const fecha = b.status !== undefined && FECHADAS.includes(b.status);
   if (b.status !== undefined && STATUS.includes(b.status) && !fecha) {
     por('status', b.status); por('done', false); por('completed_at', null);
+    /* Reabrir um pagamento pago e dizer que nao esta pago: sai a data e o
+       valor pago. A despesa que ele tinha criado fica (o dinheiro saiu), so
+       deixa de estar agarrada a ele. */
+    const era = (await all('SELECT done, tipo FROM tasks WHERE id = $1', [id]))[0];
+    if (era && era.done && era.tipo === 'pagamento') {
+      por('paid_on', null); por('paid_amount', null); por('expense_id', null);
+    }
   }
+  if (b.paid_amount !== undefined) por('paid_amount', valor(b.paid_amount));
   if (campos.length) {
     campos.push('updated_at = now()');
     valores.push(id);
@@ -551,7 +559,28 @@ async function pagar(id, b) {
        FROM task_documents td JOIN documents d ON d.id = td.document_id
       WHERE td.task_id = $1 AND td.papel = 'fatura' AND td.valor IS NOT NULL
       ORDER BY d.issued_on NULLS LAST, td.document_id`, [id]) : [];
-  if (b.criar_despesa !== false && pago !== null && faturas.length) {
+  /* Pago em varias transferencias: uma despesa por comprovativo, com o
+     papel dele agarrado (a da Sofia e a da Maria). */
+  const provas = !faturas.length ? await all(
+    `SELECT td.document_id, td.valor::float AS valor
+       FROM task_documents td
+      WHERE td.task_id = $1 AND td.papel = 'comprovativo' AND td.valor IS NOT NULL
+      ORDER BY td.document_id`, [id]) : [];
+  if (b.criar_despesa !== false && pago !== null && provas.length) {
+    const pessoa = limpar(b.person_id) || t.owner_id;
+    const partes = provas.map((f) => ({ v: f.valor, doc: f.document_id }));
+    const soma = provas.reduce((s, f) => s + f.valor, 0);
+    if (pago - soma > 0.005) partes.push({ v: Math.round((pago - soma) * 100) / 100, doc: null });
+    for (const p of partes) {
+      const linhas = await all(
+        `INSERT INTO expenses (description, amount, spent_on, merchant, category, person_id,
+                               project_id, context_id, note, document_id, origin, aprovado)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'real',TRUE) RETURNING id`,
+        [t.title, p.v, quando, limpar(t.payee), limpar(b.category), pessoa,
+         t.project_id, t.context_id, limpar(b.note), p.doc]);
+      if (!despesaId) despesaId = linhas[0].id;
+    }
+  } else if (b.criar_despesa !== false && pago !== null && faturas.length) {
     const pessoa = limpar(b.person_id) || t.owner_id;
     const partes = faturas.map((f) => ({ d: f.name || t.title, v: f.valor, m: f.entity || t.payee, doc: f.document_id }));
     const soma = faturas.reduce((s, f) => s + f.valor, 0);
