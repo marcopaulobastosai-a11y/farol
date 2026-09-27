@@ -42,7 +42,28 @@ var HJ_CSS =
   '#attnList .hj-box .tf-box{margin-top:0}' +
   '#attnList .hj-sem{flex:none;width:17px}' +
   '#attnList article.hj-feito{opacity:.45}' +
-  '#attnList article.hj-feito h4{text-decoration:line-through}';
+  '#attnList article.hj-feito h4{text-decoration:line-through}' +
+  /* A Agenda da semana */
+  '#agendaHoje.hj-ag li{display:flex;align-items:center;gap:10px;padding:6px 0;border-top:none}' +
+  '#agendaHoje.hj-ag li.hj-dia{font-family:var(--mono);font-size:.6875rem;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);padding:12px 0 4px;border-bottom:1px solid var(--line-soft);margin-bottom:2px}' +
+  '#agendaHoje.hj-ag li.hj-dia:first-child{padding-top:2px}' +
+  '#agendaHoje.hj-ag li.hj-dia.hoje{color:var(--accent-ink);font-weight:600}' +
+  '#agendaHoje.hj-ag li.hj-dia .hj-livre{margin-left:auto;text-transform:none;letter-spacing:0;font-family:var(--sans);color:var(--faint)}' +
+  '#agendaHoje.hj-ag li.hj-it{cursor:default}' +
+  '#agendaHoje.hj-ag li.hj-it.clica{cursor:pointer;border-radius:8px}' +
+  '#agendaHoje.hj-ag li.hj-it.clica:hover{background:var(--surface-2)}' +
+  '#agendaHoje.hj-ag time{width:40px;font-size:.6875rem;padding:0;color:var(--muted)}' +
+  '#agendaHoje.hj-ag .body{min-width:0;flex:1}' +
+  '#agendaHoje.hj-ag .body b{display:block;font-size:.8125rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
+  '#agendaHoje.hj-ag .who{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
+  '#agendaHoje.hj-ag .hj-ico{width:20px;height:20px}' +
+  '#agendaHoje.hj-ag .hj-ico.ev{color:var(--accent-ink)}' +
+  '#agendaHoje.hj-ag .hj-ico.nota{color:#8a7a4f}' +
+  '#agendaHoje.hj-ag .hj-cor{width:6px;height:6px;border-radius:50%;flex:none}' +
+  /* Os dias que ja passaram ficam a cinzento: riscar diria «feito», e um
+     evento nao se faz, acontece. */
+  '#agendaHoje.hj-ag li.passado{opacity:.45}' +
+  '#agendaHoje.hj-ag li.passado .hj-ico{filter:grayscale(1)}';
 
 function hjSvg(d, w) {
   return '<svg width="' + w + '" height="' + w + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
@@ -55,7 +76,9 @@ var HJ_I = {
   aniversario: '<path d="M4 21h16"/><path d="M5 21v-7a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v7"/><path d="M5 16c1.5 1 2.5 1 4 0s2.5-1 4 0 2.5 1 4 0"/><path d="M12 12V8"/><path d="M12 5.5c.8-.8.8-1.7 0-2.5-.8.8-.8 1.7 0 2.5z"/>',
   documento: '<path d="M6 3h8l5 5v13H6z"/><path d="M14 3v5h5"/><path d="M9 13h6"/><path d="M9 17h4"/>',
   pessoa: '<rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="11" r="2.2"/><path d="M5.8 16c.6-1.6 1.8-2.4 3.2-2.4s2.6.8 3.2 2.4"/><path d="M15 10h3M15 13h3"/>',
-  seta: '<path d="M6 9l6 6 6-6"/>'
+  seta: '<path d="M6 9l6 6 6-6"/>',
+  evento: '<rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/>',
+  nota: '<path d="M5 4h10l4 4v12H5z"/><path d="M15 4v4h4"/><path d="M8 12h8M8 16h5"/>'
 };
 
 function hjEstilo() {
@@ -143,11 +166,24 @@ function hjRender() {
   var list = $('attnList');
   if (!list || !window.D || !D.attention) return;
   hjEstilo();
-  var itens = (D.attention || []).map(function (a) {
+  /* O que nao se faz - lembretes e aniversarios - vive na Agenda, nao aqui. */
+  var itens = (D.attention || []).filter(function (a) {
+    if (a.origem !== 'tarefa') return true;
+    var t = hjTarefa(a.id);
+    return !(t && t.tipo === 'lembrete');
+  }).map(function (a) {
     var n = diasAte(a.quando);
     return { a: a, dias: n, u: urgencia(n, a.origem) };
   });
-  if (!itens.length) return;           // o renderHoje ja escreveu a frase do vazio
+  var atras = itens.filter(function (x) { return x.dias !== null && x.dias < 0; }).length;
+  var lab = $('attnLabel');
+  if (lab) lab.textContent = 'Precisa de ti \u00b7 ' + (itens.length - atras) + ' a chegar' + (atras ? ' \u00b7 ' + atras + ' em atraso' : '');
+  var bh = $('badgeHoje'); if (bh) bh.textContent = itens.length || '';
+  if (!itens.length) {
+    clear(list);
+    list.appendChild(el('p', 'empty', 'Nada com prazo a chegar. O que tiver prazo aparece aqui sozinho.'));
+    return;
+  }
 
   var qual = hjPeriodos();
   var grupos = {};
@@ -186,11 +222,89 @@ function hjRender() {
     });
 }
 
+/* ------------------------------------------------------------------ *
+ * A Agenda da semana
+ *
+ * O cartao da direita mostrava so os eventos de hoje e passava a maior parte
+ * dos dias vazio. Passa a ser o sitio do que nao se faz: eventos,
+ * aniversarios, lembretes e notas com data, da segunda ao domingo da semana
+ * em que se esta. Os dias que ja passaram ficam a cinzento.
+ * ------------------------------------------------------------------ */
+function hjIso(d) {
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+function hjAgenda() {
+  var ul = $('agendaHoje');
+  if (!ul || !window.D) return;
+  hjEstilo();
+  var h = hjDia(new Date());
+  var seg = new Date(h.getFullYear(), h.getMonth(), h.getDate() - (h.getDay() + 6) % 7);
+  var dias = [];
+  for (var i = 0; i < 7; i++) dias.push(new Date(seg.getFullYear(), seg.getMonth(), seg.getDate() + i));
+  var de = hjIso(dias[0]), ate = hjIso(dias[6]), hoje = hjIso(h);
+
+  var itens = [];
+  (D.events || []).forEach(function (e) {
+    if (e.day < de || e.day > ate) return;
+    var aniv = e.calendar === 'aniversarios';
+    itens.push({ dia: e.day, hora: e.at || '', titulo: e.title, sub: e.detail || (aniv ? 'Anivers\u00e1rio' : calName(e.calendar)),
+      tipo: aniv ? 'aniversario' : 'evento', ctx: e.context_id });
+  });
+  ((window.G && G.tasks) || []).forEach(function (t) {
+    if (t.parent_id || !t.due_on || t.due_on < de || t.due_on > ate) return;
+    if (t.tipo !== 'lembrete' && t.tipo !== 'nota') return;
+    if (t.status === 'cancelada') return;
+    var tipo = t.tipo === 'nota' ? 'nota' : (/YEARLY/.test(t.repeat_rule || '') ? 'aniversario' : 'lembrete');
+    itens.push({ dia: t.due_on, hora: t.due_time || '', titulo: t.title,
+      sub: (typeof areaNome === 'function' ? areaNome(t.context_id) : '') || HJ_NOMES[tipo] || 'Nota',
+      tipo: tipo, ctx: t.context_id, tarefa: t });
+  });
+  itens.sort(function (a, b) { return a.dia === b.dia ? String(a.hora).localeCompare(String(b.hora)) : (a.dia < b.dia ? -1 : 1); });
+
+  clear(ul);
+  ul.classList.add('hj-ag');
+  dias.forEach(function (d) {
+    var iso = hjIso(d);
+    var doDia = itens.filter(function (x) { return x.dia === iso; });
+    var passado = iso < hoje;
+    var cab = el('li', 'hj-dia' + (iso === hoje ? ' hoje' : '') + (passado ? ' passado' : ''));
+    cab.appendChild(el('span', null, (iso === hoje ? 'Hoje \u00b7 ' : '') + DIAS[(d.getDay() + 6) % 7] + ' ' + d.getDate()));
+    if (!doDia.length) cab.appendChild(el('span', 'hj-livre', 'nada marcado'));
+    ul.appendChild(cab);
+    doDia.forEach(function (x) {
+      var li = el('li', 'hj-it' + (passado ? ' passado' : '') + (x.tarefa ? ' clica' : ''));
+      li.appendChild(el('time', null, x.hora || ''));
+      var ico = el('span', 'hj-ico ' + ({ evento: 'ev', aniversario: 'ani', lembrete: 'lem', nota: 'nota' })[x.tipo]);
+      ico.innerHTML = hjSvg(HJ_I[x.tipo], 13);
+      ico.title = x.tipo === 'evento' ? 'Evento' : x.tipo === 'nota' ? 'Nota' : HJ_NOMES[x.tipo];
+      li.appendChild(ico);
+      var body = el('div', 'body');
+      body.appendChild(el('b', null, x.titulo));
+      if (x.sub) body.appendChild(el('span', 'who', x.sub));
+      li.appendChild(body);
+      var cor = x.ctx && typeof arCorDe === 'function' ? arCorDe(x.ctx) : null;
+      if (cor) { var p = el('span', 'hj-cor'); p.style.background = cor; li.appendChild(p); }
+      if (x.tarefa && typeof avAbrir === 'function') {
+        li.addEventListener('click', function () {
+          avAbrir({ origem: 'tarefa', id: x.tarefa.id, quando: x.tarefa.due_on, title: x.titulo, detail: x.sub });
+        });
+      }
+      ul.appendChild(li);
+    });
+  });
+  var h3 = ul.parentNode && ul.parentNode.querySelector('header h3');
+  if (h3) h3.textContent = 'Agenda da semana';
+  var rot = $('agendaDayLabel');
+  if (rot) rot.textContent = dias[0].getDate() + ' ' + MESES[dias[0].getMonth()].slice(0, 3) + ' \u2013 ' +
+    dias[6].getDate() + ' ' + MESES[dias[6].getMonth()].slice(0, 3);
+}
+
 if (typeof renderHoje === 'function') {
   var _hjRenderHoje = renderHoje;
   renderHoje = function () {
     _hjRenderHoje();
     try { hjRender(); } catch (e) { console.error('[farol] hoje por periodos', e); }
+    try { hjAgenda(); } catch (e) { console.error('[farol] agenda da semana', e); }
   };
 }
 
@@ -202,8 +316,11 @@ if (typeof renderGestao === 'function') {
     _hjRenderGestao();
     if (HJ.pendente && typeof load === 'function') { HJ.pendente = false; load(); }
     /* As caixinhas precisam das tarefas: quando chegam, o Hoje ganha-as. */
-    else if (window.D && D.attention && !document.querySelector('#attnList .hj-box')) {
+    else if (window.D && D.attention) {
+      /* As tarefas chegaram ou mudaram: as caixinhas, os lembretes que saem
+         da lista e a Agenda dependem delas. */
       try { hjRender(); } catch (e) { console.error('[farol] hoje por periodos', e); }
+      try { hjAgenda(); } catch (e) { console.error('[farol] agenda da semana', e); }
     }
   };
 }
