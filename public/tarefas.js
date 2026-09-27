@@ -1254,6 +1254,14 @@ function tfRenderDetalhe(base){
     iVal.placeholder = '0,00';
     iVal.addEventListener('change', function(){ tfGravar(t.id, { amount: iVal.value }); });
     campo('Valor', iVal);
+    /* Pago em parte: ha comprovativos, mas ainda nao somam o valor. */
+    if (!t.paid_on && t.paid_amount != null && Number(t.paid_amount) > 0){
+      var falta = t.amount != null ? Number(t.amount) - Number(t.paid_amount) : null;
+      var pp = el('div');
+      pp.appendChild(pill('pago ' + tfEuros(t.paid_amount) + (t.amount != null ? ' de ' + tfEuros(t.amount) : ''), 'warn'));
+      if (falta !== null && falta > 0.005) pp.appendChild(document.createTextNode(' falta ' + tfEuros(falta)));
+      campo('Pago em parte', pp);
+    }
 
     var iQuem = el('input'); iQuem.type = 'text'; iQuem.value = t.payee || ''; iQuem.placeholder = 'a quem se paga';
     iQuem.addEventListener('change', function(){ tfGravar(t.id, { payee: iQuem.value.trim() || null }); });
