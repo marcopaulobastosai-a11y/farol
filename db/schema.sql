@@ -942,3 +942,19 @@ ALTER TABLE inbox_links ADD COLUMN IF NOT EXISTS antes JSONB;
 -- da area de cima. NULL e sem cor.
 -- ---------------------------------------------------------------------------
 ALTER TABLE contexts ADD COLUMN IF NOT EXISTS color TEXT;
+
+-- ---------------------------------------------------------------------------
+-- Um pagamento que junta faturas de outros (27 set)
+--
+-- As contas da casa arrendada (EDP, Vodafone, SMAS) sao pagas ao senhorio,
+-- todas juntas, numa transferencia por mes. A fatura de cada uma nao e um
+-- pagamento proprio: e um papel do pagamento ao senhorio. junta_faturas diz
+-- de quem sao as faturas que la caem («EDP, Vodafone, SMAS»); a caixa de
+-- entrada junta-as sozinha, e o valor do pagamento e a soma delas.
+--
+-- task_documents.valor e quanto aquela fatura pesa naquele pagamento. Ao
+-- pagar, cada fatura da uma despesa em nome de quem a emitiu - as Despesas
+-- continuam a mostrar a luz, a internet e a agua, e nao «senhorio».
+-- ---------------------------------------------------------------------------
+ALTER TABLE tasks          ADD COLUMN IF NOT EXISTS junta_faturas TEXT;
+ALTER TABLE task_documents ADD COLUMN IF NOT EXISTS valor NUMERIC(10,2);
