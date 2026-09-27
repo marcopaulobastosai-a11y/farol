@@ -131,6 +131,13 @@ var TF_CSS = [
   ".tf-titulo:focus,.tf-notas:focus{outline:0}",
   ".tf-notas{width:100%;font:inherit;font-size:.8125rem;line-height:1.55;color:var(--ink-2);border:0;background:none;resize:none;padding:4px 0;min-height:2.4em;white-space:pre-wrap}",
   ".tf-sec{margin-top:14px}",
+  ".tf-junta{display:flex;flex-direction:column;gap:4px;font-size:.8125rem}",
+  ".tf-junta > div{display:grid;grid-template-columns:minmax(0,1fr) 92px;gap:8px;align-items:center;padding:4px 0;border-bottom:1px dashed var(--line-soft)}",
+  ".tf-junta small{display:block;color:var(--muted);font-size:.72rem}",
+  ".tf-junta input{font:inherit;font-size:.8125rem;text-align:right;background:var(--surface-2);border:1px solid var(--line);border-radius:7px;padding:4px 7px;width:100%}",
+  ".tf-junta .tot{border-bottom:0;font-weight:600}",
+  ".tf-junta .tot b{text-align:right;font-family:var(--mono);font-weight:500}",
+  ".tf-junta p{color:var(--muted);font-size:.75rem;margin:0}",
   ".tf-sec > .tf-lbl{font-family:var(--mono);font-size:var(--fs-mono);letter-spacing:.07em;text-transform:uppercase;color:var(--faint);margin-bottom:6px;display:flex;gap:6px;align-items:center}",
   ".tf-it{display:flex;align-items:center;gap:8px;padding:3px 0}",
   ".tf-it input[type=text]{flex:1;min-width:0;font:inherit;font-size:.8125rem;border:0;background:none;color:var(--ink);padding:3px 0}",
@@ -1179,6 +1186,43 @@ function tfRenderDetalhe(base){
   sd.appendChild(axBloco(t));
   det.appendChild(sd);
 
+  /* Um pagamento que junta faturas (o do senhorio): cada fatura com o seu
+     valor, e o total e o que se transfere. O valor vem da fatura quando ela
+     entra pela caixa; uma ligada a mao escreve-se aqui. */
+  if (tfTipo(t) === 'pagamento' && t.junta_faturas){
+    var sj = el('div', 'tf-sec');
+    var fats = (t.papeis || []).filter(function(x){ return x.papel === 'fatura'; });
+    sj.appendChild(el('div', 'tf-lbl', 'Faturas juntas' + (fats.length ? ' \u00b7 ' + fats.length : '')));
+    var bj = el('div', 'tf-junta');
+    if (!fats.length) bj.appendChild(el('p', null, 'Ainda n\u00e3o chegou nenhuma fatura de ' + t.junta_faturas + '.'));
+    var soma = 0;
+    fats.forEach(function(x){
+      var d = ((window.D && D.documents) || []).filter(function(dd){ return dd.id === x.id; })[0];
+      var lin = el('div');
+      var nome = el('span', null, d ? d.name : 'documento ' + x.id);
+      if (d && d.entity) nome.appendChild(el('small', null, d.entity));
+      lin.appendChild(nome);
+      var iv = el('input'); iv.type = 'text';
+      iv.value = x.valor != null ? String(x.valor).replace('.', ',') : '';
+      iv.placeholder = 'valor';
+      iv.addEventListener('change', function(){
+        var o = {}; o[x.id] = iv.value.trim() || null;
+        tfGravar(t.id, { valores: o });
+      });
+      lin.appendChild(iv);
+      bj.appendChild(lin);
+      if (x.valor != null) soma += Number(x.valor);
+    });
+    if (fats.length){
+      var tot = el('div', 'tot');
+      tot.appendChild(el('span', null, 'A transferir'));
+      tot.appendChild(el('b', null, tfEuros(soma)));
+      bj.appendChild(tot);
+    }
+    sj.appendChild(bj);
+    det.appendChild(sj);
+  }
+
   // campos
   var sc = el('div', 'tf-sec');
   sc.appendChild(el('div', 'tf-lbl', 'Detalhes'));
@@ -1219,6 +1263,12 @@ function tfRenderDetalhe(base){
     iRef.placeholder = 'IBAN, entidade e referência…';
     iRef.addEventListener('change', function(){ tfGravar(t.id, { payment_ref: iRef.value.trim() || null }); });
     campo('Referência', iRef);
+
+    var iJunta = el('input'); iJunta.type = 'text'; iJunta.value = t.junta_faturas || '';
+    iJunta.placeholder = 'ex.: EDP, Vodafone, SMAS';
+    iJunta.title = 'As faturas destas entidades juntam-se a este pagamento em vez de criarem pagamentos novos';
+    iJunta.addEventListener('change', function(){ tfGravar(t.id, { junta_faturas: iJunta.value.trim() || null }); });
+    campo('Junta faturas de', iJunta);
 
     if (t.paid_on){
       var pago = el('div');
