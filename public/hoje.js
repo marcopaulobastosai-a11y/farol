@@ -64,7 +64,16 @@ var HJ_CSS =
      evento nao se faz, acontece. */
   '#agendaHoje.hj-ag li.hj-sem-sep{font-family:var(--serif);font-size:.95rem;color:var(--ink);padding:18px 0 2px}' +
     '#agendaHoje.hj-ag li.passado{opacity:.45}' +
-  '#agendaHoje.hj-ag li.passado .hj-ico{filter:grayscale(1)}';
+  '#agendaHoje.hj-ag li.passado .hj-ico{filter:grayscale(1)}' +
+  /* O Estado das areas compacto: numero a esquerda, nome e nota ao lado,
+     sem o titulo do cartao. Metade da altura, os mesmos cinco numeros. */
+  '#view-hoje > .card:first-child{padding:10px 12px;margin-bottom:12px !important}' +
+  '#view-hoje > .card:first-child > header{display:none}' +
+  '#view-hoje .tiles{gap:8px;grid-template-columns:repeat(auto-fit,minmax(170px,1fr))}' +
+  '#view-hoje .tile{display:grid;grid-template-columns:auto 1fr;column-gap:12px;align-items:center;padding:8px 12px;box-shadow:none}' +
+  '#view-hoje .tile .v{grid-row:1 / span 2;grid-column:1;font-size:1.6rem;margin:0;line-height:1}' +
+  '#view-hoje .tile .k{grid-column:2;font-size:.78rem;color:var(--ink-2)}' +
+  '#view-hoje .tile .n{grid-column:2;font-size:.6875rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}';
 
 function hjSvg(d, w) {
   return '<svg width="' + w + '" height="' + w + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
