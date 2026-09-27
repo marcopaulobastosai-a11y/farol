@@ -503,8 +503,17 @@ function tfOrdenar(a, b){
   return (a.sort_order || 0) - (b.sort_order || 0);
 }
 
+/* Os grupos por prazo sao os mesmos do Hoje e dos ecras das areas - a mesma
+   funcao, o hjPeriodos, para nao haver tres maneiras de arrumar as mesmas
+   tarefas. O que passa do mes corrente junta-se todo em «Mais tarde». */
 function tfBalde(t){
   if (!t.due_on) return 'semdata';
+  if (typeof hjPeriodos === 'function'){
+    var p = TF_QUANDO(t.due_on);
+    if (p.ordem >= 10) return 'depois';
+    return p.k === 'atraso' ? 'atrasadas' : p.k;
+  }
+  /* Sem o Hoje carregado, o que havia antes. */
   var h = tfISO(tfHoje());
   if (t.due_on < h) return 'atrasadas';
   if (t.due_on === h) return 'hoje';
@@ -512,13 +521,28 @@ function tfBalde(t){
   if (t.due_on <= tfISO(tfMais(tfHoje(), 7))) return 'semana';
   return 'depois';
 }
-var TF_BALDES = [['atrasadas', 'Atrasadas'], ['hoje', 'Hoje'], ['amanha', 'Amanhã'], ['semana', 'Próximos 7 dias'],
+/* O hjPeriodos calcula os limites da semana e do mes uma vez; aqui guarda-se
+   essa funcao e refaz-se quando o dia muda. */
+var TF_QUANDO = (function(){
+  var dia = null, f = null;
+  return function(iso){
+    var hoje = tfISO(tfHoje());
+    if (dia !== hoje){ dia = hoje; f = hjPeriodos(); }
+    return f(iso);
+  };
+})();
+var TF_BALDES = [['atrasadas', 'Em atraso'], ['hoje', 'Hoje'], ['amanha', 'Amanhã'],
+                 ['semana', 'Esta semana'], ['proxima', 'Próxima semana'], ['mes', 'Este mês'],
                  ['depois', 'Mais tarde'], ['semdata', 'Sem data']];
 var TF_BALDES_LEMBRETE = [['atrasadas', 'Já passaram'], ['hoje', 'Hoje'], ['amanha', 'Amanhã'],
-                          ['semana', 'Próximos 7 dias'], ['depois', 'Mais tarde'], ['semdata', 'Sem data']];
+                          ['semana', 'Esta semana'], ['proxima', 'Próxima semana'], ['mes', 'Este mês'],
+                          ['depois', 'Mais tarde'], ['semdata', 'Sem data']];
 var TF_BALDES_NOTA = [['atrasadas', 'Para rever'], ['hoje', 'Para rever hoje'], ['amanha', 'Amanhã'],
-                      ['semana', 'A rever nos próximos 7 dias'], ['depois', 'A rever mais tarde'],
+                      ['semana', 'A rever esta semana'], ['proxima', 'A rever na próxima semana'],
+                      ['mes', 'A rever este mês'], ['depois', 'A rever mais tarde'],
                       ['semdata', 'Sem data de revisão']];
+/* «Mais tarde» comeca recolhido: e o que nao e para agora. */
+var TF_FECHADO_INICIO = { depois: true };
 
 function tfGrupos(lista, v){
   if (v.indexOf('proj:') === 0){
@@ -820,12 +844,17 @@ function tfRenderLista(){
 
   tfGrupos(raizes, v).forEach(function(gr){
     var chave = v + '|' + gr[0];
-    var grp = el('div', 'tf-grp' + (gr[0] === 'atrasadas' && TF.tipo === 'tarefa' ? ' late' : '') + (TF.fechados[chave] ? ' fechado' : ''));
+    var fechado = TF.fechados[chave] !== undefined ? Boolean(TF.fechados[chave]) : Boolean(TF_FECHADO_INICIO[gr[0]]);
+    var grp = el('div', 'tf-grp' + (gr[0] === 'atrasadas' && TF.tipo === 'tarefa' ? ' late' : '') + (fechado ? ' fechado' : ''));
     var h = el('h4');
     h.appendChild(tfIcone('seta', 12));
     h.appendChild(document.createTextNode(gr[1]));
     h.appendChild(el('span', null, String(gr[2].length)));
-    h.addEventListener('click', function(){ TF.fechados[chave] = !TF.fechados[chave]; grp.classList.toggle('fechado'); });
+    h.addEventListener('click', function(){
+      fechado = !fechado;
+      TF.fechados[chave] = fechado;
+      grp.classList.toggle('fechado', fechado);
+    });
     grp.appendChild(h);
     var rows = el('div', 'tf-rows');
     gr[2].forEach(function(t){
