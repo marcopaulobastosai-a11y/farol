@@ -211,6 +211,7 @@ function hjRender() {
         sec.classList.toggle('fechado', fechar);
         HJ.fechados[g.p.k] = fechar;
         hjGuardar();
+        hjAlinhar();
       });
       sec.appendChild(h);
       var box = el('div', 'attn');
@@ -299,12 +300,41 @@ function hjAgenda() {
     dias[6].getDate() + ' ' + MESES[dias[6].getMonth()].slice(0, 3);
 }
 
+/* A Agenda comeca a altura da primeira caixa que se ve a esquerda (e nao do
+   rotulo «Precisa de ti» nem do titulo do periodo): as duas colunas ficam com
+   o topo na mesma linha. Mede-se depois de desenhar e quando algo abre ou
+   fecha, porque o que se ve primeiro muda. */
+function hjAlinhar() {
+  var ag = $('agendaHoje');
+  var dir = ag && ag.closest('.stack');
+  var esq = dir && dir.parentNode ? dir.parentNode.firstElementChild : null;
+  if (!dir || !esq || esq === dir) return;
+  dir.style.marginTop = '';
+  /* Numa coluna so (ecra estreito) nao ha nada a alinhar. */
+  if (Math.abs(dir.getBoundingClientRect().top - esq.getBoundingClientRect().top) > 4) return;
+  var alvo = null;
+  document.querySelectorAll('#attnList .hj-per').forEach(function (s) {
+    if (alvo) return;
+    alvo = s.classList.contains('fechado') ? null : s.querySelector('.attn > article');
+  });
+  if (!alvo) alvo = document.querySelector('#attnList .hj-per > h4') || $('attnList');
+  var dy = alvo.getBoundingClientRect().top - esq.getBoundingClientRect().top;
+  if (dy > 0) dir.style.marginTop = Math.round(dy) + 'px';
+}
+window.addEventListener('resize', function () { try { hjAlinhar(); } catch (e) {} });
+/* Com o ecra escondido nao ha nada para medir: alinha-se quando se volta a ele. */
+if (typeof show === 'function') {
+  var _hjShow = show;
+  show = function (v) { _hjShow(v); if (v === 'hoje') setTimeout(function () { try { hjAlinhar(); } catch (e) {} }, 0); };
+}
+
 if (typeof renderHoje === 'function') {
   var _hjRenderHoje = renderHoje;
   renderHoje = function () {
     _hjRenderHoje();
     try { hjRender(); } catch (e) { console.error('[farol] hoje por periodos', e); }
     try { hjAgenda(); } catch (e) { console.error('[farol] agenda da semana', e); }
+    hjAlinhar();
   };
 }
 
@@ -321,6 +351,7 @@ if (typeof renderGestao === 'function') {
          da lista e a Agenda dependem delas. */
       try { hjRender(); } catch (e) { console.error('[farol] hoje por periodos', e); }
       try { hjAgenda(); } catch (e) { console.error('[farol] agenda da semana', e); }
+      hjAlinhar();
     }
   };
 }
