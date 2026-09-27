@@ -102,15 +102,17 @@
 
     <!-- HOJE -->
     <section class="view is-active" id="view-hoje">
+      <!-- Os numeros das areas sao o resumo do dia: vem antes de tudo, a
+           largura toda. -->
+      <div class="card" style="margin-bottom:14px">
+        <header><h3>Estado das áreas</h3><span class="mono" id="tilesStamp"></span></header>
+        <div class="tiles" id="tiles"></div>
+      </div>
       <div class="grid split">
         <div class="stack">
           <div>
             <div class="mono" style="margin-bottom:8px" id="attnLabel">Precisa de ti</div>
             <div class="attn" id="attnList"></div>
-          </div>
-          <div class="card">
-            <header><h3>Estado das áreas</h3><span class="mono" id="tilesStamp"></span></header>
-            <div class="tiles" id="tiles"></div>
           </div>
         </div>
         <div class="stack">
