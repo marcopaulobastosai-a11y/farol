@@ -658,12 +658,6 @@ function instalar(app, { carregarGestao, quem, ehAdmin }) {
       const id = Number(req.params.id);
       const ok = await pagar(id, req.body || {});
       if (!ok) return res.status(404).json({ error: 'Pagamento não encontrado.' });
-      /* Pago de todo: o email a quem se paga sai agora, se o destinatario
-         estiver para enviar sozinho. Vinha da aprovacao de um comprovativo na
-         caixa; desde 27 set quem fecha e o Marco, aqui. Uma falha no envio
-         nao desfaz o pagamento. */
-      try { await require('./emails').aoPagar(id); }
-      catch (e) { console.warn('[farol] email do pagamento', id + ':', e.message); }
       res.json(await carregarGestao());
     } catch (err) { falha(res, err, 'POST pagar'); }
   });
