@@ -912,34 +912,17 @@ async function pagarComComprovativo(id) {
     const provado = Number(((await all(
       `SELECT sum(valor)::float AS s FROM task_documents WHERE task_id = $1 AND papel = 'comprovativo'`,
       [t.id]))[0] || {}).s || 0);
-    /* Nao chega: o pagamento fica em execucao, com o que ja foi pago, e so
-       fecha quando os comprovativos somarem o valor dele (27 set: um
-       comprovativo de 50 EUR fechou as poupancas de 100 EUR da Sofia e da
-       Maria). */
-    if (t.amount !== null && provado > 0 && provado < t.amount - 0.005) {
-      await query(
-        `UPDATE tasks SET paid_amount = $2, status = 'em_curso',
-                payment_method = COALESCE(payment_method, $3), updated_at = now() WHERE id = $1`,
-        [t.id, provado, d.payment_method || 'transfer\u00eancia']);
-      pagos.push(t.id + ' (parte)');
-      continue;
-    }
-    await pagar(t.id, {
-      paid_on: d.paid_on || null,
-      paid_amount: provado > 0 ? provado : (d.amount === undefined ? null : d.amount),
-      payment_method: d.payment_method || 'transfer\u00eancia'
-    });
-    /* Num recorrente, a vez paga e uma linha nova (series_id) e a fatura e o
-       comprovativo foram com ela: as ligacoes da caixa vao atras. */
-    if (t.repeat_rule) {
-      const vez = (await all(
-        'SELECT id FROM tasks WHERE series_id = $1 ORDER BY id DESC LIMIT 1', [t.id]))[0];
-      if (vez) {
-        await query(
-          `UPDATE inbox_links SET target_id = $2 WHERE target_type = 'pagamento' AND target_id = $1`,
-          [t.id, vez.id]);
-      }
-    }
+    /* O comprovativo diz que o dinheiro saiu, mas quem fecha o pagamento e o
+       Marco, nas Tarefas: pode haver alguma coisa a apontar antes (27 set).
+       Aqui fica so o que ja foi pago e como; a data, a despesa, o email a
+       quem se paga e a vez seguinte de um recorrente acontecem quando ele
+       carregar em «Pagar». */
+    await query(
+      `UPDATE tasks SET paid_amount = $2, payment_method = COALESCE(payment_method, $3),
+              status = CASE WHEN status = 'aberta' THEN 'em_curso' ELSE status END, updated_at = now()
+        WHERE id = $1`,
+      [t.id, provado > 0 ? provado : (d.amount === undefined ? null : d.amount),
+       d.payment_method || 'transfer\u00eancia']);
     pagos.push(t.id);
   }
   return pagos;
@@ -1884,21 +1867,12 @@ function instalar(app) {
           await query('UPDATE ' + tabela + ' SET aprovado = TRUE WHERE id = $1', [l.target_id]);
         }
       }
-      /* Um comprovativo aprovado e um pagamento feito: fica pago com a data e
-         o valor da transferencia, a despesa escreve-se sozinha, e um pagamento
-         recorrente passa a vez seguinte (o que se pagou fica no historico com
-         a fatura e o comprovativo). */
+      /* Um comprovativo aprovado fica no pagamento que prova, com o valor que
+         pagou. Fechar o pagamento e com o Marco, nas Tarefas. */
       const pagos = await pagarComComprovativo(id);
       await query('UPDATE inbox_items SET approved_at = now() WHERE id = $1', [id]);
       console.log('[farol] item', id, 'aprovado:', ligados.map((l) => l.target_type).join(', '),
-        pagos.length ? '; pagos: ' + pagos.join(', ') : '');
-      /* Pago de todo: o email a quem se paga sai agora, se o destinatario
-         desse pagamento estiver para enviar sozinho. Uma falha no envio nao
-         desfaz a aprovacao - fica registada e ve-se no pagamento. */
-      for (const pid of pagos.filter((x) => typeof x === 'number')) {
-        try { await require('./emails').aoPagar(pid); }
-        catch (e) { console.warn('[farol] email do pagamento', pid + ':', e.message); }
-      }
+        pagos.length ? '; comprovados: ' + pagos.join(', ') : '');
       res.json({ ok: true, id, ...(await carregar(req.query.estado || 'catalogado')) });
     } catch (err) {
       console.error('[farol] POST aprovar:', err.message);
