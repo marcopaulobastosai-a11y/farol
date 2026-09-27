@@ -1005,7 +1005,7 @@ function aeLinhaProjeto(p, tudo){
 var AE_GRUPOS = [
   ['atraso', 'Em atraso', 'bad'], ['hoje', 'Hoje', 'acc'], ['amanha', 'Amanh\u00e3', 'acc'],
   ['semana', 'Esta semana', ''], ['proxima', 'Pr\u00f3xima semana', ''], ['mes', 'Este m\u00eas', ''],
-  ['tarde', 'Mais tarde', ''], ['semdata', 'Sem prazo', '']
+  ['tarde', 'Mais tarde', ''], ['semdata', 'Sem data', '']
 ];
 
 function aeAgrupar(lista){
