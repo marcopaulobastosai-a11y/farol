@@ -39,7 +39,16 @@ var AR_CSS =
   '.ar-cores button.sem{background:repeating-linear-gradient(45deg,transparent 0 4px,var(--line) 4px 5px)}' +
   '.ar-dlgc .ar-cores input[type=color]{width:34px;height:30px;padding:2px;border-radius:7px;cursor:pointer}' +
   '.ar-dlgc .ar-cores small{font-size:.72rem;color:var(--muted)}' +
-  '.attn article.ar-tinta{background:color-mix(in srgb, var(--ar-cor) 13%, var(--surface));border-color:color-mix(in srgb, var(--ar-cor) 35%, var(--line))}';
+  '.attn article.ar-tinta{background:color-mix(in srgb, var(--ar-cor) 20%, var(--surface));border-color:color-mix(in srgb, var(--ar-cor) 45%, var(--line))}' +
+  /* O Hoje em branco, para os cartoes com a cor da area se lerem. */
+  'body:has(#view-hoje.is-active){background:var(--surface)}' +
+  'body:has(#view-hoje.is-active) .topbar{background:color-mix(in srgb, var(--surface) 88%, transparent)}' +
+  /* A amostra da cor na lista e um botao: muda-se a cor ali mesmo. */
+  '#view-areas button.ar-cor{cursor:pointer;width:20px;height:20px;border-radius:6px;padding:0}' +
+  '#view-areas button.ar-cor:hover{outline:2px solid var(--accent);outline-offset:2px}' +
+  '.ar-pop{position:fixed;z-index:60;background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:0 12px 32px rgba(15,23,32,.2);padding:10px 12px;display:flex;flex-direction:column;gap:8px}' +
+  '.ar-pop b{font-size:.8125rem}' +
+  '.ar-pop input[type=color]{width:34px;height:30px;padding:2px;border:1px solid var(--line);border-radius:7px;cursor:pointer;background:var(--surface)}';
 
 /* Cores a mao, para nao ter de escolher num circulo de cores. Sao fundos: a
    percentagem baixa com que pintam os cartoes do Hoje (13%) chega para as
@@ -137,9 +146,11 @@ function arRender() {
   clear(box);
   AR.linhas.forEach(function (c) {
     var w = el('div', 'ar-linha' + (c.parent_id ? ' ar-sub' : '') + (c.active ? '' : ' ar-off'));
-    var sw = el('span', 'ar-cor' + (c.color ? '' : ' vazia'));
+    var sw = el('button', 'ar-cor' + (c.color ? '' : ' vazia'));
+    sw.type = 'button';
     if (c.color) sw.style.background = c.color;
-    sw.title = c.color ? 'Cor ' + c.color : (c.parent_id ? 'Sem cor: usa a da \u00e1rea' : 'Sem cor');
+    sw.title = (c.color ? 'Cor ' + c.color : (c.parent_id ? 'Sem cor: usa a da \u00e1rea' : 'Sem cor')) + ' \u2014 clicar para mudar';
+    sw.addEventListener('click', function (ev) { ev.stopPropagation(); arPopCor(c, sw); });
     w.appendChild(sw);
     var corpo = el('div', 'ar-corpo');
     corpo.appendChild(el('div', 'ar-nome', c.name));
@@ -346,6 +357,11 @@ if (typeof attnCard === 'function') {
     if (k) {
       art.classList.add('ar-tinta');
       art.style.setProperty('--ar-cor', k);
+      /* Tambem no proprio cartao: se o CSS do modulo ainda nao tiver entrado
+         (o Hoje pode ser desenhado antes deste ficheiro chegar), o cartao
+         nao fica branco na mesma. */
+      art.style.background = 'color-mix(in srgb, ' + k + ' 20%, var(--surface))';
+      art.style.borderColor = 'color-mix(in srgb, ' + k + ' 45%, var(--line))';
     }
     return art;
   };
@@ -358,3 +374,82 @@ if (typeof renderGestao === 'function') {
     catch (e) { console.error('[farol] hoje com cores', e); }
   };
 }
+
+/* ------------------------------------------------------------------ *
+ * Mudar a cor na lista das Areas (27 set)
+ *
+ * A cor escolhia-se so dentro do Editar, e ninguem a encontrava la. A
+ * amostra ao lado do nome passa a ser o sitio: clicar abre as oito cores
+ * prontas, «sem cor» e o seletor livre, e grava na hora.
+ * ------------------------------------------------------------------ */
+function arFecharPop() {
+  document.querySelectorAll('.ar-pop').forEach(function (p) { p.remove(); });
+}
+function arGravarCor(c, cor) {
+  arFecharPop();
+  apiGestao('/api/contextos/' + c.id, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ color: cor })
+  }).then(function (d) {
+    AR.linhas = d.contextos || AR.linhas;
+    arRender();
+    toast(cor ? 'Cor de \u00ab' + c.name + '\u00bb gravada.' : '\u00ab' + c.name + '\u00bb ficou sem cor.');
+    if (typeof loadGestao === 'function') loadGestao();
+  }).catch(function (e) { toast(e.message || 'N\u00e3o foi poss\u00edvel gravar a cor.'); });
+}
+function arPopCor(c, ancora) {
+  arFecharPop();
+  var pop = el('div', 'ar-pop');
+  pop.appendChild(el('b', null, c.name));
+  var cores = el('div', 'ar-cores');
+  var sem = el('button', 'sem' + (c.color ? '' : ' on'));
+  sem.type = 'button';
+  sem.title = c.parent_id ? 'Sem cor (usa a da \u00e1rea)' : 'Sem cor';
+  sem.addEventListener('click', function () { arGravarCor(c, null); });
+  cores.appendChild(sem);
+  AR_CORES.forEach(function (k) {
+    var b = el('button', c.color === k ? 'on' : '');
+    b.type = 'button';
+    b.style.background = k;
+    b.title = k;
+    b.addEventListener('click', function () { arGravarCor(c, k); });
+    cores.appendChild(b);
+  });
+  var livre = el('input');
+  livre.type = 'color';
+  livre.title = 'Outra cor';
+  livre.value = c.color || '#0f6e70';
+  livre.addEventListener('change', function () { arGravarCor(c, livre.value.toLowerCase()); });
+  cores.appendChild(livre);
+  pop.appendChild(cores);
+  document.body.appendChild(pop);
+  var r = ancora.getBoundingClientRect();
+  pop.style.left = Math.max(8, Math.min(r.left, window.innerWidth - pop.offsetWidth - 8)) + 'px';
+  pop.style.top = (r.bottom + 6 + pop.offsetHeight > window.innerHeight ? r.top - pop.offsetHeight - 6 : r.bottom + 6) + 'px';
+  setTimeout(function () {
+    document.addEventListener('click', function fora(ev) {
+      if (pop.contains(ev.target)) return;
+      document.removeEventListener('click', fora);
+      pop.remove();
+    });
+  }, 0);
+}
+
+/* O CSS entra ao carregar, nao so quando se abre o ecra das Areas: e dele que
+   o Hoje precisa para as cores. */
+arEstilo();
+
+/* Os pedidos nao esperam por este ficheiro: se o /api/gestao chegou antes de
+   o renderGestao estar embrulhado, o Hoje ficou desenhado sem cores e nada o
+   voltava a desenhar. Espera-se pelas cores e desenha-se outra vez. */
+(function arHojeComCores(tentativa) {
+  tentativa = tentativa || 0;
+  var pronto = window.G && G.contextos && G.contextos.length && window.D && D.attention;
+  if (!pronto) { if (tentativa < 50) setTimeout(function () { arHojeComCores(tentativa + 1); }, 300); return; }
+  var temCor = G.contextos.some(function (c) { return c.color; });
+  var semTinta = !document.querySelector('#attnList article.ar-tinta');
+  if (temCor && semTinta && typeof renderHoje === 'function') {
+    try { renderHoje(); } catch (e) { console.error('[farol] hoje com cores', e); }
+  }
+})();
