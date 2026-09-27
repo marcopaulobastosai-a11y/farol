@@ -362,6 +362,8 @@ async function pontuarComprovativo(d, ignorar) {
   const linhas = await all(
     `SELECT t.id, t.title, t.payee, t.notes, t.amount::float AS amount, t.context_id,
             to_char(t.due_on, 'YYYY-MM-DD') AS due_on, to_char(t.paid_on, 'YYYY-MM-DD') AS paid_on,
+            (SELECT sum(td.valor)::float FROM task_documents td
+              WHERE td.task_id = t.id AND td.papel = 'comprovativo' AND td.document_id <> $1) AS provado,
             (SELECT string_agg(x.txt, ' ') FROM (
                 SELECT dc.name AS txt FROM task_documents td JOIN documents dc ON dc.id = td.document_id
                  WHERE td.task_id = t.id AND td.document_id <> $1
@@ -371,9 +373,17 @@ async function pontuarComprovativo(d, ignorar) {
        FROM tasks t
       WHERE t.tipo = 'pagamento' AND t.origin = 'real' AND t.status <> 'cancelada'
         AND ((NOT t.done AND t.paid_on IS NULL) OR t.paid_on >= CURRENT_DATE - INTERVAL '18 months')
-        AND NOT EXISTS (SELECT 1 FROM task_documents td
-                         WHERE td.task_id = t.id AND td.papel IN ('comprovativo', 'recibo')
-                           AND td.document_id <> $1)`, [Number(fora.doc) || 0, Number(fora.item) || 0]);
+        /* Ja provado de todo fica de fora. Um pagamento feito em varias
+           transferencias (as poupancas da Sofia e da Maria: 100 EUR em duas
+           de 50) continua a aceitar comprovativos enquanto faltar dinheiro. */
+        AND (NOT EXISTS (SELECT 1 FROM task_documents td
+                          WHERE td.task_id = t.id AND td.papel IN ('comprovativo', 'recibo')
+                            AND td.document_id <> $1)
+             OR (NOT t.done AND t.paid_on IS NULL AND t.amount IS NOT NULL
+                 AND COALESCE((SELECT sum(td.valor) FROM task_documents td
+                                WHERE td.task_id = t.id AND td.papel = 'comprovativo'
+                                  AND td.document_id <> $1), 0) < t.amount - 0.005))`,
+    [Number(fora.doc) || 0, Number(fora.item) || 0]);
   const todos = linhas.map((t) => {
     const texto = semAcentos([t.title, t.payee].filter(Boolean).join(' '));
     /* O numero no papel da fatura (o ficheiro, o documento) vale mais do que
@@ -391,14 +401,15 @@ async function pontuarComprovativo(d, ignorar) {
     const comuns = raizes.filter((x) => delas.indexOf(x) >= 0).length;
     if (comuns) { pontos += Math.min(comuns, 3) * 2; nome = true; }
     const dele = valorDe(t);
-    if (valor !== null && dele !== null && Math.abs(valor - dele) < 0.01) pontos += 3;
+    const falta = dele !== null && t.provado ? Math.round((dele - t.provado) * 100) / 100 : dele;
+    if (valor !== null && falta !== null && Math.abs(valor - falta) < 0.01) pontos += 3;
     const ref = t.paid_on || t.due_on;
     let distancia = 999, datasOk = true;
     if (quando && ref) {
       distancia = Math.abs((new Date(quando) - new Date(ref)) / 86400000);
       if (distancia > 60) datasOk = false; else if (distancia <= 45) pontos += 2;
     }
-    return { id: t.id, title: t.title, amount: dele, due_on: t.due_on, paid_on: t.paid_on,
+    return { id: t.id, title: t.title, amount: dele, falta, due_on: t.due_on, paid_on: t.paid_on,
              context_id: t.context_id, pago: Boolean(t.paid_on), faturas, fortes, pontos, distancia,
              serve: faturas.length > 0 || (nome && datasOk && pontos >= 5) };
   });
@@ -440,8 +451,15 @@ async function pagamentosDoComprovativo(d, ignorar) {
   });
   const bons = todos.filter((t) => t.serve);
   if (!escolhidos.length && valor !== null) {
-    const igual = bons.find((t) => t.amount !== null && Math.abs(t.amount - valor) < 0.01);
+    const igual = bons.find((t) => t.falta !== null && Math.abs(t.falta - valor) < 0.01);
     if (igual) escolhidos = [igual];
+  }
+  /* Uma parte: o comprovativo e de menos do que falta a um pagamento que lhe
+     bate pelo nome. Liga-se, mas o pagamento nao fecha - fica a espera do
+     resto (pagarComComprovativo). */
+  if (!escolhidos.length && valor !== null) {
+    const parte = bons.find((t) => t.falta !== null && !t.pago && valor < t.falta - 0.01);
+    if (parte) escolhidos = [parte];
   }
   if (!escolhidos.length && valor !== null) {
     const pool = bons.filter((t) => t.amount !== null && t.amount > 0).slice(0, 12);
@@ -459,7 +477,7 @@ async function pagamentosDoComprovativo(d, ignorar) {
   if (!escolhidos.length && valor === null && bons[0]) escolhidos = [bons[0]];
 
   const faltam = nums.filter((n) => !porNumero[n]);
-  const coberto = escolhidos.reduce((s, t) => s + (t.amount || 0), 0);
+  const coberto = escolhidos.reduce((s, t) => s + (t.falta !== null && t.falta !== undefined ? t.falta : (t.amount || 0)), 0);
   const resto = valor !== null && escolhidos.length && valor - coberto > 0.01
     ? Math.round((valor - coberto) * 100) / 100 : null;
   return { escolhidos, faltam, resto, todos, valor };
@@ -476,9 +494,12 @@ async function ligarComprovativo(inboxId, taskId, docId, d, parte) {
      ON CONFLICT (inbox_id, target_type, target_id) DO UPDATE SET dados = EXCLUDED.dados`,
     [inboxId, taskId, JSON.stringify(dados)]);
   if (docId) {
+    /* O valor fica na ligacao: um pagamento so se da como pago quando os
+       comprovativos somam o valor dele. */
     await query(
-      `INSERT INTO task_documents (task_id, document_id, papel) VALUES ($1,$2,'comprovativo')
-       ON CONFLICT (task_id, document_id) DO UPDATE SET papel = 'comprovativo'`, [taskId, docId]);
+      `INSERT INTO task_documents (task_id, document_id, papel, valor) VALUES ($1,$2,'comprovativo',$3)
+       ON CONFLICT (task_id, document_id) DO UPDATE SET papel = 'comprovativo', valor = EXCLUDED.valor`,
+      [taskId, docId, parte === undefined ? null : parte]);
   }
 }
 
@@ -498,6 +519,7 @@ function metodoDe(v) {
    levam cada um o seu valor. */
 function parteDe(escolhidos, t, valor, faltam) {
   if (escolhidos.length === 1 && valor !== null && !(faltam || []).length) return valor;
+  if (t.falta !== null && t.falta !== undefined) return t.falta;
   return t.amount !== null && t.amount !== undefined ? t.amount : null;
 }
 
@@ -830,15 +852,40 @@ async function pagarComComprovativo(id) {
     }
     return pagos;
   }
+  const docCp = (await all(
+    `SELECT target_id FROM inbox_links
+      WHERE inbox_id = $1 AND target_type = 'documento' AND dados->>'papel' = 'comprovativo' LIMIT 1`, [id]))[0];
   for (const l of ligs) {
     const t = (await all(
-      'SELECT id, done, paid_on, repeat_rule FROM tasks WHERE id = $1', [l.target_id]))[0];
+      'SELECT id, done, paid_on, repeat_rule, amount::float AS amount FROM tasks WHERE id = $1', [l.target_id]))[0];
     if (!t || t.done || t.paid_on) continue;
     const d = l.dados || {};
     await query('UPDATE tasks SET aprovado = TRUE WHERE id = $1', [t.id]);
+    /* Quanto esta provado ao todo, com este. Os comprovativos de antes do
+       valor na ligacao contam pelo que a caixa leu. */
+    if (docCp && d.amount !== undefined && d.amount !== null) {
+      await query(
+        `UPDATE task_documents SET valor = $3 WHERE task_id = $1 AND document_id = $2 AND valor IS NULL`,
+        [t.id, docCp.target_id, Number(d.amount)]);
+    }
+    const provado = Number(((await all(
+      `SELECT sum(valor)::float AS s FROM task_documents WHERE task_id = $1 AND papel = 'comprovativo'`,
+      [t.id]))[0] || {}).s || 0);
+    /* Nao chega: o pagamento fica em execucao, com o que ja foi pago, e so
+       fecha quando os comprovativos somarem o valor dele (27 set: um
+       comprovativo de 50 EUR fechou as poupancas de 100 EUR da Sofia e da
+       Maria). */
+    if (t.amount !== null && provado > 0 && provado < t.amount - 0.005) {
+      await query(
+        `UPDATE tasks SET paid_amount = $2, status = 'em_curso',
+                payment_method = COALESCE(payment_method, $3), updated_at = now() WHERE id = $1`,
+        [t.id, provado, d.payment_method || 'transfer\u00eancia']);
+      pagos.push(t.id + ' (parte)');
+      continue;
+    }
     await pagar(t.id, {
       paid_on: d.paid_on || null,
-      paid_amount: d.amount === undefined ? null : d.amount,
+      paid_amount: provado > 0 ? provado : (d.amount === undefined ? null : d.amount),
       payment_method: d.payment_method || 'transfer\u00eancia'
     });
     /* Num recorrente, a vez paga e uma linha nova (series_id) e a fatura e o
@@ -1632,7 +1679,7 @@ function instalar(app) {
     for (const t of escolhidos) {
       const ja = velhos.find((v) => v.target_id === t.id);
       if (ja && ja.criado) continue;
-      await ligarComprovativo(id, t.id, cp.doc, x, tudoNumSo ? valor : t.amount);
+      await ligarComprovativo(id, t.id, cp.doc, x, tudoNumSo ? valor : (t.falta !== null && t.falta !== undefined ? t.falta : t.amount));
     }
     let resto = valor !== null && valor - coberto > 0.01 ? Math.round((valor - coberto) * 100) / 100 : null;
     if (b.novo) {
