@@ -131,7 +131,7 @@ const CAMPOS = `t.id, t.title, t.notes, t.area, t.context_id, t.project_id, t.ow
   t.reminders, t.tags, t.section, t.sort_order, t.parent_id, t.series_id, t.done,
   t.completed_at, t.created_at,
   t.amount, t.payee, t.payment_ref, t.payment_method, t.paid_amount, t.expense_id,
-  to_char(t.paid_on,'YYYY-MM-DD') AS paid_on, t.junta_faturas, t.destinatario_id,
+  to_char(t.paid_on,'YYYY-MM-DD') AS paid_on, t.junta_faturas, t.destinatario_id, t.splitwise_grupo,
   (SELECT to_char(max(e.created_at),'YYYY-MM-DD') FROM email_envios e
     WHERE e.task_id = t.id AND e.estado = 'enviado') AS email_enviado`;
 
@@ -381,7 +381,7 @@ async function alterar(id, b) {
   const campos = [], valores = [];
   const por = (c, v) => { campos.push(c + ' = $' + (campos.length + 1)); valores.push(v); };
   ['title', 'notes', 'area', 'context_id', 'project_id', 'owner_id', 'starts_on', 'due_on', 'due_time',
-   'repeat_until', 'section', 'parent_id', 'destinatario_id'].forEach((c) => { if (b[c] !== undefined) por(c, limpar(b[c])); });
+   'repeat_until', 'section', 'parent_id', 'destinatario_id', 'splitwise_grupo'].forEach((c) => { if (b[c] !== undefined) por(c, limpar(b[c])); });
   if (b.priority !== undefined && PRIOS.includes(b.priority)) por('priority', b.priority);
   if (b.tipo !== undefined && TIPOS.includes(b.tipo)) por('tipo', b.tipo);
   ['payee', 'payment_ref'].forEach(function (c) { if (b[c] !== undefined) por(c, limpar(b[c])); });
