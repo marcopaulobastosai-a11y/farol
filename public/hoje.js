@@ -62,7 +62,8 @@ var HJ_CSS =
   '#agendaHoje.hj-ag .hj-cor{width:6px;height:6px;border-radius:50%;flex:none}' +
   /* Os dias que ja passaram ficam a cinzento: riscar diria «feito», e um
      evento nao se faz, acontece. */
-  '#agendaHoje.hj-ag li.passado{opacity:.45}' +
+  '#agendaHoje.hj-ag li.hj-sem-sep{font-family:var(--serif);font-size:.95rem;color:var(--ink);padding:18px 0 2px}' +
+    '#agendaHoje.hj-ag li.passado{opacity:.45}' +
   '#agendaHoje.hj-ag li.passado .hj-ico{filter:grayscale(1)}';
 
 function hjSvg(d, w) {
@@ -241,8 +242,11 @@ function hjAgenda() {
   var h = hjDia(new Date());
   var seg = new Date(h.getFullYear(), h.getMonth(), h.getDate() - (h.getDay() + 6) % 7);
   var dias = [];
-  for (var i = 0; i < 7; i++) dias.push(new Date(seg.getFullYear(), seg.getMonth(), seg.getDate() + i));
-  var de = hjIso(dias[0]), ate = hjIso(dias[6]), hoje = hjIso(h);
+  /* Esta semana e a seguinte. So a semana corrente deixava o domingo cego:
+     o aniversario de segunda-feira nao aparecia em lado nenhum. A semana
+     seguinte mostra so os dias que tem alguma coisa. */
+  for (var i = 0; i < 14; i++) dias.push(new Date(seg.getFullYear(), seg.getMonth(), seg.getDate() + i));
+  var de = hjIso(dias[0]), ate = hjIso(dias[13]), hoje = hjIso(h);
 
   var itens = [];
   (D.events || []).forEach(function (e) {
@@ -264,10 +268,23 @@ function hjAgenda() {
 
   clear(ul);
   ul.classList.add('hj-ag');
-  dias.forEach(function (d) {
+  var proxVazia = true;
+  dias.forEach(function (d, i) {
     var iso = hjIso(d);
     var doDia = itens.filter(function (x) { return x.dia === iso; });
     var passado = iso < hoje;
+    if (i === 7) {
+      var sep = el('li', 'hj-sem-sep');
+      sep.appendChild(el('span', null, 'Pr\u00f3xima semana'));
+      ul.appendChild(sep);
+    }
+    if (i >= 7) {
+      if (!doDia.length) {
+        if (i === 13 && proxVazia) { var v = el('li', 'hj-dia'); v.appendChild(el('span', 'hj-livre', 'nada marcado')); ul.appendChild(v); }
+        return;
+      }
+      proxVazia = false;
+    }
     var cab = el('li', 'hj-dia' + (iso === hoje ? ' hoje' : '') + (passado ? ' passado' : ''));
     cab.appendChild(el('span', null, (iso === hoje ? 'Hoje \u00b7 ' : '') + DIAS[(d.getDay() + 6) % 7] + ' ' + d.getDate()));
     if (!doDia.length) cab.appendChild(el('span', 'hj-livre', 'nada marcado'));
@@ -294,10 +311,10 @@ function hjAgenda() {
     });
   });
   var h3 = ul.parentNode && ul.parentNode.querySelector('header h3');
-  if (h3) h3.textContent = 'Agenda da semana';
+  if (h3) h3.textContent = 'Agenda';
   var rot = $('agendaDayLabel');
   if (rot) rot.textContent = dias[0].getDate() + ' ' + MESES[dias[0].getMonth()].slice(0, 3) + ' \u2013 ' +
-    dias[6].getDate() + ' ' + MESES[dias[6].getMonth()].slice(0, 3);
+    dias[13].getDate() + ' ' + MESES[dias[13].getMonth()].slice(0, 3);
 }
 
 /* A Agenda comeca a altura da primeira caixa que se ve a esquerda (e nao do
