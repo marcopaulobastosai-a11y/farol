@@ -249,8 +249,8 @@
 
     var linhas = [];
     function grupoAtual() {
-      var id = Number(sel.value);
-      return ((SW.estado && SW.estado.grupos) || []).filter(function (g) { return g.id === id; })[0] || null;
+      var id = String(sel.value);
+      return ((SW.estado && SW.estado.grupos) || []).filter(function (g) { return String(g.id) === id; })[0] || null;
     }
     function total() { return cent(typeof quanto === 'function' ? quanto() : quanto); }
     function contar() {

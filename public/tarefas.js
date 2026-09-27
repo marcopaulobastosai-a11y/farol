@@ -1901,7 +1901,7 @@ function tfPopPagar(t, ancora){
             descricao: t.title, valor: Number(String(iV.value).replace(',', '.')) || Number(t.amount) || 0,
             data: v.paid_on, detalhe: v.payment_method ? 'Pago por ' + v.payment_method + ' · Farol' : 'Farol'
           });
-          if (t.splitwise_grupo !== swPedido.grupo) tfGravar(t.id, { splitwise_grupo: swPedido.grupo });
+          if (String(t.splitwise_grupo || '') !== String(swPedido.grupo)) tfGravar(t.id, { splitwise_grupo: swPedido.grupo });
         }
       });
     };
