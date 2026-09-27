@@ -20,7 +20,7 @@ const { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } = re
 const { query } = require('./db');
 const ia = require('./ia');
 const pdf = require('./pdf');
-const { PAPEIS, pagar, recalcularJunta } = require('./tarefas');
+const { PAPEIS, pagar } = require('./tarefas');
 
 const all = async (sql, params) => (await query(sql, params)).rows;
 const limpar = (v) => (v === undefined || v === '' ? null : v);
@@ -247,8 +247,8 @@ async function pontuarPagamentos(d) {
        FROM tasks t
       WHERE t.tipo = 'pagamento' AND t.origin = 'real' AND NOT t.done
         AND t.status NOT IN ('concluida', 'cancelada')
-        AND (t.junta_faturas IS NOT NULL OR NOT EXISTS (SELECT 1 FROM task_documents td
-                         WHERE td.task_id = t.id AND td.papel = 'fatura'))`);
+        AND NOT EXISTS (SELECT 1 FROM task_documents td
+                         WHERE td.task_id = t.id AND td.papel = 'fatura')`);
   const cabe = (k, txt) => new RegExp('(^|[^a-z0-9])' + k + '([^a-z0-9]|$)').test(txt);
   const todos = linhas.map((t) => {
     const texto = semAcentos([t.title, t.payee, t.payment_ref].filter(Boolean).join(' '));
@@ -280,33 +280,6 @@ async function pontuarPagamentos(d) {
   });
   todos.sort((a, b) => (b.pontos - a.pontos) || (a.distancia - b.distancia) || (a.id - b.id));
   return todos;
-}
-
-/* Um pagamento que junta faturas de outros (o do senhorio, que paga a EDP, a
-   Vodafone e os SMAS): se quem emitiu a fatura esta na lista dele, e para la
-   que ela vai, sem pontos nem parecencas. Cada nome da lista tem de aparecer
-   inteiro no nome de quem cobra ou no titulo da fatura. Havendo varios, ganha
-   o de prazo mais proximo. */
-async function pagamentoQueJunta(d) {
-  const texto = semAcentos([d.payee, d.merchant, d.entity, d.title, d.description].filter(Boolean).join(' '));
-  if (!texto) return null;
-  const linhas = await all(
-    `SELECT t.id, t.title, t.junta_faturas, t.amount::float AS amount,
-            to_char(t.due_on, 'YYYY-MM-DD') AS due_on
-       FROM tasks t
-      WHERE t.tipo = 'pagamento' AND t.origin = 'real' AND NOT t.done
-        AND t.status NOT IN ('concluida', 'cancelada') AND t.junta_faturas IS NOT NULL
-      ORDER BY t.due_on NULLS LAST, t.id`);
-  const cabe = (k) => new RegExp('(^|[^a-z0-9])' + k + '([^a-z0-9]|$)').test(texto);
-  for (const t of linhas) {
-    const nomes = String(t.junta_faturas).split(/[,;\n]+/).map((x) => semAcentos(x)).filter(Boolean);
-    const bate = nomes.some((n) => {
-      const ws = n.split(/[^a-z0-9]+/).filter((w) => w.length >= 2);
-      return ws.length && ws.every(cabe);
-    });
-    if (bate) return t;
-  }
-  return null;
 }
 
 async function pagamentoExistente(d) {
@@ -362,8 +335,6 @@ async function pontuarComprovativo(d, ignorar) {
   const linhas = await all(
     `SELECT t.id, t.title, t.payee, t.notes, t.amount::float AS amount, t.context_id,
             to_char(t.due_on, 'YYYY-MM-DD') AS due_on, to_char(t.paid_on, 'YYYY-MM-DD') AS paid_on,
-            (SELECT sum(td.valor)::float FROM task_documents td
-              WHERE td.task_id = t.id AND td.papel = 'comprovativo' AND td.document_id <> $1) AS provado,
             (SELECT string_agg(x.txt, ' ') FROM (
                 SELECT dc.name AS txt FROM task_documents td JOIN documents dc ON dc.id = td.document_id
                  WHERE td.task_id = t.id AND td.document_id <> $1
@@ -373,17 +344,9 @@ async function pontuarComprovativo(d, ignorar) {
        FROM tasks t
       WHERE t.tipo = 'pagamento' AND t.origin = 'real' AND t.status <> 'cancelada'
         AND ((NOT t.done AND t.paid_on IS NULL) OR t.paid_on >= CURRENT_DATE - INTERVAL '18 months')
-        /* Ja provado de todo fica de fora. Um pagamento feito em varias
-           transferencias (as poupancas da Sofia e da Maria: 100 EUR em duas
-           de 50) continua a aceitar comprovativos enquanto faltar dinheiro. */
-        AND (NOT EXISTS (SELECT 1 FROM task_documents td
-                          WHERE td.task_id = t.id AND td.papel IN ('comprovativo', 'recibo')
-                            AND td.document_id <> $1)
-             OR (NOT t.done AND t.paid_on IS NULL AND t.amount IS NOT NULL
-                 AND COALESCE((SELECT sum(td.valor) FROM task_documents td
-                                WHERE td.task_id = t.id AND td.papel = 'comprovativo'
-                                  AND td.document_id <> $1), 0) < t.amount - 0.005))`,
-    [Number(fora.doc) || 0, Number(fora.item) || 0]);
+        AND NOT EXISTS (SELECT 1 FROM task_documents td
+                         WHERE td.task_id = t.id AND td.papel IN ('comprovativo', 'recibo')
+                           AND td.document_id <> $1)`, [Number(fora.doc) || 0, Number(fora.item) || 0]);
   const todos = linhas.map((t) => {
     const texto = semAcentos([t.title, t.payee].filter(Boolean).join(' '));
     /* O numero no papel da fatura (o ficheiro, o documento) vale mais do que
@@ -401,15 +364,14 @@ async function pontuarComprovativo(d, ignorar) {
     const comuns = raizes.filter((x) => delas.indexOf(x) >= 0).length;
     if (comuns) { pontos += Math.min(comuns, 3) * 2; nome = true; }
     const dele = valorDe(t);
-    const falta = dele !== null && t.provado ? Math.round((dele - t.provado) * 100) / 100 : dele;
-    if (valor !== null && falta !== null && Math.abs(valor - falta) < 0.01) pontos += 3;
+    if (valor !== null && dele !== null && Math.abs(valor - dele) < 0.01) pontos += 3;
     const ref = t.paid_on || t.due_on;
     let distancia = 999, datasOk = true;
     if (quando && ref) {
       distancia = Math.abs((new Date(quando) - new Date(ref)) / 86400000);
       if (distancia > 60) datasOk = false; else if (distancia <= 45) pontos += 2;
     }
-    return { id: t.id, title: t.title, amount: dele, falta, due_on: t.due_on, paid_on: t.paid_on,
+    return { id: t.id, title: t.title, amount: dele, due_on: t.due_on, paid_on: t.paid_on,
              context_id: t.context_id, pago: Boolean(t.paid_on), faturas, fortes, pontos, distancia,
              serve: faturas.length > 0 || (nome && datasOk && pontos >= 5) };
   });
@@ -451,15 +413,8 @@ async function pagamentosDoComprovativo(d, ignorar) {
   });
   const bons = todos.filter((t) => t.serve);
   if (!escolhidos.length && valor !== null) {
-    const igual = bons.find((t) => t.falta !== null && Math.abs(t.falta - valor) < 0.01);
+    const igual = bons.find((t) => t.amount !== null && Math.abs(t.amount - valor) < 0.01);
     if (igual) escolhidos = [igual];
-  }
-  /* Uma parte: o comprovativo e de menos do que falta a um pagamento que lhe
-     bate pelo nome. Liga-se, mas o pagamento nao fecha - fica a espera do
-     resto (pagarComComprovativo). */
-  if (!escolhidos.length && valor !== null) {
-    const parte = bons.find((t) => t.falta !== null && !t.pago && valor < t.falta - 0.01);
-    if (parte) escolhidos = [parte];
   }
   if (!escolhidos.length && valor !== null) {
     const pool = bons.filter((t) => t.amount !== null && t.amount > 0).slice(0, 12);
@@ -477,7 +432,7 @@ async function pagamentosDoComprovativo(d, ignorar) {
   if (!escolhidos.length && valor === null && bons[0]) escolhidos = [bons[0]];
 
   const faltam = nums.filter((n) => !porNumero[n]);
-  const coberto = escolhidos.reduce((s, t) => s + (t.falta !== null && t.falta !== undefined ? t.falta : (t.amount || 0)), 0);
+  const coberto = escolhidos.reduce((s, t) => s + (t.amount || 0), 0);
   const resto = valor !== null && escolhidos.length && valor - coberto > 0.01
     ? Math.round((valor - coberto) * 100) / 100 : null;
   return { escolhidos, faltam, resto, todos, valor };
@@ -494,18 +449,9 @@ async function ligarComprovativo(inboxId, taskId, docId, d, parte) {
      ON CONFLICT (inbox_id, target_type, target_id) DO UPDATE SET dados = EXCLUDED.dados`,
     [inboxId, taskId, JSON.stringify(dados)]);
   if (docId) {
-    /* O comprovativo mora onde mora o pagamento que prova: as poupancas da
-       Sofia e da Maria sao da Familia, e e la que os papeis delas se procuram
-       (a leitura tinha-os posto nas Financas). */
     await query(
-      `UPDATE documents d SET context_id = t.context_id
-         FROM tasks t WHERE t.id = $1 AND d.id = $2 AND t.context_id IS NOT NULL`, [taskId, docId]);
-    /* O valor fica na ligacao: um pagamento so se da como pago quando os
-       comprovativos somam o valor dele. */
-    await query(
-      `INSERT INTO task_documents (task_id, document_id, papel, valor) VALUES ($1,$2,'comprovativo',$3)
-       ON CONFLICT (task_id, document_id) DO UPDATE SET papel = 'comprovativo', valor = EXCLUDED.valor`,
-      [taskId, docId, parte === undefined ? null : parte]);
+      `INSERT INTO task_documents (task_id, document_id, papel) VALUES ($1,$2,'comprovativo')
+       ON CONFLICT (task_id, document_id) DO UPDATE SET papel = 'comprovativo'`, [taskId, docId]);
   }
 }
 
@@ -525,7 +471,6 @@ function metodoDe(v) {
    levam cada um o seu valor. */
 function parteDe(escolhidos, t, valor, faltam) {
   if (escolhidos.length === 1 && valor !== null && !(faltam || []).length) return valor;
-  if (t.falta !== null && t.falta !== undefined) return t.falta;
   return t.amount !== null && t.amount !== undefined ? t.amount : null;
 }
 
@@ -564,11 +509,6 @@ async function juntarAoPagamento(taskId, d) {
   return antes;
 }
 
-function valorDaFatura(d) {
-  const v = d && (d.amount === undefined || d.amount === null || d.amount === '' ? null : Number(d.amount));
-  return Number.isFinite(v) ? v : null;
-}
-
 /* Desfaz o que a fatura escreveu num pagamento que ja existia. */
 async function reporPagamento(taskId, antes) {
   if (!antes) return;
@@ -583,6 +523,41 @@ async function reporPagamento(taskId, antes) {
     `UPDATE tasks SET amount = $2, payment_ref = $3, due_on = $4::date, payee = $5,
                       context_id = $6, notes = $7` + dono + `, updated_at = now()
       WHERE id = $1`, valores);
+}
+
+/* O nome de um papel tem uma forma so: AAAAMMDD, o numero do proprio papel, e
+   a descricao curta. «20260805 EDPC801-238002623969 EDP eletricidade e gas».
+   Assim os Documentos ficam por ordem sozinhos, o mesmo papel nunca aparece
+   com dois nomes, e procurar pelo numero da fatura encontra-a a primeira. Sem
+   data nao se inventa nenhuma - fica so o numero e a descricao. */
+/* O numero do proprio papel, quando so aparece escrito no meio das notas
+   («Fatura n.o FT 101/121437929», «Recibo n.o 6 1/2777»). A etiqueta
+   procura-se sem olhar a maiusculas; o numero, esse, tem de comecar por
+   maiuscula ou algarismo e acabar em algarismo - senao «Fatura recebida a
+   27/09/2026» passava por um numero de fatura. */
+function numeroNoTexto(txt) {
+  const s = String(txt || '');
+  const etiqueta = /(?:fatura|factura|recibo|documento|nota de cr[eé]dito|duc|ap[oó]lice)\s*(?:n\.?\s*[ºo°]\.?|n[uú]mero)?\s*:?\s*/gi;
+  let m;
+  while ((m = etiqueta.exec(s))) {
+    const resto = s.slice(m.index + m[0].length, m.index + m[0].length + 48);
+    const t = /^([A-Z0-9][A-Za-z0-9._/-]*(?:[ ][A-Z0-9][A-Za-z0-9._/-]*)?)/.exec(resto);
+    const v = t && t[1].trim();
+    if (v && v.length >= 4 && /\d$/.test(v) && /\d/.test(v)) return v;
+  }
+  return null;
+}
+
+function nomeDePapel(d) {
+  const desc = String(d.name || d.title || d.description || '').trim();
+  const data = soData(d.issued_on) || soData(d.spent_on) || soData(d.paid_on);
+  const num = String(d.numero || '').trim() || numeroNoTexto(d.notes) || null;
+  const baixo = semAcentos(desc);
+  const partes = [];
+  if (data) partes.push(data.replace(/-/g, ''));
+  if (num && baixo.indexOf(semAcentos(num)) < 0) partes.push(num);
+  if (desc) partes.push(desc);
+  return partes.join(' ').slice(0, 160) || desc || 'Documento';
 }
 
 const CRIAR = {
@@ -646,8 +621,8 @@ const CRIAR = {
   },
 
   async documento(d) {
-    const name = String(d.name || '').trim();
-    if (!name) throw new Error('O documento precisa de um nome.');
+    if (!String(d.name || '').trim()) throw new Error('O documento precisa de um nome.');
+    const name = nomeDePapel(d);
     /* valid_until era o rotulo antigo, texto solto; fica igual ao valid_on para
        os ecras que ainda o leem. A data do documento tem coluna propria. */
     const rows = await all(
@@ -824,10 +799,6 @@ async function apagarOQueNasceu(id, ligados) {
       await query('DELETE FROM ' + tabela + ' WHERE id = $1', [l.target_id]);
       apagados.push(l.target_type + ' ' + l.target_id);
     }
-    /* Um pagamento que junta faturas perdeu uma: a soma refaz-se. */
-    for (const l of ligados) {
-      if (l.criado === false && l.target_type === 'pagamento') await recalcularJunta(l.target_id);
-    }
     return apagados;
 }
 
@@ -858,40 +829,15 @@ async function pagarComComprovativo(id) {
     }
     return pagos;
   }
-  const docCp = (await all(
-    `SELECT target_id FROM inbox_links
-      WHERE inbox_id = $1 AND target_type = 'documento' AND dados->>'papel' = 'comprovativo' LIMIT 1`, [id]))[0];
   for (const l of ligs) {
     const t = (await all(
-      'SELECT id, done, paid_on, repeat_rule, amount::float AS amount FROM tasks WHERE id = $1', [l.target_id]))[0];
+      'SELECT id, done, paid_on, repeat_rule FROM tasks WHERE id = $1', [l.target_id]))[0];
     if (!t || t.done || t.paid_on) continue;
     const d = l.dados || {};
     await query('UPDATE tasks SET aprovado = TRUE WHERE id = $1', [t.id]);
-    /* Quanto esta provado ao todo, com este. Os comprovativos de antes do
-       valor na ligacao contam pelo que a caixa leu. */
-    if (docCp && d.amount !== undefined && d.amount !== null) {
-      await query(
-        `UPDATE task_documents SET valor = $3 WHERE task_id = $1 AND document_id = $2 AND valor IS NULL`,
-        [t.id, docCp.target_id, Number(d.amount)]);
-    }
-    const provado = Number(((await all(
-      `SELECT sum(valor)::float AS s FROM task_documents WHERE task_id = $1 AND papel = 'comprovativo'`,
-      [t.id]))[0] || {}).s || 0);
-    /* Nao chega: o pagamento fica em execucao, com o que ja foi pago, e so
-       fecha quando os comprovativos somarem o valor dele (27 set: um
-       comprovativo de 50 EUR fechou as poupancas de 100 EUR da Sofia e da
-       Maria). */
-    if (t.amount !== null && provado > 0 && provado < t.amount - 0.005) {
-      await query(
-        `UPDATE tasks SET paid_amount = $2, status = 'em_curso',
-                payment_method = COALESCE(payment_method, $3), updated_at = now() WHERE id = $1`,
-        [t.id, provado, d.payment_method || 'transfer\u00eancia']);
-      pagos.push(t.id + ' (parte)');
-      continue;
-    }
     await pagar(t.id, {
       paid_on: d.paid_on || null,
-      paid_amount: provado > 0 ? provado : (d.amount === undefined ? null : d.amount),
+      paid_amount: d.amount === undefined ? null : d.amount,
       payment_method: d.payment_method || 'transfer\u00eancia'
     });
     /* Num recorrente, a vez paga e uma linha nova (series_id) e a fatura e o
@@ -1027,16 +973,6 @@ async function executarTriagem(id, destinos) {
       /* Uma fatura de algo que ja esta a ser pago (a mensalidade, a prestacao,
          a proxima ocorrencia de um pagamento recorrente) nao cria outro
          pagamento: junta-se ao que ja existe. */
-      const junta = d.tipo === 'pagamento' ? await pagamentoQueJunta(d.dados || {}) : null;
-      if (junta) {
-        await query(
-          `INSERT INTO inbox_links (inbox_id, target_type, target_id, criado, dados, antes)
-           VALUES ($1,'pagamento',$2,FALSE,$3,NULL) ON CONFLICT DO NOTHING`,
-          [id, junta.id, JSON.stringify(d.dados || {})]);
-        criados.push({ tipo: 'pagamento', id: junta.id, reutilizado: true, titulo: junta.title,
-                       junta: true, dados: d.dados || {} });
-        continue;
-      }
       const existente = d.tipo === 'pagamento' ? await pagamentoExistente(d.dados || {}) : null;
       if (existente) {
         const antes = await juntarAoPagamento(existente.id, d.dados || {});
@@ -1084,15 +1020,14 @@ async function executarTriagem(id, destinos) {
     const pagamentos = criados.filter((c) => c.tipo === 'pagamento' && !c.comprovativo);
     if (pagamentos.length && item.file_path && !criados.some((c) => c.tipo === 'documento')) {
       const t = (await all(
-        `SELECT title, payee, context_id, owner_id FROM tasks WHERE id = $1`, [pagamentos[0].id]))[0];
-      /* Junta a um pagamento de outro (o senhorio): o papel e da EDP, nao dele. */
-      const fj = pagamentos[0].junta ? pagamentos[0].dados : null;
-      const docId = await CRIAR.documento(fj ? {
-        name: fj.title || fj.description || t.title, entity: fj.payee || fj.merchant || fj.entity || t.payee,
-        kind: 'fatura', context_id: fj.context_id || t.context_id, person_id: t.owner_id,
-        issued_on: fj.issued_on || fj.due_on
-      } : {
+        `SELECT title, payee, notes, context_id, owner_id FROM tasks WHERE id = $1`, [pagamentos[0].id]))[0];
+      /* A data e o numero da fatura estao no que se leu dela: e com eles que o
+         papel ganha o nome certo, em vez de repetir o titulo do pagamento. */
+      const lido = destinos.map((x) => x.dados || {})
+        .filter((x) => x.issued_on || x.numero)[0] || {};
+      const docId = await CRIAR.documento({
         name: t.title, entity: t.payee, kind: 'fatura',
+        issued_on: lido.issued_on, numero: lido.numero || numeroNoTexto(t.notes),
         context_id: t.context_id, person_id: t.owner_id
       });
       await query(
@@ -1106,14 +1041,11 @@ async function executarTriagem(id, destinos) {
     const pag = criados.filter((c) => c.tipo === 'pagamento' && !c.comprovativo);
     const doc = criados.filter((c) => c.tipo === 'documento' && !c.comprovativo);
     for (const p of pag) {
-      const v = p.junta ? valorDaFatura(p.dados) : null;
       for (const dc of doc) {
         await query(
-          `INSERT INTO task_documents (task_id, document_id, papel, valor) VALUES ($1,$2,'fatura',$3)
-           ON CONFLICT (task_id, document_id) DO UPDATE SET papel = 'fatura', valor = COALESCE($3, task_documents.valor)`,
-          [p.id, dc.id, v]);
+          `INSERT INTO task_documents (task_id, document_id, papel) VALUES ($1,$2,'fatura')
+           ON CONFLICT (task_id, document_id) DO UPDATE SET papel = 'fatura'`, [p.id, dc.id]);
       }
-      if (p.junta) await recalcularJunta(p.id);
     }
 
     /* A pessoa nao pode ficar diferente dos dois lados. Se o pagamento - o que
@@ -1685,7 +1617,7 @@ function instalar(app) {
     for (const t of escolhidos) {
       const ja = velhos.find((v) => v.target_id === t.id);
       if (ja && ja.criado) continue;
-      await ligarComprovativo(id, t.id, cp.doc, x, tudoNumSo ? valor : (t.falta !== null && t.falta !== undefined ? t.falta : t.amount));
+      await ligarComprovativo(id, t.id, cp.doc, x, tudoNumSo ? valor : t.amount);
     }
     let resto = valor !== null && valor - coberto > 0.01 ? Math.round((valor - coberto) * 100) / 100 : null;
     if (b.novo) {
@@ -1752,7 +1684,6 @@ function instalar(app) {
         await reporPagamento(lp.target_id, lp.antes);
         if (doc) await query('DELETE FROM task_documents WHERE task_id = $1 AND document_id = $2',
           [lp.target_id, doc.target_id]);
-        await recalcularJunta(lp.target_id);
       }
       await query("DELETE FROM inbox_links WHERE inbox_id = $1 AND target_type = 'pagamento'", [id]);
 
@@ -1769,22 +1700,18 @@ function instalar(app) {
       } else {
         alvo = Number(para);
         const ok = await all(
-          "SELECT junta_faturas FROM tasks WHERE id = $1 AND tipo = 'pagamento' AND NOT done AND origin = 'real'", [alvo]);
+          "SELECT 1 FROM tasks WHERE id = $1 AND tipo = 'pagamento' AND NOT done AND origin = 'real'", [alvo]);
         if (!ok.length) throw new Error('Esse pagamento ja nao esta por pagar.');
-        /* Para um pagamento que junta faturas, a fatura nao reescreve nada:
-           entra como papel e conta na soma. */
-        const antes = ok[0].junta_faturas ? null : await juntarAoPagamento(alvo, dados);
+        const antes = await juntarAoPagamento(alvo, dados);
         await query(
           `INSERT INTO inbox_links (inbox_id, target_type, target_id, criado, dados, antes)
            VALUES ($1,'pagamento',$2,FALSE,$3,$4)`,
           [id, alvo, JSON.stringify(dados), antes ? JSON.stringify(antes) : null]);
       }
       if (doc) {
-        const v = para === 'novo' ? null : valorDaFatura(dados);
         await query(
-          `INSERT INTO task_documents (task_id, document_id, papel, valor) VALUES ($1,$2,'fatura',$3)
-           ON CONFLICT (task_id, document_id) DO UPDATE SET papel = 'fatura', valor = $3`, [alvo, doc.target_id, v]);
-        await recalcularJunta(alvo);
+          `INSERT INTO task_documents (task_id, document_id, papel) VALUES ($1,$2,'fatura')
+           ON CONFLICT (task_id, document_id) DO UPDATE SET papel = 'fatura'`, [alvo, doc.target_id]);
       }
       /* Mudou de pagamento: a pessoa do cartao volta a ser a de quem paga. */
       await pessoaDoPagamento(alvo);
@@ -1853,13 +1780,6 @@ function instalar(app) {
       await query('UPDATE inbox_items SET approved_at = now() WHERE id = $1', [id]);
       console.log('[farol] item', id, 'aprovado:', ligados.map((l) => l.target_type).join(', '),
         pagos.length ? '; pagos: ' + pagos.join(', ') : '');
-      /* Pago de todo: o email a quem se paga sai agora, se o destinatario
-         desse pagamento estiver para enviar sozinho. Uma falha no envio nao
-         desfaz a aprovacao - fica registada e ve-se no pagamento. */
-      for (const pid of pagos.filter((x) => typeof x === 'number')) {
-        try { await require('./emails').aoPagar(pid); }
-        catch (e) { console.warn('[farol] email do pagamento', pid + ':', e.message); }
-      }
       res.json({ ok: true, id, ...(await carregar(req.query.estado || 'catalogado')) });
     } catch (err) {
       console.error('[farol] POST aprovar:', err.message);
@@ -2267,11 +2187,5 @@ function instalar(app) {
 /* pontuarPagamentos sai tambem: e a regra que decide se uma fatura se junta a
    um pagamento que ja existe ou faz nascer um novo, e da para a exercitar
    sozinha contra a base de dados. */
-/* lerFicheiro sai para o envio por email (emails.js) ir buscar os papeis ao
-   bucket onde estao. */
-async function lerFicheiro(store, chave) {
-  return bytes((await ler(store || 'inbox', chave)).Body);
-}
-
 module.exports = { instalar, bucketPronto, arquivoPronto: () => pronto('arquivo'),
-  pontuarPagamentos, pessoaDoPagamento, lerFicheiro };
+  pontuarPagamentos, pessoaDoPagamento };
