@@ -20,7 +20,7 @@ const { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } = re
 const { query } = require('./db');
 const ia = require('./ia');
 const pdf = require('./pdf');
-const { PAPEIS, pagar } = require('./tarefas');
+const { PAPEIS, pagar, recalcularJunta } = require('./tarefas');
 
 const all = async (sql, params) => (await query(sql, params)).rows;
 const limpar = (v) => (v === undefined || v === '' ? null : v);
@@ -247,8 +247,8 @@ async function pontuarPagamentos(d) {
        FROM tasks t
       WHERE t.tipo = 'pagamento' AND t.origin = 'real' AND NOT t.done
         AND t.status NOT IN ('concluida', 'cancelada')
-        AND NOT EXISTS (SELECT 1 FROM task_documents td
-                         WHERE td.task_id = t.id AND td.papel = 'fatura')`);
+        AND (t.junta_faturas IS NOT NULL OR NOT EXISTS (SELECT 1 FROM task_documents td
+                         WHERE td.task_id = t.id AND td.papel = 'fatura'))`);
   const cabe = (k, txt) => new RegExp('(^|[^a-z0-9])' + k + '([^a-z0-9]|$)').test(txt);
   const todos = linhas.map((t) => {
     const texto = semAcentos([t.title, t.payee, t.payment_ref].filter(Boolean).join(' '));
@@ -280,6 +280,33 @@ async function pontuarPagamentos(d) {
   });
   todos.sort((a, b) => (b.pontos - a.pontos) || (a.distancia - b.distancia) || (a.id - b.id));
   return todos;
+}
+
+/* Um pagamento que junta faturas de outros (o do senhorio, que paga a EDP, a
+   Vodafone e os SMAS): se quem emitiu a fatura esta na lista dele, e para la
+   que ela vai, sem pontos nem parecencas. Cada nome da lista tem de aparecer
+   inteiro no nome de quem cobra ou no titulo da fatura. Havendo varios, ganha
+   o de prazo mais proximo. */
+async function pagamentoQueJunta(d) {
+  const texto = semAcentos([d.payee, d.merchant, d.entity, d.title, d.description].filter(Boolean).join(' '));
+  if (!texto) return null;
+  const linhas = await all(
+    `SELECT t.id, t.title, t.junta_faturas, t.amount::float AS amount,
+            to_char(t.due_on, 'YYYY-MM-DD') AS due_on
+       FROM tasks t
+      WHERE t.tipo = 'pagamento' AND t.origin = 'real' AND NOT t.done
+        AND t.status NOT IN ('concluida', 'cancelada') AND t.junta_faturas IS NOT NULL
+      ORDER BY t.due_on NULLS LAST, t.id`);
+  const cabe = (k) => new RegExp('(^|[^a-z0-9])' + k + '([^a-z0-9]|$)').test(texto);
+  for (const t of linhas) {
+    const nomes = String(t.junta_faturas).split(/[,;\n]+/).map((x) => semAcentos(x)).filter(Boolean);
+    const bate = nomes.some((n) => {
+      const ws = n.split(/[^a-z0-9]+/).filter((w) => w.length >= 2);
+      return ws.length && ws.every(cabe);
+    });
+    if (bate) return t;
+  }
+  return null;
 }
 
 async function pagamentoExistente(d) {
@@ -507,6 +534,11 @@ async function juntarAoPagamento(taskId, d) {
       [taskId, Number(pid)]).catch(() => {});
   }
   return antes;
+}
+
+function valorDaFatura(d) {
+  const v = d && (d.amount === undefined || d.amount === null || d.amount === '' ? null : Number(d.amount));
+  return Number.isFinite(v) ? v : null;
 }
 
 /* Desfaz o que a fatura escreveu num pagamento que ja existia. */
@@ -764,6 +796,10 @@ async function apagarOQueNasceu(id, ligados) {
       await query('DELETE FROM ' + tabela + ' WHERE id = $1', [l.target_id]);
       apagados.push(l.target_type + ' ' + l.target_id);
     }
+    /* Um pagamento que junta faturas perdeu uma: a soma refaz-se. */
+    for (const l of ligados) {
+      if (l.criado === false && l.target_type === 'pagamento') await recalcularJunta(l.target_id);
+    }
     return apagados;
 }
 
@@ -938,6 +974,16 @@ async function executarTriagem(id, destinos) {
       /* Uma fatura de algo que ja esta a ser pago (a mensalidade, a prestacao,
          a proxima ocorrencia de um pagamento recorrente) nao cria outro
          pagamento: junta-se ao que ja existe. */
+      const junta = d.tipo === 'pagamento' ? await pagamentoQueJunta(d.dados || {}) : null;
+      if (junta) {
+        await query(
+          `INSERT INTO inbox_links (inbox_id, target_type, target_id, criado, dados, antes)
+           VALUES ($1,'pagamento',$2,FALSE,$3,NULL) ON CONFLICT DO NOTHING`,
+          [id, junta.id, JSON.stringify(d.dados || {})]);
+        criados.push({ tipo: 'pagamento', id: junta.id, reutilizado: true, titulo: junta.title,
+                       junta: true, dados: d.dados || {} });
+        continue;
+      }
       const existente = d.tipo === 'pagamento' ? await pagamentoExistente(d.dados || {}) : null;
       if (existente) {
         const antes = await juntarAoPagamento(existente.id, d.dados || {});
@@ -986,7 +1032,13 @@ async function executarTriagem(id, destinos) {
     if (pagamentos.length && item.file_path && !criados.some((c) => c.tipo === 'documento')) {
       const t = (await all(
         `SELECT title, payee, context_id, owner_id FROM tasks WHERE id = $1`, [pagamentos[0].id]))[0];
-      const docId = await CRIAR.documento({
+      /* Junta a um pagamento de outro (o senhorio): o papel e da EDP, nao dele. */
+      const fj = pagamentos[0].junta ? pagamentos[0].dados : null;
+      const docId = await CRIAR.documento(fj ? {
+        name: fj.title || fj.description || t.title, entity: fj.payee || fj.merchant || fj.entity || t.payee,
+        kind: 'fatura', context_id: fj.context_id || t.context_id, person_id: t.owner_id,
+        issued_on: fj.issued_on || fj.due_on
+      } : {
         name: t.title, entity: t.payee, kind: 'fatura',
         context_id: t.context_id, person_id: t.owner_id
       });
@@ -1001,11 +1053,14 @@ async function executarTriagem(id, destinos) {
     const pag = criados.filter((c) => c.tipo === 'pagamento' && !c.comprovativo);
     const doc = criados.filter((c) => c.tipo === 'documento' && !c.comprovativo);
     for (const p of pag) {
+      const v = p.junta ? valorDaFatura(p.dados) : null;
       for (const dc of doc) {
         await query(
-          `INSERT INTO task_documents (task_id, document_id, papel) VALUES ($1,$2,'fatura')
-           ON CONFLICT (task_id, document_id) DO UPDATE SET papel = 'fatura'`, [p.id, dc.id]);
+          `INSERT INTO task_documents (task_id, document_id, papel, valor) VALUES ($1,$2,'fatura',$3)
+           ON CONFLICT (task_id, document_id) DO UPDATE SET papel = 'fatura', valor = COALESCE($3, task_documents.valor)`,
+          [p.id, dc.id, v]);
       }
+      if (p.junta) await recalcularJunta(p.id);
     }
 
     /* A pessoa nao pode ficar diferente dos dois lados. Se o pagamento - o que
@@ -1644,6 +1699,7 @@ function instalar(app) {
         await reporPagamento(lp.target_id, lp.antes);
         if (doc) await query('DELETE FROM task_documents WHERE task_id = $1 AND document_id = $2',
           [lp.target_id, doc.target_id]);
+        await recalcularJunta(lp.target_id);
       }
       await query("DELETE FROM inbox_links WHERE inbox_id = $1 AND target_type = 'pagamento'", [id]);
 
@@ -1660,18 +1716,22 @@ function instalar(app) {
       } else {
         alvo = Number(para);
         const ok = await all(
-          "SELECT 1 FROM tasks WHERE id = $1 AND tipo = 'pagamento' AND NOT done AND origin = 'real'", [alvo]);
+          "SELECT junta_faturas FROM tasks WHERE id = $1 AND tipo = 'pagamento' AND NOT done AND origin = 'real'", [alvo]);
         if (!ok.length) throw new Error('Esse pagamento ja nao esta por pagar.');
-        const antes = await juntarAoPagamento(alvo, dados);
+        /* Para um pagamento que junta faturas, a fatura nao reescreve nada:
+           entra como papel e conta na soma. */
+        const antes = ok[0].junta_faturas ? null : await juntarAoPagamento(alvo, dados);
         await query(
           `INSERT INTO inbox_links (inbox_id, target_type, target_id, criado, dados, antes)
            VALUES ($1,'pagamento',$2,FALSE,$3,$4)`,
           [id, alvo, JSON.stringify(dados), antes ? JSON.stringify(antes) : null]);
       }
       if (doc) {
+        const v = para === 'novo' ? null : valorDaFatura(dados);
         await query(
-          `INSERT INTO task_documents (task_id, document_id, papel) VALUES ($1,$2,'fatura')
-           ON CONFLICT (task_id, document_id) DO UPDATE SET papel = 'fatura'`, [alvo, doc.target_id]);
+          `INSERT INTO task_documents (task_id, document_id, papel, valor) VALUES ($1,$2,'fatura',$3)
+           ON CONFLICT (task_id, document_id) DO UPDATE SET papel = 'fatura', valor = $3`, [alvo, doc.target_id, v]);
+        await recalcularJunta(alvo);
       }
       /* Mudou de pagamento: a pessoa do cartao volta a ser a de quem paga. */
       await pessoaDoPagamento(alvo);
