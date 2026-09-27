@@ -586,6 +586,9 @@ function aeLinha(t, comSub){
     m.appendChild(r);
   }
   if (tfSemProva(t)) m.appendChild(pill('falta comprovativo', 'warn'));
+  if (tfTipo(t) === 'pagamento' && !t.paid_on && t.paid_amount != null && Number(t.paid_amount) > 0){
+    m.appendChild(pill('pago ' + tfEuros(t.paid_amount) + (t.amount != null ? ' de ' + tfEuros(t.amount) : ''), 'warn'));
+  }
   if (m.childNodes.length) corpo.appendChild(m);
   var dt = aeDocsDaTarefa(t);
   if (dt) corpo.appendChild(dt);
