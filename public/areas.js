@@ -39,7 +39,18 @@ var AR_CSS =
   '.ar-cores button.sem{background:repeating-linear-gradient(45deg,transparent 0 4px,var(--line) 4px 5px)}' +
   '.ar-dlgc .ar-cores input[type=color]{width:34px;height:30px;padding:2px;border-radius:7px;cursor:pointer}' +
   '.ar-dlgc .ar-cores small{font-size:.72rem;color:var(--muted)}' +
-  '.attn article.ar-tinta{background:color-mix(in srgb, var(--ar-cor) 20%, var(--surface));border-color:color-mix(in srgb, var(--ar-cor) 45%, var(--line))}' +
+  '.attn article.ar-tinta{background:color-mix(in srgb, var(--ar-cor) 9%, var(--surface));border-color:color-mix(in srgb, var(--ar-cor) 22%, var(--line))}' +
+  /* O Hoje compacto: uma linha por aviso, titulo e onde lado a lado, sem
+     sombra. Com a cor em tom pastel, 30 avisos cabem num ecra sem gritar. */
+  '#view-hoje .attn{gap:6px}' +
+  '#view-hoje .attn article{padding:9px 12px 9px 16px;box-shadow:none;border-radius:10px;align-items:center;gap:10px;transition:box-shadow .15s}' +
+  '#view-hoje .attn article:hover{box-shadow:0 1px 5px rgba(15,23,32,.1)}' +
+  '#view-hoje .attn article .grow{display:flex;align-items:baseline;gap:10px;min-width:0}' +
+  '#view-hoje .attn article h4{font-size:.875rem;font-weight:600;margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:0 1 auto}' +
+  '#view-hoje .attn article p{font-size:.75rem;margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:0 10 auto}' +
+  '#view-hoje .attn article::before{width:3px;top:8px;bottom:8px;left:6px;border-radius:3px}' +
+  '#view-hoje .attn .when .pill{font-size:.625rem}' +
+  '#view-hoje .attn details.atraso{box-shadow:none}' +
   /* O Hoje em branco, para os cartoes com a cor da area se lerem. */
   'body:has(#view-hoje.is-active){background:var(--surface)}' +
   'body:has(#view-hoje.is-active) .topbar{background:color-mix(in srgb, var(--surface) 88%, transparent)}' +
@@ -360,8 +371,8 @@ if (typeof attnCard === 'function') {
       /* Tambem no proprio cartao: se o CSS do modulo ainda nao tiver entrado
          (o Hoje pode ser desenhado antes deste ficheiro chegar), o cartao
          nao fica branco na mesma. */
-      art.style.background = 'color-mix(in srgb, ' + k + ' 20%, var(--surface))';
-      art.style.borderColor = 'color-mix(in srgb, ' + k + ' 45%, var(--line))';
+      art.style.background = 'color-mix(in srgb, ' + k + ' 9%, var(--surface))';
+      art.style.borderColor = 'color-mix(in srgb, ' + k + ' 22%, var(--line))';
     }
     return art;
   };
