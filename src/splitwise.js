@@ -138,10 +138,13 @@ async function sincronizar(k) {
   return grupos.length;
 }
 
-const gruposGuardados = () => all(
+/* O id do grupo e um BIGINT, e o Postgres devolve BIGINT como texto. Os ids
+   do Splitwise cabem num numero de JavaScript, e o ecra compara-os com ===,
+   por isso voltam daqui como numeros. */
+const gruposGuardados = async () => (await all(
   `SELECT id, nome, moeda, membros, ativo, omissao,
           to_char(lido_em AT TIME ZONE 'Europe/Lisbon','YYYY-MM-DD HH24:MI') AS lido_em
-     FROM splitwise_grupos ORDER BY ativo DESC, nome`);
+     FROM splitwise_grupos ORDER BY ativo DESC, nome`)).map((g) => Object.assign({}, g, { id: Number(g.id) }));
 
 /* ---------------- lancar a despesa ---------------- */
 const cent = (v) => Math.round(Number(v) * 100) / 100;
