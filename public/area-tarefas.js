@@ -210,6 +210,11 @@ var AE_CSS =
   '.ae-lseg .ae-seg{margin:0}' +
   '.ae-grp > h4.bad{color:var(--bad)}' +
   '.ae-grp > h4.acc{color:var(--accent-ink)}' +
+  /* Os grupos abrem e fecham: a seta vira, e o cabecalho acende ao passar. */
+  '.ae-grp > h4{align-items:center;border-radius:7px}' +
+  '.ae-grp > h4:hover{background:var(--surface-2);color:var(--ink-2)}' +
+  '.ae-grp > h4 svg{transition:transform .15s;color:var(--faint);flex:0 0 auto}' +
+  '.ae-grp.rec > h4 svg{transform:rotate(-90deg)}' +
   '.ae-kpi.ae-link{border-color:var(--accent);box-shadow:var(--shadow)}' +
   '.ae-kpi.ae-link b{display:flex;gap:8px;align-items:baseline;width:100%}' +
   '.ae-kpi.ae-link b i{margin-left:auto;font-style:normal;font-family:var(--sans);font-size:.8rem;color:var(--accent-ink)}' +
@@ -229,7 +234,7 @@ AE.fechados = aeLerGuardado('aeFechados');
 
 /* O que a area tem por fazer e o que tem marcado ficam a vista; o dinheiro ja
    gasto e os projetos abrem-se quando se quiserem. */
-var AE_INICIO_FECHADO = { despesas: true,
+var AE_INICIO_FECHADO = { 'grp:tarde': true, despesas: true,
   /* O que ja esta fechado nao tem de estar aberto: mostra-se a contagem e
      estende-se quem quiser ver. */
   'fim:tarefas': true, 'fim:pagamentos': true, 'fim:eventos': true };
@@ -243,7 +248,10 @@ function aeF(view){
      sim/nao): passam a listas sem se perder o que estava escolhido. */
   var subs = Array.isArray(f.subs) ? f.subs.slice() : (f.sub && f.sub !== 'tudo' ? [f.sub] : []);
   var periodos = Array.isArray(f.periodos) ? f.periodos.slice() : (f.periodo && f.periodo !== 'tudo' ? [f.periodo] : []);
-  var fechados = Array.isArray(f.fechados) ? f.fechados.slice() : (f.fechados === 'sim' ? AE_FECHADOS.map(function(x){ return x[0]; }) : []);
+  /* Ao entrar numa area ve-se tudo: o que ha por fazer e o que ja foi feito.
+     Esconder e uma escolha de quem esta a olhar, nao o estado de partida. */
+  var fechados = Array.isArray(f.fechados) ? f.fechados.slice()
+    : (f.fechados === 'nao' ? [] : AE_FECHADOS.map(function(x){ return x[0]; }));
   return {
     subs: subs,
     /* Para quem so precisa de uma (a area proposta ao criar): a unica escolhida. */
@@ -989,6 +997,46 @@ function aeLinhaProjeto(p, tudo){
   return r;
 }
 
+/* Os grupos por prazo sao os mesmos do Hoje - em atraso, hoje, amanha, esta
+   semana, proxima semana, este mes -, para nao haver duas maneiras de arrumar
+   as mesmas tarefas. O que passa do mes corrente junta-se todo em «Mais
+   tarde», que e o unico que comeca recolhido: sao as prestacoes de 2027 que
+   nao interessam a quem esta a olhar para a semana. */
+var AE_GRUPOS = [
+  ['atraso', 'Em atraso', 'bad'], ['hoje', 'Hoje', 'acc'], ['amanha', 'Amanh\u00e3', 'acc'],
+  ['semana', 'Esta semana', ''], ['proxima', 'Pr\u00f3xima semana', ''], ['mes', 'Este m\u00eas', ''],
+  ['tarde', 'Mais tarde', ''], ['semdata', 'Sem prazo', '']
+];
+
+function aeAgrupar(lista){
+  var qual = typeof hjPeriodos === 'function' ? hjPeriodos() : null;
+  var limite14 = tfISO(tfMais(tfHoje(), 14));
+  var out = {};
+  lista.forEach(function(t){
+    var k;
+    if (!t.due_on) k = 'semdata';
+    else if (!qual){
+      /* Sem o Hoje carregado, o que havia antes: atraso, 14 dias, o resto. */
+      k = tfNivelData(t) === 'bad' ? 'atraso' : (t.due_on <= limite14 ? 'hoje' : 'tarde');
+    } else {
+      var p = qual(t.due_on);
+      k = p.ordem >= 10 ? 'tarde' : p.k;
+    }
+    (out[k] = out[k] || []).push(t);
+  });
+  return out;
+}
+
+/* O que falta fazer le-se do mais proximo para o mais longe; o que ja foi
+   feito, ao contrario - do ultimo para tras. Ordena-se pela mesma data que
+   aparece na linha (o prazo), senao a coluna da direita ficava aos saltos. */
+function aeOrdemFeitas(a, b){
+  var q = function(t){ return String(t.due_on || t.paid_on || t.completed_at || '').slice(0, 10); };
+  var x = q(a), y = q(b);
+  if (x !== y) return x < y ? 1 : -1;
+  return String(a.title).localeCompare(String(b.title), 'pt');
+}
+
 function aeOrdem(a, b){
   if (a.due_on && b.due_on && a.due_on !== b.due_on) return a.due_on < b.due_on ? -1 : 1;
   if (!!a.due_on !== !!b.due_on) return a.due_on ? -1 : 1;
@@ -1528,7 +1576,8 @@ function aeRenderArea(a){
     bL.type = 'button';
     bL.addEventListener('click', function(){
       var nf = aeF(a.view);
-      nf.subs = []; nf.periodos = []; nf.fechados = []; nf.quem = 'todos';
+      nf.subs = []; nf.periodos = []; nf.quem = 'todos';
+      nf.fechados = AE_FECHADOS.map(function(x){ return x[0]; });
       AE.filtro[a.view] = nf;
       aeGuardar('aeFiltro', AE.filtro);
       aeRenderArea(a);
@@ -1633,17 +1682,12 @@ function aeRenderArea(a){
   /* ---- a esquerda (3/4): tarefas e pagamentos numa lista so, por prazo ---- */
   var tipoSel = AE.tipo[a.view] || 'todas';
   var lista = soltas.filter(function(t){ return tipoSel === 'todas' || tfTipo(t) === tipoSel; }).sort(aeOrdem);
+  /* O que ja foi feito le-se ao contrario do que falta fazer: do mais
+     recente para tras, que e a ordem por que se procura um pagamento. */
   var fechadasT = tarefasFechadas.concat(pagamentosFechados)
-    .filter(function(t){ return tipoSel === 'todas' || tfTipo(t) === tipoSel; }).sort(aeOrdem);
-  var limite14 = tfISO(tfMais(tfHoje(), 14));
-  var gAtraso = [], gProx = [], gDepois = [], gSem = [];
-  lista.forEach(function(t){
-    if (!t.due_on) gSem.push(t);
-    else if (tfNivelData(t) === 'bad') gAtraso.push(t);
-    else if (t.due_on <= limite14) gProx.push(t);
-    else gDepois.push(t);
-  });
-  var nAtrasoL = gAtraso.length;
+    .filter(function(t){ return tipoSel === 'todas' || tfTipo(t) === tipoSel; }).sort(aeOrdemFeitas);
+  var porGrupo = aeAgrupar(lista);
+  var nAtrasoL = (porGrupo.atraso || []).length;
   var aPagarL = lista.filter(function(t){ return tfTipo(t) === 'pagamento'; })
     .reduce(function(s2, t){ return s2 + Number(t.amount || 0); }, 0);
 
@@ -1697,19 +1741,28 @@ function aeRenderArea(a){
           : (temTarefas || temPagamentos ? 'Nada por fazer no que está filtrado.' : 'Nada por fazer fora dos projetos.'))));
       }
       var usados = 0;
-      [['Em atraso', gAtraso, 'bad'], ['Próximos 14 dias', gProx, 'acc'], ['Mais tarde', gDepois, ''], ['Sem prazo', gSem, '']]
-        .forEach(function(g){
-          if (!g[1].length || usados >= MAXT) return;
-          var gr = el('div', 'ae-grp');
-          var h4 = el('h4', g[2], g[0]);
-          h4.appendChild(el('span', null, String(g[1].length)));
-          gr.appendChild(h4);
+      AE_GRUPOS.forEach(function(g){
+        var itens = porGrupo[g[0]] || [];
+        if (!itens.length) return;
+        var chave = 'grp:' + g[0];
+        var aberto = aeAbertoW(a.view, chave);
+        var gr = el('div', 'ae-grp' + (aberto ? '' : ' rec'));
+        var h4 = el('h4', g[2], '');
+        h4.style.cursor = 'pointer';
+        h4.innerHTML = aeIcone(AE_I.seta, 11);
+        h4.appendChild(document.createTextNode(g[1]));
+        h4.appendChild(el('span', null, String(itens.length)));
+        h4.addEventListener('click', function(){ aeFecharW(a, chave, aberto); });
+        gr.appendChild(h4);
+        if (aberto){
+          if (usados >= MAXT){ card.appendChild(gr); return; }
           var rows = el('div', 'tf-rows');
-          g[1].slice(0, MAXT - usados).forEach(function(t){ rows.appendChild(aeLinha(t, comSub)); });
-          usados += g[1].length;
+          itens.slice(0, MAXT - usados).forEach(function(t){ rows.appendChild(aeLinha(t, comSub)); });
+          usados += itens.length;
           gr.appendChild(rows);
-          card.appendChild(gr);
-        });
+        }
+        card.appendChild(gr);
+      });
       if (lista.length > MAXT) card.appendChild(el('p', 'ae-nota', 'e mais ' + (lista.length - MAXT) + ' nas Tarefas.'));
       if (notas) card.appendChild(el('p', 'ae-nota', notas + (notas === 1 ? ' nota' : ' notas') + ' nas Tarefas › Notas.'));
       aeGrupoFechados(a, card, 'tarefas', 'Já feitas e pagas', fechadasT, function(c){
