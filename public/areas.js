@@ -209,6 +209,13 @@ function arJanela(c, paiId) {
 
   /* A cor do fundo dos cartoes do Hoje. */
   var corEscolhida = (c && c.color) || null;
+  /* Toda a area de topo tem cor: uma nova nasce com a primeira das prontas
+     que ainda ninguem usa (muda-se ali mesmo, antes de gravar). Uma
+     sub-area nasce sem cor e usa a da area. */
+  if (!c && !paiId) {
+    var usadas = AR.linhas.map(function (x) { return x.color; });
+    corEscolhida = AR_CORES.filter(function (k) { return usadas.indexOf(k) < 0; })[0] || AR_CORES[0];
+  }
   var campoCor = el('div');
   campoCor.appendChild(el('label', null, c && c.parent_id || paiId
     ? 'Cor (sem cor, usa a da \u00e1rea)' : 'Cor dos cart\u00f5es no Hoje'));
