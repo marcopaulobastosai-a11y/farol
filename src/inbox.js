@@ -494,6 +494,12 @@ async function ligarComprovativo(inboxId, taskId, docId, d, parte) {
      ON CONFLICT (inbox_id, target_type, target_id) DO UPDATE SET dados = EXCLUDED.dados`,
     [inboxId, taskId, JSON.stringify(dados)]);
   if (docId) {
+    /* O comprovativo mora onde mora o pagamento que prova: as poupancas da
+       Sofia e da Maria sao da Familia, e e la que os papeis delas se procuram
+       (a leitura tinha-os posto nas Financas). */
+    await query(
+      `UPDATE documents d SET context_id = t.context_id
+         FROM tasks t WHERE t.id = $1 AND d.id = $2 AND t.context_id IS NOT NULL`, [taskId, docId]);
     /* O valor fica na ligacao: um pagamento so se da como pago quando os
        comprovativos somam o valor dele. */
     await query(
