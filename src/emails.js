@@ -198,6 +198,24 @@ async function papeisDe(taskId) {
       ORDER BY CASE td.papel WHEN 'fatura' THEN 0 ELSE 1 END, d.issued_on NULLS LAST, td.document_id`, [taskId]);
 }
 
+/* Os papeis que a janela de «dar por pago» acabou de escolher ainda nao estao
+   agarrados a tarefa - e so depois de fechar e que ficam. Para o email poder
+   sair antes disso, vao-se buscar pelo proprio id. */
+async function papeisSoltos(ids) {
+  if (!ids || !ids.length) return [];
+  return all(
+    `SELECT d.id, 'anexo'::text AS papel, NULL::float AS valor, d.name, d.entity,
+            to_char(COALESCE(d.issued_on, d.valid_on),'YYYY-MM-DD') AS data,
+            i.file_path, i.file_name, i.mime_type, i.store
+       FROM documents d
+       LEFT JOIN LATERAL (
+         SELECT ii.file_path, ii.file_name, ii.mime_type, ii.store
+           FROM inbox_links l JOIN inbox_items ii ON ii.id = l.inbox_id
+          WHERE l.target_type = 'documento' AND l.target_id = d.id AND ii.file_path IS NOT NULL
+          ORDER BY l.inbox_id DESC LIMIT 1) i ON TRUE
+      WHERE d.id = ANY($1)`, [ids]);
+}
+
 const euros = (v) => v === null || v === undefined ? '' :
   Number(v).toLocaleString('pt-PT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
 function dataLonga(iso) {
@@ -217,12 +235,30 @@ function preencher(modelo, v) {
   }).replace(/[ \t]+([,.;:])/g, '$1').replace(/\n{3,}/g, '\n\n').trim();
 }
 
-async function preparar(taskId) {
+/* `porGravar` e o que a janela de «dar por pago» tem no ecra e ainda nao
+   gravou: a data, o valor e os papeis escolhidos. Com isso o email pode ser
+   revisto antes de o pagamento fechar, ja com todos os dados. */
+async function preparar(taskId, porGravar) {
+  const x = porGravar || {};
   const t = await pagamento(taskId);
   if (!t || t.tipo !== 'pagamento') return null;
+  if (x.paid_on) t.paid_on = String(x.paid_on).slice(0, 10);
+  if (x.paid_amount !== undefined && x.paid_amount !== null && x.paid_amount !== '') {
+    t.paid_amount = Number(String(x.paid_amount).replace(',', '.'));
+  }
   const achado = await destinatarioDe(t);
   const d = achado && achado.d;
-  const papeis = await papeisDe(taskId);
+  let papeis = await papeisDe(taskId);
+  const escolhidos = (x.documentos || []).map((y) => ({ id: Number(y && y.id !== undefined ? y.id : y), papel: (y && y.papel) || 'anexo' }))
+    .filter((y) => Number.isInteger(y.id) && !papeis.some((p) => p.id === y.id));
+  if (escolhidos.length) {
+    const soltos = await papeisSoltos(escolhidos.map((y) => y.id));
+    const qual = {};
+    escolhidos.forEach((y) => { qual[y.id] = y.papel; });
+    papeis = papeis.concat(soltos.map((p) => Object.assign(p, { papel: qual[p.id] || 'anexo' })));
+    papeis.sort((a, b) => (a.papel === 'fatura' ? 0 : 1) - (b.papel === 'fatura' ? 0 : 1) ||
+      String(a.data || '9999').localeCompare(String(b.data || '9999')) || a.id - b.id);
+  }
   const faturas = papeis.filter((p) => p.papel === 'fatura');
   const meses = [];
   faturas.forEach((f) => { if (f.data) { const k = f.data.slice(0, 7); if (meses.indexOf(k) < 0) meses.push(k); } });
@@ -264,7 +300,11 @@ async function enviar(taskId, b, automatico) {
   const assunto = semLinhas(b.assunto);
   if (!assunto) throw new Error('Falta o assunto.');
   const pedidos = (b.anexos || []).map(Number).filter(Number.isInteger);
-  const papeis = (await papeisDe(taskId)).filter((p) => pedidos.indexOf(p.id) >= 0);
+  let papeis = (await papeisDe(taskId)).filter((p) => pedidos.indexOf(p.id) >= 0);
+  /* O comprovativo escolhido na janela de pagar ainda pode nao estar agarrado
+     ao pagamento: anexa-se na mesma, que e o papel que esta a ser enviado. */
+  const faltam = pedidos.filter((id) => !papeis.some((p) => p.id === id));
+  if (faltam.length) papeis = papeis.concat(await papeisSoltos(faltam));
   const inbox = require('./inbox');
   const anexos = [];
   let total = 0;
@@ -432,18 +472,29 @@ function instalar(app, { ehAdmin }) {
   });
 
   /* O email de um pagamento: o que se enviaria, e o que ja se enviou. */
+  const responder = async (req, res, porGravar) => {
+    const id = Number(req.params.id);
+    const p = await preparar(id, porGravar);
+    if (!p) return res.status(404).json({ error: 'Pagamento não encontrado.' });
+    const l = await lerLigacao();
+    p.gmail = { ligado: Boolean(l && l.token), configurado: configurado() };
+    p.envios = await all(
+      `SELECT id, estado, automatico, para, cc, assunto, anexos, gmail_id, erro,
+              to_char(created_at AT TIME ZONE 'Europe/Lisbon','YYYY-MM-DD HH24:MI') AS quando
+         FROM email_envios WHERE task_id = $1 ORDER BY created_at DESC LIMIT 20`, [id]);
+    res.json(p);
+  };
+
   app.get('/api/emails/pagamento/:id(\\d+)', async (req, res) => {
-    try {
-      const p = await preparar(Number(req.params.id));
-      if (!p) return res.status(404).json({ error: 'Pagamento não encontrado.' });
-      const l = await lerLigacao();
-      p.gmail = { ligado: Boolean(l && l.token), configurado: configurado() };
-      p.envios = await all(
-        `SELECT id, estado, automatico, para, cc, assunto, anexos, gmail_id, erro,
-                to_char(created_at AT TIME ZONE 'Europe/Lisbon','YYYY-MM-DD HH24:MI') AS quando
-           FROM email_envios WHERE task_id = $1 ORDER BY created_at DESC LIMIT 20`, [Number(req.params.id)]);
-      res.json(p);
-    } catch (err) { falha(res, err, 'GET email pagamento'); }
+    try { await responder(req, res, null); }
+    catch (err) { falha(res, err, 'GET email pagamento'); }
+  });
+
+  /* O mesmo, mas com o que a janela de «dar por pago» ainda nao gravou - para
+     se rever o email antes de o pagamento fechar. */
+  app.post('/api/emails/pagamento/:id(\\d+)/preparar', async (req, res) => {
+    try { await responder(req, res, req.body || {}); }
+    catch (err) { falha(res, err, 'POST preparar email'); }
   });
 
   app.post('/api/emails/pagamento/:id(\\d+)/enviar', async (req, res) => {
