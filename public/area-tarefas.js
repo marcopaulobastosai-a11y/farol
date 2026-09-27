@@ -1574,7 +1574,7 @@ function aeRenderArea(a){
   var aPagarL = lista.filter(function(t){ return tfTipo(t) === 'pagamento'; })
     .reduce(function(s2, t){ return s2 + Number(t.amount || 0); }, 0);
 
-  var detAqui = AE.det === a.view && window.TF && TF.aberta && document.getElementById('tfDet');
+  var detAqui = AE.det === a.view && window.TF && TF.aberta && aeNo('det', 'tfDet');
   var main = el('div', 'ae-main' + (detAqui ? ' com-det' : ''));
   var esq = el('div', 'ae-esq');
   main.appendChild(esq);
@@ -1649,7 +1649,7 @@ function aeRenderArea(a){
   if (detAqui){
     var slot = el('div', 'ae-detslot');
     main.appendChild(slot);
-    aeEmprestar('det', document.getElementById('tfDet'), slot);
+    aeEmprestar('det', aeNo('det', 'tfDet'), slot);
   }
   box.appendChild(main);
 }
@@ -1681,6 +1681,13 @@ function aeDevolver(k){
   else e.casa.appendChild(e.no);
 }
 function aeDevolverTudo(){ Object.keys(AE_EMP).forEach(aeDevolver); }
+/* O no emprestado, esteja onde estiver. Quando a area se redesenha, o sitio
+   onde ele estava sai do documento e o getElementById deixa de o achar: sem
+   isto, o detalhe (ou as Despesas) desaparecia a primeira gravacao. */
+function aeNo(k, id){
+  if (AE_EMP[k]) return AE_EMP[k].no;
+  return typeof id === 'function' ? id() : document.getElementById(id);
+}
 
 /* O miolo dos Documentos, embrulhado uma vez para poder ser emprestado. */
 function aeMioloDocs(){
@@ -1776,10 +1783,10 @@ function aeSubPagina(a, box, pag, c){
       stD.textContent = DP_CSS.replace(/#view-despesas/g, '#dpCaixa');
       document.head.appendChild(stD);
     }
-    aeEmprestar('despesas', document.getElementById('dpCaixa'), hold);
+    aeEmprestar('despesas', aeNo('despesas', 'dpCaixa'), hold);
     try { if (typeof dpRender === 'function') dpRender(); } catch (e) { console.error('[farol] despesas na area', e); }
   } else if (pag === 'documentos'){
-    aeEmprestar('documentos', aeMioloDocs(), hold);
+    aeEmprestar('documentos', aeNo('documentos', aeMioloDocs), hold);
     try { if (window.D && typeof renderDocumentos === 'function') renderDocumentos(); } catch (e) { console.error('[farol] documentos na area', e); }
   }
 }
