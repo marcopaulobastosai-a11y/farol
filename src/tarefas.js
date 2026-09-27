@@ -131,14 +131,14 @@ const CAMPOS = `t.id, t.title, t.notes, t.area, t.context_id, t.project_id, t.ow
   t.reminders, t.tags, t.section, t.sort_order, t.parent_id, t.series_id, t.done,
   t.completed_at, t.created_at,
   t.amount, t.payee, t.payment_ref, t.payment_method, t.paid_amount, t.expense_id,
-  to_char(t.paid_on,'YYYY-MM-DD') AS paid_on`;
+  to_char(t.paid_on,'YYYY-MM-DD') AS paid_on, t.junta_faturas`;
 
 async function completar(tasks) {
   if (!tasks.length) return tasks;
   const ids = tasks.map((t) => t.id);
   const [subjects, anexos, itens, coms] = await Promise.all([
     all('SELECT task_id, person_id FROM task_subjects WHERE task_id = ANY($1::int[])', [ids]),
-    all('SELECT task_id, document_id, papel FROM task_documents WHERE task_id = ANY($1::int[])', [ids]),
+    all('SELECT task_id, document_id, papel, valor::float AS valor FROM task_documents WHERE task_id = ANY($1::int[])', [ids]),
     all('SELECT id, task_id, title, done, sort FROM task_items WHERE task_id = ANY($1::int[]) ORDER BY sort, id', [ids]),
     all('SELECT task_id, count(*)::int AS n FROM task_comments WHERE task_id = ANY($1::int[]) GROUP BY task_id', [ids])
   ]);
@@ -153,7 +153,7 @@ async function completar(tasks) {
     t.subjects = S.get(t.id) || [];
     /* documents guarda so os ids (e o que os ecras antigos esperam); papeis
        diz qual deles e a fatura, o comprovativo e o recibo. */
-    t.papeis = (A.get(t.id) || []).map((x) => ({ id: x.document_id, papel: x.papel || 'anexo' }));
+    t.papeis = (A.get(t.id) || []).map((x) => ({ id: x.document_id, papel: x.papel || 'anexo', valor: x.valor }));
     t.documents = t.papeis.map((x) => x.id);
     t.items = (I.get(t.id) || []).map((i) => ({ id: i.id, title: i.title, done: i.done, sort: i.sort }));
     t.comments = C.get(t.id) || 0;
@@ -209,9 +209,30 @@ async function juntarDocumentos(taskId, documents) {
   }
 }
 
+/* Sai o que deixou de estar na lista; o que fica guarda o valor que tinha
+   (o peso de cada fatura num pagamento que junta faturas). Apagar tudo e
+   voltar a por perdia-o a cada gravacao. */
 async function gravarDocumentos(taskId, documents) {
-  await query('DELETE FROM task_documents WHERE task_id = $1', [taskId]);
+  const ids = (documents || []).map(umDocumento).filter(Boolean).map((d) => d.id);
+  await query('DELETE FROM task_documents WHERE task_id = $1 AND NOT (document_id = ANY($2::int[]))', [taskId, ids]);
   await juntarDocumentos(taskId, documents);
+  await recalcularJunta(taskId);
+}
+
+/* Num pagamento que junta faturas, o valor e a soma delas. Sem faturas com
+   valor, fica sem valor - e isso que diz «ainda nao chegou nada este mes». */
+async function recalcularJunta(taskId) {
+  await query(
+    `UPDATE tasks SET amount = (SELECT sum(valor) FROM task_documents
+                                 WHERE task_id = $1 AND papel = 'fatura' AND valor IS NOT NULL),
+            updated_at = now()
+      WHERE id = $1 AND junta_faturas IS NOT NULL AND NOT done`, [taskId]);
+}
+
+/* As entidades de um pagamento que junta faturas: «EDP, Vodafone; SMAS». */
+function juntaDe(v) {
+  const s = String(v || '').split(/[,;\n]+/).map((x) => x.trim()).filter(Boolean);
+  return s.length ? s.join(', ') : null;
 }
 async function gravarItens(taskId, itens) {
   await query('DELETE FROM task_items WHERE task_id = $1', [taskId]);
@@ -280,8 +301,8 @@ async function fechar(id, estado) {
      (decisao do Marco, 25 set: cada pagamento tem os seus tres). O resto dos
      anexos fica nos dois. */
   await query(
-    `INSERT INTO task_documents (task_id, document_id, papel)
-     SELECT $2, document_id, papel FROM task_documents WHERE task_id = $1`, [id, copia.id]);
+    `INSERT INTO task_documents (task_id, document_id, papel, valor)
+     SELECT $2, document_id, papel, valor FROM task_documents WHERE task_id = $1`, [id, copia.id]);
   await query(
     "DELETE FROM task_documents WHERE task_id = $1 AND papel IN ('fatura','comprovativo','recibo')", [id]);
   await query(
@@ -297,6 +318,8 @@ async function fechar(id, estado) {
             completed_at = NULL, paid_on = NULL, paid_amount = NULL, payment_method = NULL,
             expense_id = NULL, updated_at = now() WHERE id = $1`, [id, prox, novoInicio]);
   await query('UPDATE task_items SET done = FALSE, completed_at = NULL WHERE task_id = $1', [id]);
+  /* O mes seguinte de um pagamento que junta faturas comeca vazio. */
+  await recalcularJunta(id);
   return true;
 }
 
@@ -355,6 +378,7 @@ async function alterar(id, b) {
   if (b.tipo !== undefined && TIPOS.includes(b.tipo)) por('tipo', b.tipo);
   ['payee', 'payment_ref'].forEach(function (c) { if (b[c] !== undefined) por(c, limpar(b[c])); });
   if (b.amount !== undefined) por('amount', valor(b.amount));
+  if (b.junta_faturas !== undefined) por('junta_faturas', juntaDe(b.junta_faturas));
   if (b.repeat_rule !== undefined || b.repeat_every !== undefined) {
     por('repeat_rule', normalizarRegra(b.repeat_rule !== undefined ? b.repeat_rule : b.repeat_every));
   }
@@ -377,6 +401,15 @@ async function alterar(id, b) {
   if (Array.isArray(b.subjects)) await gravarAssuntos(id, b.subjects);
   if (Array.isArray(b.documents)) await gravarDocumentos(id, b.documents);
   if (Array.isArray(b.items)) await gravarItens(id, b.items);
+  /* O valor de cada fatura num pagamento que junta faturas: { docId: valor }. */
+  if (b.valores && typeof b.valores === 'object') {
+    for (const k of Object.keys(b.valores)) {
+      if (!Number.isInteger(Number(k))) continue;
+      await query('UPDATE task_documents SET valor = $3 WHERE task_id = $1 AND document_id = $2',
+        [id, Number(k), valor(b.valores[k])]);
+    }
+  }
+  if (b.valores || b.junta_faturas !== undefined) await recalcularJunta(id);
   /* Quem paga e a pessoa do papel sao a mesma: escolher aqui o dono escreve-o
      tambem no cartao da caixa de entrada de onde este pagamento veio, quando
      esse cartao ainda nao diz de quem e o papel. O require e aqui dentro
@@ -500,7 +533,7 @@ async function importar(corpo) {
    pagamento nao existir. */
 async function pagar(id, b) {
   const t = (await all(
-    `SELECT id, tipo, title, amount, payee, context_id, project_id, owner_id, repeat_rule
+    `SELECT id, tipo, title, amount, payee, context_id, project_id, owner_id, repeat_rule, junta_faturas
        FROM tasks WHERE id = $1 AND origin = 'real'`, [id]))[0];
   if (!t) return false;
 
@@ -510,7 +543,29 @@ async function pagar(id, b) {
     ? String(b.payment_method).toLowerCase() : limpar(b.payment_method);
 
   let despesaId = null;
-  if (b.criar_despesa !== false && pago !== null) {
+  /* Um pagamento que junta faturas da uma despesa por fatura, em nome de quem
+     a emitiu: a transferencia foi para o senhorio, mas o dinheiro foi luz,
+     internet e agua. O que sobrar da soma vai em nome de quem recebeu. */
+  const faturas = t.junta_faturas ? await all(
+    `SELECT td.document_id, td.valor::float AS valor, d.name, d.entity
+       FROM task_documents td JOIN documents d ON d.id = td.document_id
+      WHERE td.task_id = $1 AND td.papel = 'fatura' AND td.valor IS NOT NULL
+      ORDER BY d.issued_on NULLS LAST, td.document_id`, [id]) : [];
+  if (b.criar_despesa !== false && pago !== null && faturas.length) {
+    const pessoa = limpar(b.person_id) || t.owner_id;
+    const partes = faturas.map((f) => ({ d: f.name || t.title, v: f.valor, m: f.entity || t.payee, doc: f.document_id }));
+    const soma = faturas.reduce((s, f) => s + f.valor, 0);
+    if (pago - soma > 0.005) partes.push({ d: t.title, v: Math.round((pago - soma) * 100) / 100, m: t.payee, doc: null });
+    for (const p of partes) {
+      const linhas = await all(
+        `INSERT INTO expenses (description, amount, spent_on, merchant, category, person_id,
+                               project_id, context_id, note, document_id, origin, aprovado)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'real',TRUE) RETURNING id`,
+        [p.d, p.v, quando, limpar(p.m), limpar(b.category), pessoa,
+         t.project_id, t.context_id, 'pago em ' + t.title, p.doc]);
+      if (!despesaId) despesaId = linhas[0].id;
+    }
+  } else if (b.criar_despesa !== false && pago !== null) {
     const pessoa = limpar(b.person_id) || t.owner_id;
     const linhas = await all(
       `INSERT INTO expenses (description, amount, spent_on, merchant, category, person_id,
@@ -725,4 +780,4 @@ function instalar(app, { carregarGestao, quem, ehAdmin }) {
   });
 }
 
-module.exports = { instalar, tarefasParaGestao, importar, criar, alterar, fechar, pagar, umaTarefa, proximaData, descreverRegra, STATUS, PRIOS, TIPOS, PAPEIS };
+module.exports = { instalar, tarefasParaGestao, importar, criar, alterar, fechar, pagar, umaTarefa, proximaData, descreverRegra, recalcularJunta, STATUS, PRIOS, TIPOS, PAPEIS };
