@@ -56,6 +56,14 @@ var FI_CSS = [
   '#view-pessoa .fi-num-id{font-family:var(--mono);letter-spacing:.02em}',
   '#view-pessoa .fi-dados a{color:var(--accent);text-underline-offset:2px}',
   '#view-pessoa .fi-ver{border:0;background:none;color:var(--accent);font:inherit;font-size:.75rem;cursor:pointer;padding:0}',
+  '#view-pessoa .fi-g{display:flex;flex-direction:column;gap:5px;align-items:flex-start}',
+  '#view-pessoa .fi-g small{color:var(--muted);font-size:.75rem}',
+  '#view-pessoa .fi-g small.mau{color:var(--bad)}',
+  '#view-pessoa .fi-gb{display:flex;gap:6px;flex-wrap:wrap}',
+  '#view-pessoa .fi-gb button{border:1px solid var(--line);background:var(--surface);color:var(--ink-2);',
+  'border-radius:99px;padding:3px 10px;font:inherit;font-size:.75rem;cursor:pointer}',
+  '#view-pessoa .fi-gb button:hover{border-color:var(--accent);color:var(--accent-ink)}',
+  '#view-pessoa .fi-gb button[disabled]{opacity:.5;cursor:default}',
   '#view-pessoa .fi-link{color:var(--accent);cursor:pointer;text-decoration:underline;text-underline-offset:2px}',
   '#view-pessoa .fi-acc > header{cursor:pointer;user-select:none;align-items:center}',
   '#view-pessoa .fi-acc > header h3{flex:1 1 auto;margin:0}',
@@ -314,7 +322,7 @@ function fiDesenhar() {
   /* A esquerda quem a pessoa e; a direita o que ela tem em curso. */
   esq.appendChild(el('div', 'fi-col-t', 'Quem é'));
   dir.appendChild(el('div', 'fi-col-t', 'Em curso'));
-  fiDados(esq, p, d.dependentes || []);
+  fiDados(esq, p, d.dependentes || [], d.google || null);
   fiCompromissos(dir, compromissos, d.compromissosPassados || 0);
   fiTarefas(dir, d.tarefas);
   fiDocumentos(dir, d.documentos);
@@ -364,7 +372,7 @@ function fiDocumentos(pai, docs) {
 }
 
 /* ---------------- os dados da pessoa ---------------- */
-function fiDados(pai, p, dependentes) {
+function fiDados(pai, p, dependentes, google) {
   var feitos = 0;
 
   function numero(v, lista) {
@@ -472,11 +480,112 @@ function fiDados(pai, p, dependentes) {
       ['Ligar a', p.emerg_nome],
       ['Telefone', p.emerg_tel ? ligacao('tel:' + String(p.emerg_tel).replace(/\s+/g, ''), p.emerg_tel) : null]
     ]);
-    bloco('Na app', [['Conta de acesso', p.conta_email]]);
+    bloco('Na app', [['Conta de acesso', p.conta_email],
+                     ['Calendário Google', fiGoogle(p, google)]]);
   }
 
   if (!feitos) fiVazio(fiCartao(pai, 'Dados'), 'Ainda sem dados. Carrega em Editar para os pôr.');
 }
+
+/* ---------------- o calendario Google ---------------- */
+/* Cada pessoa liga a conta dela e o calendario dela entra na Agenda. O Farol
+   so pede licenca para LER; o que se corrige, corrige-se no Google. */
+function fiQuando(ms) {
+  var n = Number(ms || 0);
+  if (!n) return 'ainda não foi lido';
+  var seg = Math.round((Date.now() - n) / 1000);
+  if (seg < 90) return 'lido agora mesmo';
+  if (seg < 5400) return 'lido há ' + Math.round(seg / 60) + ' min';
+  if (seg < 172800) return 'lido há ' + Math.round(seg / 3600) + ' h';
+  return 'lido a ' + fiData(new Date(n).toISOString().slice(0, 10));
+}
+
+function fiGoogle(p, g) {
+  var caixa = el('div', 'fi-g');
+  var botoes = el('div', 'fi-gb');
+
+  if (!g) {
+    var ligar = el('button', null, 'Ligar o Google');
+    ligar.type = 'button';
+    ligar.title = 'Traz o calendário desta pessoa para a Agenda do Farol';
+    ligar.onclick = function () { location.href = '/api/google/ligar?pessoa=' + p.id; };
+    botoes.appendChild(ligar);
+    caixa.appendChild(botoes);
+    caixa.appendChild(el('small', null, 'Por ligar — a Agenda não tem o calendário desta pessoa.'));
+    return caixa;
+  }
+
+  caixa.appendChild(document.createTextNode(g.email || 'ligado'));
+  var linha = [fiQuando(g.lido_ms), g.proximos ? g.proximos + ' a chegar' : null].filter(Boolean).join('  ·  ');
+  caixa.appendChild(el('small', null, linha));
+  if (g.erro) caixa.appendChild(el('small', 'mau', g.erro));
+
+  var actualizar = el('button', null, 'Actualizar');
+  actualizar.type = 'button';
+  actualizar.onclick = function () {
+    actualizar.disabled = true;
+    actualizar.textContent = 'a ler…';
+    fiGooglePedir('/api/google/sincronizar', { pessoa: p.id })
+      .then(function () { toast('Calendário de ' + p.name + ' lido.'); fiRecarregar(true); })
+      .catch(function (e) { toast(e.message || 'Não foi possível ler o calendário.'); fiRecarregar(false); });
+  };
+  var desligar = el('button', null, 'Desligar');
+  desligar.type = 'button';
+  desligar.onclick = function () {
+    if (!confirm('Desligar o Google de ' + p.name + '? Os eventos que vieram de lá saem da Agenda; no Google fica tudo como está.')) return;
+    desligar.disabled = true;
+    fiGooglePedir('/api/google/desligar', { pessoa: p.id })
+      .then(function () { toast('Google desligado.'); fiRecarregar(true); })
+      .catch(function (e) { toast(e.message || 'Não foi possível desligar.'); fiRecarregar(false); });
+  };
+  botoes.appendChild(actualizar);
+  botoes.appendChild(desligar);
+  caixa.appendChild(botoes);
+  return caixa;
+}
+
+function fiGooglePedir(url, corpo) {
+  return apiGestao(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(corpo)
+  });
+}
+
+/* Depois de mexer no calendario: a ficha volta a ser o que a base diz, e a
+   Agenda tambem, porque os eventos mudaram. */
+function fiRecarregar(tambemAgenda) {
+  var aqui = FI.id;
+  var p = tambemAgenda && typeof apiGestao === 'function'
+    ? apiGestao('/api/bootstrap').then(function (b) {
+        if (b && b.people && typeof renderAll === 'function') { D = b; renderAll(); }
+      }).catch(function () {})
+    : Promise.resolve();
+  return p.then(function () { return apiGestao('/api/pessoas/' + aqui + '/ficha'); })
+    .then(function (f) {
+      if (FI.id !== aqui) return;
+      FI.dados = f;
+      var v = document.getElementById('view-pessoa');
+      if (v && v.classList.contains('is-active')) fiDesenhar();
+    }).catch(function () {});
+}
+
+/* A volta da Google: diz como correu, limpa o endereco e abre a ficha. */
+(function () {
+  var m = /[?&]google=([^&]+)/.exec(location.search);
+  if (!m) return;
+  var v = decodeURIComponent(m[1]);
+  var msg = {
+    ok: 'Calendário ligado. Os eventos já estão na Agenda.',
+    recusado: 'A Google não deu autorização.',
+    'sem-calendario': 'Falta autorizar a leitura do calendário.',
+    'sem-acesso': 'A Google não devolveu acesso permanente: tenta outra vez.',
+    estado: 'A ligação expirou: tenta outra vez.',
+    erro: 'Não foi possível ligar o Google.'
+  }[v] || 'Google: ' + v;
+  history.replaceState(null, '', location.pathname);
+  setTimeout(function () { if (typeof toast === 'function') toast(msg); }, 1500);
+})();
 
 /* O que esta na Agenda com o nome desta pessoa, de hoje em diante. */
 var FI_MESES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
