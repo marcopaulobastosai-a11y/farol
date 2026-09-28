@@ -335,7 +335,18 @@ async function ficha(id) {
        FROM event_people ep JOIN events e ON e.id = ep.event_id
       WHERE ep.person_id = $1 AND e.day < CURRENT_DATE`);
 
-  return { pessoa, tarefas, documentos, despesas, projetos, caixa, compromissos, compromissosPassados,
+  /* O calendario Google desta pessoa: se esta ligado, com que conta, e
+     quando foi lido pela ultima vez. Vem junto para a ficha nao ter de
+     fazer outro pedido so para desenhar um botao. */
+  const google = (await uma(
+    `SELECT g.email, g.erro,
+            to_char(g.ligado_em, 'YYYY-MM-DD"T"HH24:MI') AS ligado_em,
+            (extract(epoch from g.lido_em) * 1000)::bigint::text AS lido_ms,
+            (SELECT count(*)::int FROM events e
+              WHERE e.google_pessoa = g.person_id AND e.day >= CURRENT_DATE) AS proximos
+       FROM google_contas g WHERE g.person_id = $1`))[0] || null;
+
+  return { pessoa, google, tarefas, documentos, despesas, projetos, caixa, compromissos, compromissosPassados,
            dependentes, contas };
 }
 
