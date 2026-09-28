@@ -4,7 +4,9 @@
  * A regra do farol-organizacao.md: a coisa fica na area, o trabalho sobre a
  * coisa fica no projeto. Faltava a outra metade - a area mostrar o que e
  * dela. As tarefas soltas (sem projeto) sao a operacao corrente: o ordenado
- * da loja, a renda da casa, o IUC.
+ * da loja, a renda da casa, o IUC. Desde 28 set a lista mostra tambem as
+ * tarefas dos projetos da area, com o nome do projeto na linha (aeCtxT da a
+ * area efectiva: a da tarefa, ou a do projeto, ou a do programa).
  *
  * Todos os ecras das areas sao iguais (desenho de 27 set, aprovado pelo
  * Marco num mockup):
@@ -224,6 +226,8 @@ var AE_CSS =
   '.ae-tipo.pag{background:var(--warn-soft);color:var(--warn)}' +
   '.ae-tipo.tar{background:var(--accent-soft);color:var(--accent-ink)}' +
   '.ae-sub{color:var(--accent-ink)}' +
+  '.ae-pjt{border:1px solid var(--line);background:var(--surface-2);color:var(--ink-2);border-radius:99px;padding:0 8px;font:inherit;font-size:.68rem;line-height:1.6;cursor:pointer;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}' +
+  '.ae-pjt:hover{border-color:var(--accent);color:var(--accent-ink)}' +
   '.ae-lseg{display:flex;align-items:center;gap:10px;padding:0 16px 6px}' +
   '.ae-lseg .ae-seg{margin:0}' +
   '.ae-grp > h4.bad{color:var(--bad)}' +
@@ -608,9 +612,21 @@ function aeLinha(t, comSub){
   /* O estado ve-se e muda-se aqui, sem sair da area: e a mesma etiqueta da
      pagina das Tarefas, e num pagamento «Pago» abre a janela do dinheiro. */
   if (tfTipo(t) === 'tarefa' || tfTipo(t) === 'pagamento') m.appendChild(tfEtiquetaEstado(t));
-  if (comSub && t.context_id){
-    var cx = aeCtxDe(t.context_id);
+  if (comSub && aeCtxT(t)){
+    var cx = aeCtxDe(aeCtxT(t));
     if (cx) m.appendChild(el('span', 'ae-sub', cx.name));
+  }
+  /* Uma tarefa de projeto diz de qual e, e leva la num clique. */
+  var pjT = t.project_id && typeof projeto === 'function' ? projeto(t.project_id) : null;
+  if (pjT){
+    var bp = el('button', 'ae-pjt', pjT.name);
+    bp.type = 'button';
+    bp.title = 'Abrir o projeto «' + pjT.name + '»';
+    bp.addEventListener('click', function(e){
+      e.stopPropagation();
+      if (typeof pjAbrir === 'function') pjAbrir(pjT.id); else show('projetos');
+    });
+    m.appendChild(bp);
   }
   if (tfTipo(t) === 'pagamento' && t.payee) m.appendChild(el('span', null, t.payee));
   if (tfTipo(t) === 'lembrete') m.appendChild(el('span', null, 'lembrete'));
@@ -1329,6 +1345,18 @@ function aeKpi(valor, nome, cls, fn){
   return b;
 }
 
+/* A area de uma tarefa: a dela, ou, se nao tiver, a do projeto onde vive (e,
+   se o projeto tambem nao tiver, a do programa por cima dele). Pedido do
+   Marco, 28 set: na sub-area tem de aparecer todo o trabalho dela, mesmo o
+   que esta dentro dos projetos - antes so se via abrindo cada projeto. */
+function aeCtxT(t){
+  if (t.context_id) return t.context_id;
+  var p = t.project_id && typeof projeto === 'function' ? projeto(t.project_id) : null;
+  if (p && p.context_id) return p.context_id;
+  var pai = p && p.parent_id ? projeto(p.parent_id) : null;
+  return pai ? pai.context_id || null : null;
+}
+
 function aeRenderArea(a){
   var box = aeCaixa(a);
   if (!box) return;
@@ -1341,7 +1369,7 @@ function aeRenderArea(a){
   var idsTodos = todos.map(function(c){ return c.id; });
 
   var daArea = (G.tasks || []).filter(function(t){
-    return !t.parent_id && !t.project_id && idsTodos.indexOf(t.context_id) >= 0;
+    return !t.parent_id && idsTodos.indexOf(aeCtxT(t)) >= 0;
   });
   var abertas = daArea.filter(aeAberta);
   /* O /api/gestao traz as fechadas ha pouco; as mais antigas vivem no
@@ -1364,7 +1392,7 @@ function aeRenderArea(a){
   if (subs.length){
     opcoes.push({ k: 'tudo', nome: 'Tudo', ids: idsTodos });
     subs.forEach(function(s){ opcoes.push({ k: String(s.id), nome: s.name, ids: [s.id] }); });
-    var temGeral = abertas.some(function(t){ return t.context_id === area.id; }) ||
+    var temGeral = abertas.some(function(t){ return aeCtxT(t) === area.id; }) ||
       pjsTodos.some(function(p){ return p.context_id === area.id; }) ||
       docsTodos.some(function(d){ return d.context_id === area.id; });
     if (temGeral) opcoes.push({ k: 'geral', nome: 'Geral', ids: [area.id] });
@@ -1386,9 +1414,11 @@ function aeRenderArea(a){
   } : null;
   function naJ(iso){ return !!iso && JS.janelas.some(function(w){ return aeNaJanela(w, iso); }); }
   function naArea(x){ return ids.indexOf(x.context_id) >= 0; }
+  /* As tarefas contam pela area efectiva (a do projeto, quando nao tem). */
+  function naAreaT(t){ return ids.indexOf(aeCtxT(t)) >= 0; }
   function naAreaDesp(x){ return naArea(x) || (orfas && tudo && !x.context_id); }
   function passaTarefa(t){
-    if (!naArea(t)) return false;
+    if (!naAreaT(t)) return false;
     if (!aePassaPessoa(f, t.owner_id, t.subjects)) return false;
     if (!JS) return true;
     if (JS.atraso && tfNivelData(t) === 'bad') return true;
@@ -1414,7 +1444,7 @@ function aeRenderArea(a){
   }
   /* As fechadas passam pelos mesmos filtros, mas pela data em que fecharam. */
   function passaFechada(t){
-    if (!naArea(t)) return false;
+    if (!naAreaT(t)) return false;
     if (!aePassaPessoa(f, t.owner_id, t.subjects)) return false;
     if (!JS) return true;
     if (!JS.janelas.length) return false;
@@ -1442,7 +1472,7 @@ function aeRenderArea(a){
     if (!t.due_on){ semData++; return; }
     if (!passaDia(t.due_on)) return;
     guardaEvento({ title: t.title, day: t.due_on, at: t.due_time, tipo: 'lembrete',
-                   tarefa: t.id, context_id: t.context_id, dono: pessoa(t.owner_id),
+                   tarefa: t.id, context_id: aeCtxT(t), dono: pessoa(t.owner_id),
                    repete: t.repeat_rule ? (t.repeat_label || 'repete') : null });
   });
   var porDia = function(x, y){
@@ -1488,7 +1518,7 @@ function aeRenderArea(a){
   barra.appendChild(dds);
 
   function contagem(o){
-    var n = abertas.filter(function(t){ return tfTipo(t) !== 'nota' && o.ids.indexOf(t.context_id) >= 0; });
+    var n = abertas.filter(function(t){ return tfTipo(t) !== 'nota' && o.ids.indexOf(aeCtxT(t)) >= 0; });
     return { n: n.length, atr: n.filter(function(t){ return tfNivelData(t) === 'bad'; }).length };
   }
 
@@ -1756,7 +1786,7 @@ function aeRenderArea(a){
       if (!lista.length){
         card.appendChild(el('p', 'ae-vazio', (tipoSel === 'pagamento'
           ? (temPagamentos ? 'Nenhum pagamento no que está filtrado.' : 'Nenhum pagamento por fazer.')
-          : (temTarefas || temPagamentos ? 'Nada por fazer no que está filtrado.' : 'Nada por fazer fora dos projetos.'))));
+          : (temTarefas || temPagamentos ? 'Nada por fazer no que está filtrado.' : 'Nada por fazer nesta área.'))));
       }
       var usados = 0;
       AE_GRUPOS.forEach(function(g){
