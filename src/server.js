@@ -726,6 +726,10 @@ require('./splitwise').instalar(app, {
   ehAdmin: (req) => { if (!auth.ativa()) return true; const x = auth.sessao(req); return Boolean(x && acessos.ehAdmin(x.email)); }
 });
 
+/* O calendario Google de cada pessoa da casa, na Agenda do Farol. */
+const google = require('./google');
+google.instalar(app);
+
 /* Mandar os papeis de um pagamento a quem se paga, pelo Gmail. */
 require('./emails').instalar(app, {
   ehAdmin: (req) => { if (!auth.ativa()) return true; const x = auth.sessao(req); return Boolean(x && acessos.ehAdmin(x.email)); }
@@ -739,6 +743,8 @@ app.get('*', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'i
     /* Nada entra sozinho na base de dados: a app mostra o que la esta, e o
        que la esta foi alguem que o poe. */
     console.log('[farol] base de dados pronta.');
+    /* Os calendarios ligados relem-se sozinhos, a partir de agora. */
+    await google.arrancar();
   } catch (err) {
     console.error('[farol] arranque sem base de dados:', err.message);
   }
