@@ -1035,3 +1035,34 @@ ALTER TABLE tasks ADD COLUMN IF NOT EXISTS splitwise_grupo BIGINT;
 -- A despesa que ficou criada la, para nao se lancar a mesma coisa duas vezes.
 ALTER TABLE expenses ADD COLUMN IF NOT EXISTS splitwise_id BIGINT;
 CREATE INDEX IF NOT EXISTS expenses_splitwise_idx ON expenses (splitwise_id) WHERE splitwise_id IS NOT NULL;
+
+-- ---------------------------------------------------------------------------
+-- CALENDÁRIO GOOGLE, UMA LIGAÇÃO POR PESSOA
+--
+-- O Gmail do Farol é um só (a conta que envia os emails dos pagamentos). Isto
+-- é outra coisa: cada pessoa da casa liga a SUA conta Google e traz o seu
+-- calendário para a Agenda. Quem liga autoriza na própria conta e pode
+-- desligar quando quiser; o que fica guardado é o acesso cifrado, nunca a
+-- palavra-passe.
+--
+-- Os eventos que vêm do Google entram na tabela `events` com `origin` =
+-- 'google': as rotas de corrigir e apagar só mexem no que tem origin 'real',
+-- por isso um evento do Google não se edita aqui — corrige-se no Google e a
+-- leitura seguinte traz a correcção.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS google_contas (
+  person_id  INTEGER PRIMARY KEY REFERENCES people(id) ON DELETE CASCADE,
+  email      TEXT NOT NULL,
+  escopos    TEXT,
+  token      TEXT NOT NULL,                 -- o acesso, cifrado
+  calendario TEXT NOT NULL DEFAULT 'primary',
+  ligado_em  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  lido_em    TIMESTAMPTZ,
+  erro       TEXT
+);
+
+ALTER TABLE events ADD COLUMN IF NOT EXISTS google_id     TEXT;
+ALTER TABLE events ADD COLUMN IF NOT EXISTS google_pessoa INTEGER REFERENCES people(id) ON DELETE CASCADE;
+CREATE UNIQUE INDEX IF NOT EXISTS events_google_uidx
+  ON events (google_pessoa, google_id) WHERE google_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS events_google_pessoa_idx ON events (google_pessoa);
