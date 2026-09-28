@@ -205,7 +205,18 @@ async function lista() {
   return rows;
 }
 
-const responder = (res) => lista().then((pessoas) => res.json({ pessoas }));
+/* As contas de Acessos que ainda nao sao de ninguem. A pagina de Pessoas
+   precisa delas para a janela de criar; a de corrigir junta-lhes a da
+   propria pessoa, que e a unica ja tomada que ainda lhe serve. */
+async function contasLivres() {
+  const { rows } = await pool.query(
+    `SELECT a.email FROM access_emails a
+      WHERE NOT EXISTS (SELECT 1 FROM people p WHERE p.conta_email = a.email)
+      ORDER BY a.protegido DESC, a.email`);
+  return rows.map((r) => r.email);
+}
+
+const responder = async (res) => res.json({ pessoas: await lista(), contas: await contasLivres() });
 
 /* O browser manda a fotografia já encolhida, como data URL. */
 function lerDataUrl(s) {
@@ -223,15 +234,18 @@ async function arrancar() {
 }
 
 /* ------------------------------------------------------------------ *
- * A ficha de uma pessoa
+ * Os dados proprios de uma pessoa
  *
- * O ecra da Familia mostrava oito cartoes que nao abriam para lado nenhum.
- * Tudo o que a app sabe de alguem ja esta na base de dados - so estava
- * espalhado por seis tabelas. Isto junta: o que tem para fazer, os papeis
- * que sao seus, o que gastou, em que projectos anda e o que ainda esta na
- * caixa de entrada a espera de decisao.
+ * Tudo o que esta guardado NA pessoa, e mais nada: o que ela e, com quem se
+ * fala, os numeros que se pedem ao balcao, de quem trata e quem trata dela,
+ * a conta com que entra e o calendario que ligou. Nao ha aqui uma tarefa,
+ * um documento nem um compromisso - isso depende de outras tabelas e e o
+ * que a ficha completa acrescenta por cima.
+ *
+ * A pagina de Pessoas, em Administracao, vive so disto: quatro consultas em
+ * vez de onze, para um ecra que nunca mostra o trabalho de ninguem.
  * ------------------------------------------------------------------ */
-async function ficha(id) {
+async function dados(id) {
   const uma = async (sql, params) => (await pool.query(sql, params || [id])).rows;
 
   const pessoa = (await uma('SELECT ' + COLUNAS + ' FROM people WHERE id = $1'))[0];
@@ -250,6 +264,34 @@ async function ficha(id) {
     `SELECT a.email, a.nome FROM access_emails a
       WHERE NOT EXISTS (SELECT 1 FROM people p WHERE p.conta_email = a.email AND p.id <> $1)
       ORDER BY a.protegido DESC, a.email`)).map((r) => r.email);
+
+  /* O calendario Google desta pessoa: se esta ligado, com que conta, e
+     quando foi lido pela ultima vez. */
+  const google = (await uma(
+    `SELECT g.email, g.erro,
+            to_char(g.ligado_em, 'YYYY-MM-DD"T"HH24:MI') AS ligado_em,
+            (extract(epoch from g.lido_em) * 1000)::bigint::text AS lido_ms,
+            (SELECT count(*)::int FROM events e
+              WHERE e.google_pessoa = g.person_id AND e.day >= CURRENT_DATE) AS proximos
+       FROM google_contas g WHERE g.person_id = $1`))[0] || null;
+
+  return { pessoa, dependentes, contas, google };
+}
+
+/* ------------------------------------------------------------------ *
+ * A ficha de uma pessoa
+ *
+ * O ecra da Familia mostrava oito cartoes que nao abriam para lado nenhum.
+ * Tudo o que a app sabe de alguem ja esta na base de dados - so estava
+ * espalhado por seis tabelas. Isto junta aos dados dela o que tem para
+ * fazer, os papeis que sao seus, o que gastou, em que projectos anda e o
+ * que ainda esta na caixa de entrada a espera de decisao.
+ * ------------------------------------------------------------------ */
+async function ficha(id) {
+  const uma = async (sql, params) => (await pool.query(sql, params || [id])).rows;
+
+  const base = await dados(id);
+  if (!base) return null;
 
   const tarefas = await uma(
     `SELECT t.id, t.title, t.done, t.status, t.priority, t.notes,
@@ -335,23 +377,24 @@ async function ficha(id) {
        FROM event_people ep JOIN events e ON e.id = ep.event_id
       WHERE ep.person_id = $1 AND e.day < CURRENT_DATE`);
 
-  /* O calendario Google desta pessoa: se esta ligado, com que conta, e
-     quando foi lido pela ultima vez. Vem junto para a ficha nao ter de
-     fazer outro pedido so para desenhar um botao. */
-  const google = (await uma(
-    `SELECT g.email, g.erro,
-            to_char(g.ligado_em, 'YYYY-MM-DD"T"HH24:MI') AS ligado_em,
-            (extract(epoch from g.lido_em) * 1000)::bigint::text AS lido_ms,
-            (SELECT count(*)::int FROM events e
-              WHERE e.google_pessoa = g.person_id AND e.day >= CURRENT_DATE) AS proximos
-       FROM google_contas g WHERE g.person_id = $1`))[0] || null;
-
-  return { pessoa, google, tarefas, documentos, despesas, projetos, caixa, compromissos, compromissosPassados,
-           dependentes, contas };
+  return Object.assign(base, { tarefas, documentos, despesas, projetos, caixa,
+                              compromissos, compromissosPassados });
 }
 
 /* ---------------- ligação ao Express ---------------- */
 function instalar(app) {
+  /* A pagina de Pessoas pede isto; a ficha da Familia pede o /ficha. */
+  app.get('/api/pessoas/:id/dados', async (req, res) => {
+    try {
+      const d = await dados(Number(req.params.id));
+      if (!d) return res.status(404).json({ error: 'Pessoa nao encontrada.' });
+      res.json(d);
+    } catch (err) {
+      console.error('[farol] dados da pessoa:', err.message);
+      res.status(500).json({ error: 'Nao foi possivel ler os dados da pessoa.' });
+    }
+  });
+
   app.get('/api/pessoas/:id/ficha', async (req, res) => {
     try {
       const f = await ficha(Number(req.params.id));
@@ -379,13 +422,13 @@ function instalar(app) {
       const code = await codigoLivre(nome);
       const { rows } = await pool.query(
         `INSERT INTO people (code, name, full_name, role, kind, can_own_tasks, color, initials,
-                             in_household, active, sort, origin)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,TRUE,$9,
+                             note, in_household, active, sort, origin)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,TRUE,$10,
                  (SELECT COALESCE(max(sort),0)+1 FROM people), 'real')
          RETURNING id`,
         [code, nome, limpar(c.full_name) || null, limpar(c.role) || null, kind,
          c.can_own_tasks !== false, limpar(c.color) || 'var(--c1)',
-         limpar(c.initials) || iniciais(nome), c.active !== false]
+         limpar(c.initials) || iniciais(nome), limpar(c.note) || null, c.active !== false]
       );
       const id = rows[0].id;
       if (dados.length) {
