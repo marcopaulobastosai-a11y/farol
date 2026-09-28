@@ -186,6 +186,14 @@ var AE_CSS =
   '.ae-ev-dia.hoje b,.ae-ev-dia.hoje span{color:var(--accent-ink)}' +
   '.ae-ev-dia.passou b,.ae-ev-dia.passou span{color:var(--faint)}' +
   '.ae-topo{display:flex;justify-content:flex-end;margin-bottom:8px}' +
+  /* A janelinha do «+ Novo», no cimo de cada area. */
+  '.ae-novo-tipos{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:9px}' +
+  '.ae-novo-tipos button{border:1px solid var(--line);background:var(--surface);color:var(--ink-2);border-radius:8px;padding:5px 9px;font:inherit;font-size:.78rem;cursor:pointer}' +
+  '.ae-novo-tipos button:hover{border-color:var(--accent);color:var(--accent-ink)}' +
+  '.ae-novo-tipos button.on{background:var(--accent);border-color:var(--accent);color:#fff}' +
+  ':root[data-theme="dark"] .ae-novo-tipos button.on,:root:not([data-theme="light"]) .ae-novo-tipos button.on{color:#06181A}' +
+  '.ae-novo-prev{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}' +
+  '.ae-novo-dica{color:var(--muted);font-size:.75rem;margin:6px 0 0}' +
   /* 27 set: a lista unica a 3/4 e a coluna da direita (Agenda, Projetos) */
   '.ae-main{display:grid;grid-template-columns:minmax(0,1fr);gap:14px;align-items:start}' +
   '.ae-main.com-det{grid-template-columns:minmax(0,3fr) minmax(0,2fr)}' +
@@ -2221,6 +2229,173 @@ function aeNavMarcar(){
   });
 }
 
+/* ------------------------------------------------------------------ *
+ * criar aqui: tarefa, pagamento, lembrete, nota ou evento
+ * ------------------------------------------------------------------ *
+ * Ver a area e querer juntar-lhe qualquer coisa e o mesmo gesto, e nao
+ * havia por onde: tinha de se sair para as Tarefas ou para a Agenda e
+ * escolher a area outra vez. O botao fica ao lado do «Actualizar» e o que
+ * nasce ja nasce nesta area (ou na sub-area que estiver escolhida).
+ *
+ * A escrita e a mesma das Tarefas - «renda 1250€ dia 9 todos os meses» -
+ * porque e o mesmo tfPerceber() que a le. */
+
+var AE_NOVO_TIPOS = [
+  ['tarefa', 'Tarefa', 'ex.: falar com a escola amanhã 15h !alta @Ana'],
+  ['pagamento', 'Pagamento', 'ex.: renda 1250€ dia 9 todos os meses'],
+  ['lembrete', 'Lembrete', 'ex.: anos da Olga 15/10 todos os anos'],
+  ['nota', 'Nota', 'ex.: horário da escola'],
+  ['evento', 'Evento', '']
+];
+var AE_NOVO_TIPO = 'tarefa';
+
+/* Onde e que a coisa nasce: na sub-area escolhida, se houver uma so; senao
+   na area inteira. */
+function aeNovoOnde(a){
+  var f = aeF(a.view);
+  if (f.subs && f.subs.length === 1) return f.subs[0];
+  var area = aeArea(a);
+  return area ? area.id : null;
+}
+
+function aeCriarRapido(txt, tipo, onde){
+  var r = tfPerceber(txt);
+  if (!r.title){ toast('Falta dizer o que é.'); return Promise.reject(new Error('sem titulo')); }
+  var dados = {
+    tipo: r.tipo || tipo,
+    amount: r.amount,
+    title: r.title,
+    due_on: r.due_on || null,
+    due_time: r.due_time,
+    priority: r.priority || 'normal',
+    owner_id: r.owner_id || null,
+    subjects: r.subjects,
+    project_id: r.project_id || null,
+    /* O que se escreveu manda: «#casa» no texto ganha ao que esta escolhido. */
+    context_id: r.context_id || onde || (typeof tfContextoPorOmissao === 'function' ? tfContextoPorOmissao() : null),
+    tags: r.tags,
+    repeat_rule: r.repeat_rule,
+    status: 'aberta',
+    reminders: r.due_time ? [{ min: 0 }] : []
+  };
+  return apiGestao('/api/gestao/tarefas', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(dados)
+  }).then(function(d){
+    G = d;
+    renderGestao();
+    var nome = { pagamento: 'Pagamento', lembrete: 'Lembrete', nota: 'Nota' }[dados.tipo] || 'Tarefa';
+    toast(nome + ' criad' + (dados.tipo === 'nota' ? 'a' : 'o') + '.');
+  }).catch(function(e){ toast(e.message || 'Não deu para gravar.'); throw e; });
+}
+
+function aeNovoPop(ancora, a){
+  if (typeof tfPerceber !== 'function'){ toast('As tarefas ainda estão a carregar.'); return; }
+  tfFecharPop();
+  var p = el('div', 'tf-pop');
+  p.style.width = '330px';
+
+  var tipos = el('div', 'ae-novo-tipos');
+  p.appendChild(tipos);
+
+  p.appendChild(el('label', null, 'O que é'));
+  var iT = el('input'); iT.type = 'text';
+  iT.setAttribute('autocomplete', 'off');
+  p.appendChild(iT);
+  var prev = el('div', 'ae-novo-prev');
+  p.appendChild(prev);
+
+  p.appendChild(el('label', null, 'Onde'));
+  var sC = el('select');
+  var area = aeArea(a);
+  if (area){
+    var oa = el('option', null, area.name + ' · geral'); oa.value = String(area.id);
+    sC.appendChild(oa);
+    aeSubs(area).filter(function(x){ return x.active !== false; }).forEach(function(x){
+      var o = el('option', null, x.name); o.value = String(x.id);
+      sC.appendChild(o);
+    });
+  }
+  var onde = aeNovoOnde(a);
+  if (onde) sC.value = String(onde);
+  p.appendChild(sC);
+
+  var ac = el('div', 'tf-acoes');
+  var bC = el('button', 'btn small', 'Cancelar'); bC.type = 'button';
+  bC.addEventListener('click', tfFecharPop);
+  var bOk = el('button', 'btn small primary', 'Criar'); bOk.type = 'button';
+  ac.appendChild(bC); ac.appendChild(bOk);
+  p.appendChild(ac);
+
+  var desenhar = function(){
+    clear(tipos);
+    AE_NOVO_TIPOS.forEach(function(t){
+      var b = el('button', AE_NOVO_TIPO === t[0] ? 'on' : '', t[1]);
+      b.type = 'button';
+      b.addEventListener('click', function(){
+        /* Um evento nao e uma tarefa: tem dia e hora proprios, e ja ha uma
+           janela feita para ele na Agenda. Abre-se essa, com a area posta. */
+        if (t[0] === 'evento'){
+          if (typeof evPop !== 'function'){ toast('A agenda ainda não está pronta.'); return; }
+          evPop(ancora, sC.value ? Number(sC.value) : null);
+          return;
+        }
+        AE_NOVO_TIPO = t[0];
+        desenhar();
+        iT.focus();
+      });
+      tipos.appendChild(b);
+    });
+    var t2 = AE_NOVO_TIPOS.filter(function(x){ return x[0] === AE_NOVO_TIPO; })[0];
+    iT.placeholder = t2 ? t2[2] : '';
+  };
+  desenhar();
+
+  iT.addEventListener('input', function(){
+    clear(prev);
+    if (!iT.value.trim()) return;
+    tfPerceber(iT.value).sinais.forEach(function(sg){
+      var c = el('span', 'pill accent');
+      c.appendChild(tfIcone(sg[0], 11));
+      c.appendChild(document.createTextNode(' ' + sg[1]));
+      prev.appendChild(c);
+    });
+  });
+
+  var criar = function(){
+    if (!iT.value.trim()) return iT.focus();
+    bOk.disabled = true;
+    aeCriarRapido(iT.value.trim(), AE_NOVO_TIPO, sC.value ? Number(sC.value) : null)
+      .then(function(){ tfFecharPop(); })
+      .catch(function(){ bOk.disabled = false; });
+  };
+  iT.addEventListener('keydown', function(e){ if (e.key === 'Enter'){ e.preventDefault(); criar(); } });
+  bOk.addEventListener('click', criar);
+
+  tfPosicionar(p, ancora);
+  iT.focus();
+}
+
+/* O botao vive na barra de cima, ao lado do «Actualizar», e so aparece nos
+   ecras das areas. */
+function aeBotaoNovo(){
+  var dir = document.querySelector('.topbar .right');
+  if (!dir) return;
+  var b = document.getElementById('aeNovo');
+  if (!b){
+    b = el('button', 'btn primary', '+ Novo');
+    b.id = 'aeNovo';
+    b.type = 'button';
+    b.dataset.tfpop = '1';
+    b.title = 'Criar nesta área uma tarefa, um pagamento, um lembrete, uma nota ou um evento';
+    b.addEventListener('click', function(){
+      var a = aeAreaAtiva();
+      if (a) aeNovoPop(b, a);
+    });
+    dir.insertBefore(b, dir.firstChild);
+  }
+  b.hidden = !aeAreaAtiva();
+}
+
 /* O show() do app.js poe o realce nos botoes do menu; as sub-areas vao atras. */
 var _aeShow = show;
 show = function(view){
@@ -2231,6 +2406,7 @@ show = function(view){
   aeDevolverTudo();
   _aeShow(view);
   aeNavMarcar();
+  try { aeBotaoNovo(); } catch (e) { console.error('[farol] botao novo', e); }
   var a = AE_AREAS.filter(function(x){ return x.view === view; })[0];
   if (a && window.G && G.contextos && G.contextos.length && typeof tfCaixa === 'function'){
     try { aeRenderArea(a); } catch (e) { console.error('[farol] area ' + a.view, e); }
@@ -2256,6 +2432,7 @@ function aeRender(){
   try { aeNavMontar(); } catch (e) { console.error('[farol] menu das areas', e); }
   /* As paginas gerais dos Eventos e das Despesas bebem dos mesmos dados: ou
      se desenham aqui, ou ficavam a espera de um clique. */
+  try { aeBotaoNovo(); } catch (e) { console.error('[farol] botao novo', e); }
   try { if (typeof evRender === 'function') evRender(); } catch (e) { console.error('[farol] eventos', e); }
   try { if (typeof dpRender === 'function') dpRender(); } catch (e) { console.error('[farol] despesas', e); }
 }

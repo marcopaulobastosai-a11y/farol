@@ -192,7 +192,9 @@ function evRender(){
 }
 
 /* Marcar uma data, para a area que se quiser - ou para nenhuma. */
-function evPop(ancora){
+/* areaId: quem chama de um ecra de area ja sabe onde o evento vai ficar
+   (o «+ Novo» das areas). Sem ele vale o filtro da Agenda. */
+function evPop(ancora, areaId){
   tfFecharPop();
   var p = el('div', 'tf-pop');
   p.style.width = '310px';
@@ -228,7 +230,8 @@ function evPop(ancora){
     });
     sC.appendChild(g);
   });
-  if (EV.filtro.onde !== 'tudo' && EV.filtro.onde !== 'sem') sC.value = EV.filtro.onde;
+  if (areaId) sC.value = String(areaId);
+  else if (EV.filtro.onde !== 'tudo' && EV.filtro.onde !== 'sem') sC.value = EV.filtro.onde;
   p.appendChild(sC);
 
   p.appendChild(el('label', null, 'Nota (opcional)'));
