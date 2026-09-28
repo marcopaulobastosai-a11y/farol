@@ -5,11 +5,20 @@
  * index.html: cria o botao do menu, a seccao e o seu proprio estilo, e
  * reaproveita os globais que ja la estao ($, el, clear, toast, apiGestao).
  *
- * Criar abre uma janela. Editar acontece na propria linha, para se ver o
- * antes e o depois sem sair do sitio.
+ * Uma linha por pessoa, e cada linha abre o ecra dela: o mesmo que a ficha
+ * da Familia mostra do lado esquerdo - quem e, contactos, identificacao,
+ * trabalho ou escola, emergencia, a conta e o calendario - mas sem nada que
+ * dependa de outras tabelas. Tarefas, agenda, documentos, projetos, despesas
+ * e caixa sao trabalho, e trabalho ve-se na ficha; aqui e so o cadastro.
+ *
+ * Criar e corrigir usam a mesma janela completa que a ficha usa (fiEditar,
+ * no ficha.js): um so formulario, uma so lista de campos para manter.
  */
 
-var PE = { pessoas: [], montado: false, aEditar: null, fotoNova: null, fotoFora: false };
+var PE = { pessoas: [], contas: [], montado: false, fotoNova: null, fotoFora: false };
+
+/* O ecra de uma pessoa, aqui dentro da Administracao. */
+var PD = { id: null, dados: null, montado: false };
 
 var PE_CORES = [
   ['var(--c1)', 'Petroleo'], ['var(--c2)', 'Verde'], ['var(--c3)', 'Ardosia'],
@@ -36,6 +45,12 @@ var PE_CSS = [
   "#view-pessoas .pe-grelha{display:grid;grid-template-columns:repeat(auto-fit,minmax(9rem,1fr));gap:.7rem}",
   "#view-pessoas .pe-vazio{padding:2rem 1rem;text-align:center;color:var(--muted)}",
   "#view-pessoas .card > header .btn{align-self:center}",
+  "#view-pessoas .pe-corpo{cursor:pointer}",
+  "#view-pessoas .pe-linha:hover .pe-nome{color:var(--accent-ink,var(--accent))}",
+  "#view-pessoa-dados .pd-acts{display:flex;gap:.4rem;flex:0 0 auto;flex-wrap:wrap;justify-content:flex-end}",
+  "#pdCorpo{max-width:52rem}",
+  "#view-pessoa-dados .pd-falta{font-size:.8125rem;color:var(--muted);margin:.7rem 0 0}",
+  "#view-pessoa-dados .pd-falta button{border:0;background:none;padding:0;font:inherit;color:var(--accent);cursor:pointer;text-decoration:underline;text-underline-offset:2px}",
   ".pe-cores{display:flex;gap:.4rem;flex-wrap:wrap;padding-top:.15rem}",
   ".pe-cor{width:22px;height:22px;border-radius:50%;border:2px solid transparent;box-shadow:0 0 0 1px var(--line);cursor:pointer;padding:0}",
   ".pe-cor.on{border-color:var(--surface);box-shadow:0 0 0 2px var(--accent)}",
@@ -89,9 +104,12 @@ function peTipo(k) {
 
 function peLigacoesTexto(p) {
   var l = p.ligacoes || {};
-  var nomes = { tarefas: 'tarefas', assunto: 'como assunto', projetos: 'projetos', despesas: 'despesas', documentos: 'documentos', inbox: 'na caixa' };
+  var nomes = { tarefas: 'tarefas', assunto: 'como assunto', projetos: 'projetos',
+    despesas: 'despesas', documentos: 'documentos', compromissos: 'na agenda', inbox: 'na caixa' };
   var out = [];
-  for (var k in l) if (l[k]) out.push(l[k] + ' ' + nomes[k]);
+  /* Sem o nome nao se escreve nada: uma ligacao nova no servidor aparecia
+     aqui como «1 undefined» ate alguem se lembrar de a baptizar. */
+  for (var k in l) if (l[k] && nomes[k]) out.push(l[k] + ' ' + nomes[k]);
   return out.join(', ');
 }
 
@@ -291,7 +309,7 @@ function peMontar() {
   cab.appendChild(cont);
   var novo = el('button', 'btn primary', '+ Pessoa');
   novo.type = 'button';
-  novo.onclick = peAbrirNova;
+  novo.onclick = peNova;
   cab.appendChild(novo);
   card.appendChild(cab);
 
@@ -325,62 +343,14 @@ function peFecharDlg() {
   PE.fotoFora = false;
 }
 
-function peAbrirNova() {
-  PE.fotoNova = null;
-  PE.fotoFora = false;
-  var cx = $('peDlgC');
-  clear(cx);
-  cx.appendChild(el('h3', null, 'Nova pessoa'));
-  cx.appendChild(el('p', 'pe-dlgs', 'Conta quem é. O resto — tarefas, agenda, documentos — passa a poder apontar para ela.'));
-
-  cx.appendChild(peCampo('Como lhe chamas', peTexto('peNome', '', 'Ex.: Sofia')));
-  cx.appendChild(peCampo('Nome completo (opcional)', peTexto('peCompleto', '', 'Como está nos documentos')));
-  cx.appendChild(peCampo('Quem é', peTexto('pePapel', '', 'Ex.: Filha')));
-  cx.appendChild(peCampo('Tipo', peSelectTipo('peTipo', 'adulto')));
-  cx.appendChild(peBloco('Cor', peCores('peCor', 'var(--c1)')));
-  cx.appendChild(peBloco('Fotografia', peFoto('peCor', null)));
-
-  var checks = el('div');
-  checks.style.marginTop = '.6rem';
-  checks.appendChild(peCheck('peTarefas', 'Pode ter tarefas atribuídas', true));
-  cx.appendChild(checks);
-
-  var acts = el('div', 'pe-acoes');
-  var cancelar = el('button', 'btn', 'Cancelar');
-  cancelar.type = 'button';
-  cancelar.onclick = peFecharDlg;
-  var criar = el('button', 'btn primary', 'Criar pessoa');
-  criar.type = 'button';
-  criar.onclick = peCriar;
-  acts.appendChild(cancelar);
-  acts.appendChild(criar);
-  cx.appendChild(acts);
-
-  var d = $('peDlg');
-  if (d.showModal) d.showModal(); else d.setAttribute('open', '');
-  $('peNome').focus();
-}
-
-function peCriar() {
-  var nome = ($('peNome').value || '').trim();
-  if (!nome) { toast('Falta o nome.'); return; }
-  apiGestao('/api/pessoas', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      name: nome,
-      full_name: ($('peCompleto').value || '').trim(),
-      role: ($('pePapel').value || '').trim(),
-      kind: $('peTipo').value,
-      color: $('peCor').dataset.cor,
-      can_own_tasks: $('peTarefas').checked,
-      avatar: PE.fotoNova || undefined
-    })
-  }).then(function (d) {
-    peFecharDlg();
-    peGuardar(d);
-    toast(nome + ' entrou na lista.');
-  }).catch(function (e) { toast(e.message || 'Não foi possível criar a pessoa.'); });
+/* A mesma janela que corrige uma pessoa serve para criar uma: se nao houver
+   id, o fiGravar faz POST em vez de PATCH. Assim ha uma lista de campos, e
+   quem entra pela porta da Administracao pode preencher tudo de uma vez em
+   vez de criar primeiro e ir buscar o resto depois. */
+function peNova() {
+  if (typeof fiEditar !== 'function') { toast('A janela de edição ainda não carregou.'); return; }
+  peContas();
+  fiEditar({ kind: 'adulto', color: 'var(--c1)', can_own_tasks: true, active: true, detalhes: {} });
 }
 
 /* ---------------- desenho ---------------- */
@@ -401,9 +371,7 @@ function peRender() {
     return;
   }
 
-  PE.pessoas.forEach(function (p) {
-    alvo.appendChild(PE.aEditar === p.id ? peLinhaEdicao(p) : peLinha(p));
-  });
+  PE.pessoas.forEach(function (p) { alvo.appendChild(peLinha(p)); });
 }
 
 function peLinha(p) {
@@ -421,13 +389,21 @@ function peLinha(p) {
   var lig = peLigacoesTexto(p);
   if (lig) partes.push(lig);
   corpo.appendChild(el('div', 'pe-meta', partes.join(' · ')));
+  /* Clicar na pessoa abre o que se sabe dela. Os botoes da direita ficam de
+     fora deste pedaco, para nao abrirem o ecra sem querer. */
+  corpo.title = 'Ver os dados de ' + p.name;
+  corpo.onclick = function () { pdAbrir(p.id); };
   linha.appendChild(corpo);
 
   var acts = el('div', 'pe-acts');
 
   var editar = el('button', 'btn', 'Editar');
   editar.type = 'button';
-  editar.onclick = function () { PE.aEditar = p.id; PE.fotoNova = null; PE.fotoFora = false; peRender(); };
+  editar.onclick = function () {
+    if (typeof fiEditar !== 'function') { toast('A janela de edição ainda não carregou.'); return; }
+    peContas();
+    fiEditar(p);
+  };
   acts.appendChild(editar);
 
   var remover = el('button', 'btn', 'Remover');
@@ -446,91 +422,189 @@ function peLinha(p) {
   return linha;
 }
 
-function peLinhaEdicao(p) {
-  var linha = el('div', 'pe-linha');
-  var caixa = el('div', 'pe-edita');
+/* ---------------- o ecra de uma pessoa ---------------- *
+ * Uma copia da ficha da Familia com metade do corpo: fica o lado esquerdo,
+ * que e a pessoa, e sai o lado direito, que e o trabalho dela. Reaproveita
+ * as pecas do ficha.js (cartoes em acordeao, os blocos de dados, a janela de
+ * edicao) para nao haver duas maneiras de mostrar o mesmo NIF.
+ */
+function pdMontar() {
+  if (PD.montado) return;
+  if (typeof fiEstilo === 'function') fiEstilo();
+  peEstilo();
+  if (window.TITLES) TITLES['pessoa-dados'] = ['Pessoa', 'O que está guardado nesta pessoa'];
 
-  var grelha = el('div', 'pe-grelha');
-  grelha.appendChild(peCampo('Como lhe chamas', peTexto('peENome', p.name)));
-  grelha.appendChild(peCampo('Nome completo', peTexto('peECompleto', p.full_name, 'Opcional')));
-  grelha.appendChild(peCampo('Quem é', peTexto('peEPapel', p.role, 'Ex.: Filha')));
-  grelha.appendChild(peCampo('Tipo', peSelectTipo('peETipo', p.kind)));
-  caixa.appendChild(grelha);
+  var sec = el('section', 'view fi-ecra');
+  sec.id = 'view-pessoa-dados';
+  var corpo = el('div');
+  corpo.id = 'pdCorpo';
+  sec.appendChild(corpo);
 
-  var segunda = el('div', 'pe-grelha');
-  segunda.appendChild(peBloco('Cor', peCores('peECor', p.color)));
-  segunda.appendChild(peBloco('Fotografia', peFoto('peECor', p)));
-  caixa.appendChild(segunda);
-
-  var checks = el('div');
-  checks.style.display = 'flex';
-  checks.style.gap = '1.25rem';
-  checks.style.flexWrap = 'wrap';
-  checks.style.margin = '.35rem 0 .1rem';
-  checks.appendChild(peCheck('peETarefas', 'Pode ter tarefas atribuídas', p.can_own_tasks));
-  checks.appendChild(peCheck('peEActiva', 'Activa', p.active));
-  caixa.appendChild(checks);
-
-  var acts = el('div', 'pe-acoes');
-  var cancelar = el('button', 'btn', 'Cancelar');
-  cancelar.type = 'button';
-  cancelar.onclick = function () { PE.aEditar = null; PE.fotoNova = null; PE.fotoFora = false; peRender(); };
-  var guardar = el('button', 'btn primary', 'Guardar');
-  guardar.type = 'button';
-  guardar.onclick = function () { peGravar(p); };
-  acts.appendChild(cancelar);
-  acts.appendChild(guardar);
-  caixa.appendChild(acts);
-
-  linha.appendChild(caixa);
-  return linha;
+  var irmao = document.querySelector('.view');
+  (irmao ? irmao.parentNode : document.body).appendChild(sec);
+  PD.montado = true;
 }
+
+function pdAbrir(id) {
+  if (typeof fiDados !== 'function') { toast('Os dados da pessoa ainda não carregaram.'); return; }
+  pdMontar();
+  PD.id = Number(id);
+  PD.dados = null;
+  show('pessoa-dados');
+  var corpo = $('pdCorpo');
+  clear(corpo);
+  corpo.appendChild(el('p', 'fi-vazio', 'A ler…'));
+
+  /* O erro de leitura vai no segundo argumento do .then: assim uma excepcao
+     a desenhar aparece como excepcao, e nao como «nao foi possivel ler». */
+  apiGestao('/api/pessoas/' + PD.id + '/dados').then(function (d) {
+    PD.dados = d;
+    if (typeof FI !== 'undefined') FI.contas = d.contas || [];
+  }, function (e) {
+    clear(corpo);
+    corpo.appendChild(el('p', 'fi-vazio', e.message || 'Não foi possível ler esta pessoa.'));
+  }).then(function () { if (PD.dados) pdDesenhar(); });
+}
+
+/* Chamado pelo ficha.js quando o calendario Google muda e e este o ecra que
+   esta a ser visto. */
+function pdRecarregar() {
+  var v = document.getElementById('view-pessoa-dados');
+  if (!PD.id || !v || !v.classList.contains('is-active')) return null;
+  var aqui = PD.id;
+  return apiGestao('/api/pessoas/' + aqui + '/dados').then(function (d) {
+    if (PD.id !== aqui) return;
+    PD.dados = d;
+    if (typeof FI !== 'undefined') FI.contas = d.contas || [];
+  }).then(function () { if (PD.id === aqui && PD.dados) pdDesenhar(); });
+}
+
+/* O que esta por preencher. Os blocos so mostram o que existe - e por isso
+   que um NIF em falta nao aparece em lado nenhum. Aqui, que e a pagina de
+   quem trata do cadastro, diz-se o que ainda falta e abre-se a janela. */
+var PD_PEDE = {
+  adulto: [['birth_on', 'data de nascimento'], ['phone', 'telemóvel'], ['email', 'email'],
+           ['nif', 'NIF'], ['sns', 'n.º de utente'], ['id_doc_numero', 'documento de identificação'],
+           ['emerg_nome', 'contacto de emergência'], ['det_empregador', 'entidade patronal']],
+  crianca: [['birth_on', 'data de nascimento'], ['nif', 'NIF'], ['sns', 'n.º de utente'],
+            ['id_doc_numero', 'documento de identificação'], ['responsavel_id', 'encarregado de educação'],
+            ['det_escola', 'escola'], ['det_ano_turma', 'ano e turma']],
+  familiar: [['birth_on', 'data de nascimento'], ['phone', 'telemóvel'], ['nif', 'NIF'],
+             ['sns', 'n.º de utente'], ['emerg_nome', 'contacto de emergência']],
+  animal: [['birth_on', 'data de nascimento'], ['det_raca', 'raça'],
+           ['det_microchip', 'microchip'], ['det_veterinario', 'veterinário']]
+};
+
+function pdFaltam(p) {
+  var det = p.detalhes || {};
+  return (PD_PEDE[p.kind] || []).filter(function (f) {
+    var v = f[0].indexOf('det_') === 0 ? det[f[0].slice(4)] : p[f[0]];
+    return !v;
+  }).map(function (f) { return f[1]; });
+}
+
+function pdDesenhar() {
+  var d = PD.dados;
+  if (!d) return;
+  var p = d.pessoa;
+  var corpo = $('pdCorpo');
+  clear(corpo);
+
+  if (window.TITLES) TITLES['pessoa-dados'] = [p.name, 'O que está guardado nesta pessoa'];
+  var t = $('pageTitle');
+  if (t) t.textContent = p.name;
+  var sub = $('pageSub');
+  if (sub) sub.textContent = [p.role, p.full_name && p.full_name !== p.name ? p.full_name : null]
+    .filter(Boolean).join(' · ');
+
+  var volta = el('button', 'btn fi-volta', String.fromCharCode(8592) + ' Pessoas');
+  volta.type = 'button';
+  volta.onclick = function () { show('pessoas'); };
+  corpo.appendChild(volta);
+
+  var cab = el('div', 'card');
+  var topo = el('div', 'fi-topo');
+  topo.appendChild(fiAvatar(p));
+
+  var txt = el('div', 'grow');
+  txt.appendChild(el('h2', 'fi-nome', p.name));
+  var idade = fiIdade(p.birth_on);
+  txt.appendChild(el('div', 'fi-sub',
+    [p.full_name && p.full_name !== p.name ? p.full_name : null, p.role,
+     FI_TIPOS[p.kind] || p.kind,
+     idade !== null ? idade + (idade === 1 ? ' ano' : ' anos') : null]
+      .filter(Boolean).join(' · ')));
+  var chips = el('div', 'chips');
+  if (!p.active) chips.appendChild(pill('desactivada', 'warn'));
+  if (p.in_household) chips.appendChild(pill('do agregado'));
+  if (p.can_own_tasks) chips.appendChild(pill('pode ter tarefas'));
+  txt.appendChild(chips);
+  if (p.note) txt.appendChild(el('p', 'fi-nota', p.note));
+
+  var faltam = pdFaltam(p);
+  if (faltam.length) {
+    var aviso = el('p', 'pd-falta');
+    aviso.appendChild(document.createTextNode('Por preencher: ' + faltam.join(', ') + '.  '));
+    var por = el('button', null, 'Preencher agora');
+    por.type = 'button';
+    por.onclick = function () { fiEditar(p, function () { pdRecarregar(); }); };
+    aviso.appendChild(por);
+    txt.appendChild(aviso);
+  }
+  topo.appendChild(txt);
+
+  var acts = el('div', 'pd-acts');
+  var editar = el('button', 'btn primary', 'Editar');
+  editar.type = 'button';
+  editar.onclick = function () { fiEditar(p, function () { pdRecarregar(); }); };
+  acts.appendChild(editar);
+  /* O trabalho desta pessoa - tarefas, agenda, documentos, projetos - vive na
+     ficha, e e a um clique daqui. */
+  var ficha = el('button', 'btn', 'Ficha completa');
+  ficha.type = 'button';
+  ficha.title = 'Tarefas, agenda, documentos, projetos e despesas de ' + p.name;
+  ficha.onclick = function () { fiAbrir(p.id); };
+  acts.appendChild(ficha);
+  topo.appendChild(acts);
+
+  cab.appendChild(topo);
+  corpo.appendChild(cab);
+
+  var col = el('div', 'stack');
+  corpo.appendChild(col);
+  fiDados(col, p, d.dependentes || [], d.google || null);
+}
+
+/* Um nome clicavel dentro deste ecra (o responsavel, ou quem esta pessoa
+   acompanha) fica neste ecra. O ficha.js ouve o mesmo clique e levaria para
+   a ficha da Familia; como este modulo carrega primeiro, chega-lhe a vez
+   antes e corta a passagem. */
+document.addEventListener('click', function (e) {
+  if (!e.target.closest) return;
+  var alvo = e.target.closest('[data-ficha]');
+  if (!alvo) return;
+  var v = document.getElementById('view-pessoa-dados');
+  if (!v || !v.classList.contains('is-active')) return;
+  e.stopImmediatePropagation();
+  pdAbrir(alvo.dataset.ficha);
+});
 
 /* ---------------- dados ---------------- */
 function peGuardar(d) {
   PE.pessoas = d.pessoas || [];
+  if (d.contas) PE.contas = d.contas;
   peRender();
+}
+
+/* A janela de edicao vai buscar as contas ao FI.contas. Quem a abre daqui
+   poe la as que estao por atribuir; o fiCamposDados junta-lhes a da propria
+   pessoa, se ela ja tiver uma. */
+function peContas() {
+  if (typeof FI !== 'undefined') FI.contas = PE.contas || [];
 }
 
 function peCarregar() {
   return apiGestao('/api/pessoas').then(peGuardar);
-}
-
-function peGravar(p) {
-  var corpo = {
-    name: ($('peENome').value || '').trim(),
-    full_name: ($('peECompleto').value || '').trim(),
-    role: ($('peEPapel').value || '').trim(),
-    kind: $('peETipo').value,
-    color: $('peECor').dataset.cor,
-    can_own_tasks: $('peETarefas').checked,
-    active: $('peEActiva').checked
-  };
-  if (!corpo.name) { toast('A pessoa tem de ter um nome.'); return; }
-
-  var foto = PE.fotoNova, fora = PE.fotoFora;
-  apiGestao('/api/pessoas/' + p.id, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(corpo)
-  }).then(function (d) {
-    if (foto) {
-      return apiGestao('/api/pessoas/' + p.id + '/avatar', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ avatar: foto })
-      });
-    }
-    if (fora) return apiGestao('/api/pessoas/' + p.id + '/avatar', { method: 'DELETE' });
-    return d;
-  }).then(function (d) {
-    PE.aEditar = null;
-    PE.fotoNova = null;
-    PE.fotoFora = false;
-    peGuardar(d);
-    toast('Guardado.');
-    if (window.loadGestao) loadGestao();
-  }).catch(function (e) { toast(e.message || 'Não foi possível guardar.'); });
 }
 
 function peRemover(p) {
