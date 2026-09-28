@@ -112,6 +112,9 @@
     });
     out.sort(function (a, b) {
       if (a.fechado !== b.fechado) return a.fechado ? 1 : -1;
+      /* As fechadas das mais recentes para as mais antigas: o papel que chega
+         e quase sempre do que se fechou ha pouco. */
+      if (a.fechado) return String(b.quando || '').localeCompare(String(a.quando || ''));
       return String(a.quando || '9999').localeCompare(String(b.quando || '9999'));
     });
     return out;
