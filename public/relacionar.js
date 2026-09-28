@@ -23,6 +23,10 @@
     '.rel-tipos button.on{border-color:var(--accent);background:var(--accent-soft);color:var(--accent-ink);font-weight:500}',
     '.rel-busca{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:9px;font:inherit;font-size:.875rem;background:var(--ground);color:var(--ink)}',
     '.rel-papel{display:flex;align-items:center;gap:8px;margin:10px 0 6px;font-size:.8125rem;color:var(--faint)}',
+    '.rel-filtros{display:flex;gap:6px;margin-top:8px}',
+    '.rel-filtros select{flex:1;min-width:0;padding:6px 8px;border:1px solid var(--line);border-radius:8px;font:inherit;font-size:.8125rem;background:var(--ground);color:var(--ink)}',
+    '.rel-filtros select.estado{flex:0 0 auto}',
+    '.rel-nota{font-size:.75rem;color:var(--faint);padding:4px 2px}',
     '.rel-papel select{padding:5px 8px;border:1px solid var(--line);border-radius:8px;font:inherit;font-size:.8125rem;background:var(--ground);color:var(--ink)}',
     '.rel-lista{display:flex;flex-direction:column;gap:4px;max-height:280px;overflow:auto;margin-top:8px}',
     '.rel-lista button{display:block;width:100%;text-align:left;padding:8px 10px;border:1px solid var(--line);border-radius:9px;background:var(--ground);font:inherit;font-size:.875rem;color:var(--ink);cursor:pointer}',
@@ -70,25 +74,41 @@
      aberto primeiro, e dentro disso o de prazo mais proximo. O que ja esta
      fechado nao desaparece - um recibo chega quase sempre depois de a coisa
      estar feita. */
-  function relCandidatos(tipo) {
+  function relHoje() {
+    var d = new Date();
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  }
+
+  /* fechadas: as que o servidor devolveu do historico (G.tasks so traz as
+     fechadas das duas ultimas semanas). */
+  function relCandidatos(tipo, fechadas) {
     var out = [];
     if (tipo === 'evento') {
+      var hoje = relHoje();
       ((window.D && D.events) || []).forEach(function (e) {
         if (typeof e.id !== 'number') return;
-        out.push({ id: e.id, titulo: e.title, quando: e.day, meta: relData(e.day), fechado: false });
+        out.push({ id: e.id, titulo: e.title, quando: e.day, meta: relData(e.day),
+          fechado: Boolean(e.day && e.day < hoje), ctx: e.context_id || null });
       });
       out.sort(function (a, b) { return String(b.quando || '').localeCompare(String(a.quando || '')); });
       return out;
     }
-    ((window.G && G.tasks) || []).forEach(function (t) {
+    var vistos = {};
+    ((window.G && G.tasks) || []).concat(fechadas || []).forEach(function (t) {
+      if (vistos[t.id]) return;
+      vistos[t.id] = true;
       var ehPag = (t.tipo || 'tarefa') === 'pagamento';
       if (tipo === 'pagamento' ? !ehPag : ehPag) return;
       var m = [];
       if (ehPag && t.amount) m.push(relEuros(t.amount));
       if (t.payee) m.push(t.payee);
-      if (t.due_on) m.push((t.done ? 'era a ' : 'até ') + relData(t.due_on));
-      if (t.done) m.push('fechada');
-      out.push({ id: t.id, titulo: t.title, quando: t.due_on, meta: m.join(' · '), fechado: !!t.done });
+      var fechada = Boolean(t.done) || t.status === 'concluida' || t.status === 'cancelada';
+      if (t.due_on) m.push((fechada ? 'era a ' : 'até ') + relData(t.due_on));
+      if (t.status === 'cancelada') m.push('não farei');
+      else if (t.paid_on) m.push('paga a ' + relData(t.paid_on));
+      else if (fechada) m.push('fechada');
+      out.push({ id: t.id, titulo: t.title, quando: t.due_on, meta: m.join(' · '), fechado: fechada,
+        ctx: t.context_id || null });
     });
     out.sort(function (a, b) {
       if (a.fechado !== b.fechado) return a.fechado ? 1 : -1;
@@ -107,6 +127,38 @@
     return 'anexo';
   }
 
+  /* As areas como no resto da app: a area e o grupo, com as sub-areas por
+     baixo. Escolher uma area apanha tambem o que esta nas sub-areas dela. */
+  function relAreas() {
+    return ((window.G && G.contextos) || []).filter(function (c) { return c.active !== false; });
+  }
+  function relIdsDaArea(id) {
+    if (!id) return null;
+    var n = Number(id);
+    var ids = [n];
+    relAreas().forEach(function (c) { if (c.parent_id === n) ids.push(c.id); });
+    return ids;
+  }
+  function relSelectAreas() {
+    var s = el('select');
+    s.appendChild(new Option('Todas as \u00e1reas', ''));
+    var ctx = relAreas();
+    ctx.filter(function (x) { return !x.parent_id; }).forEach(function (a) {
+      var g = document.createElement('optgroup');
+      g.label = a.name;
+      g.appendChild(new Option(a.name + ' (toda)', a.id));
+      ctx.filter(function (x) { return x.parent_id === a.id; }).forEach(function (sub) {
+        g.appendChild(new Option('\u00a0\u00a0' + sub.name, sub.id));
+      });
+      s.appendChild(g);
+    });
+    return s;
+  }
+
+  /* O filtro fica escolhido enquanto a pagina estiver aberta: quem relaciona
+     varios papeis da mesma area nao a volta a escolher a cada um. */
+  var REL_FILTRO = { area: '', estado: 'abertas' };
+
   function relNome(tipo) {
     for (var i = 0; i < REL_TIPOS.length; i++) if (REL_TIPOS[i][0] === tipo) return REL_TIPOS[i][1];
     return tipo === 'despesa' ? 'Despesa' : tipo;
@@ -119,7 +171,8 @@
     if (!doc || !doc.id) { toast('Este ficheiro ainda não é um documento.'); return; }
     relMontar();
 
-    var estado = { tipo: 'pagamento', busca: '', relacoes: (doc.relacoes || []).slice() };
+    var estado = { tipo: 'pagamento', busca: '', relacoes: (doc.relacoes || []).slice(),
+      fechadas: {}, aCarregar: {} };
 
     var dlg = el('dialog', 'rel-dlg');
     var cx = el('div', 'rel-c');
@@ -133,6 +186,14 @@
     busca.type = 'search';
     busca.placeholder = 'Procurar pelo nome…';
     cx.appendChild(busca);
+
+    var filtros = el('div', 'rel-filtros');
+    var fArea = relSelectAreas();
+    fArea.value = String(REL_FILTRO.area || '');
+    var fEstado = el('select', 'estado');
+    filtros.appendChild(fArea);
+    filtros.appendChild(fEstado);
+    cx.appendChild(filtros);
 
     var papelLinha = el('div', 'rel-papel');
     papelLinha.appendChild(el('span', null, 'Como'));
@@ -186,18 +247,51 @@
       });
     }
 
+    function desenharEstado() {
+      clear(fEstado);
+      var ev = estado.tipo === 'evento';
+      [['abertas', ev ? 'Pr\u00f3ximos' : 'Por fazer'], ['fechadas', ev ? 'Passados' : 'Fechadas'],
+       ['todas', ev ? 'Todos' : 'Todas']].forEach(function (o) { fEstado.appendChild(new Option(o[1], o[0])); });
+      fEstado.value = REL_FILTRO.estado;
+    }
+
+    /* As fechadas vem do historico, por tipo: ate 200 das mais recentes, ja
+       filtradas pela area. */
+    function chaveFechadas() { return estado.tipo + '|' + (REL_FILTRO.area || ''); }
+    function buscarFechadas() {
+      if (estado.tipo === 'evento' || REL_FILTRO.estado === 'abertas') return;
+      var k = chaveFechadas();
+      if (estado.fechadas[k] || estado.aCarregar[k]) return;
+      estado.aCarregar[k] = true;
+      var ids = relIdsDaArea(REL_FILTRO.area);
+      apiGestao('/api/tarefas/historico?tipo=' + estado.tipo + '&limite=200' +
+        (ids ? '&contextos=' + ids.join(',') : ''))
+        .then(function (r) { estado.fechadas[k] = r || []; })
+        .catch(function () { estado.fechadas[k] = []; })
+        .then(function () { estado.aCarregar[k] = false; desenharLista(); });
+    }
+
     function desenharLista() {
       clear(lista);
       var q = relSemAcentos(estado.busca);
-      var todos = relCandidatos(estado.tipo).filter(function (c) {
+      var ids = relIdsDaArea(REL_FILTRO.area);
+      var k = chaveFechadas();
+      var fechadas = estado.fechadas[k] || [];
+      var todos = relCandidatos(estado.tipo, fechadas).filter(function (c) {
+        if (ids && ids.indexOf(c.ctx) < 0) return false;
+        if (REL_FILTRO.estado === 'abertas' && c.fechado) return false;
+        if (REL_FILTRO.estado === 'fechadas' && !c.fechado) return false;
         return !q || relSemAcentos(c.titulo).indexOf(q) >= 0 || relSemAcentos(c.meta).indexOf(q) >= 0;
       });
       if (!todos.length) {
-        lista.appendChild(el('div', 'rel-vazio',
-          q ? 'Nada com esse nome.' : 'Ainda não há nenhum.'));
+        lista.appendChild(el('div', 'rel-vazio', estado.aCarregar[k] ? 'A procurar\u2026'
+          : q ? 'Nada com esse nome.' : 'Nada com estes filtros.'));
         return;
       }
-      todos.slice(0, 40).forEach(function (c) {
+      if (estado.tipo !== 'evento' && REL_FILTRO.estado !== 'abertas' && fechadas.length >= 200) {
+        lista.appendChild(el('div', 'rel-nota', 'Das fechadas, mostro as 200 mais recentes. Escolhe uma \u00e1rea para ver mais para tr\u00e1s.'));
+      }
+      todos.slice(0, 80).forEach(function (c) {
         var posto = temJa(estado.tipo, c.id);
         var b = el('button', posto ? 'ja' : '');
         b.type = 'button';
@@ -229,9 +323,11 @@
       });
     }
 
-    function desenhar() { desenharTipos(); desenharLista(); desenharJa(); }
+    function desenhar() { desenharTipos(); desenharEstado(); buscarFechadas(); desenharLista(); desenharJa(); }
 
     busca.addEventListener('input', function () { estado.busca = busca.value; desenharLista(); });
+    fArea.addEventListener('change', function () { REL_FILTRO.area = fArea.value; buscarFechadas(); desenharLista(); });
+    fEstado.addEventListener('change', function () { REL_FILTRO.estado = fEstado.value; buscarFechadas(); desenharLista(); });
     desenhar();
     /* O que o cartao trazia pode estar velho - e vindo dos Documentos nao vem
        nada. Pergunta-se sempre, e redesenha-se quando a resposta chega. */
