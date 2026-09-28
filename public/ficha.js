@@ -12,29 +12,32 @@
  * toast show apiGestao G D).
  */
 
-var FI = { id: null, dados: null, montado: false };
+/* As contas de Acessos ficam a parte do resto: a janela de edicao pode ser
+   aberta a partir da ficha ou da pagina de Pessoas, e o menu da conta tem
+   de ter as mesmas opcoes nos dois sitios. */
+var FI = { id: null, dados: null, contas: null, montado: false };
 
 var FI_CSS = [
-  '#view-pessoa .fi-topo{display:flex;gap:1rem;align-items:flex-start}',
-  '#view-pessoa .fi-av{flex:0 0 auto;width:64px;height:64px;border-radius:50%;display:flex;align-items:center;',
+  '.fi-ecra .fi-topo{display:flex;gap:1rem;align-items:flex-start}',
+  '.fi-ecra .fi-av{flex:0 0 auto;width:64px;height:64px;border-radius:50%;display:flex;align-items:center;',
   'justify-content:center;color:#fff;font-family:var(--mono);font-size:1.25rem;overflow:hidden}',
-  '#view-pessoa .fi-av img{width:100%;height:100%;object-fit:cover;display:block}',
-  '#view-pessoa .fi-nome{font-family:var(--serif,Newsreader),serif;font-size:1.5rem;margin:0}',
-  '#view-pessoa .fi-sub{color:var(--muted);font-size:.875rem;margin:.15rem 0 .5rem}',
-  '#view-pessoa .fi-nota{font-size:.875rem;color:var(--ink-2);margin:.6rem 0 0}',
-  '#view-pessoa .fi-num{display:flex;gap:1.5rem;margin-top:.9rem;flex-wrap:wrap}',
-  '#view-pessoa .fi-num div{min-width:4rem}',
-  '#view-pessoa .fi-num b{display:block;font-family:var(--mono);font-size:1.25rem;color:var(--ink)}',
-  '#view-pessoa .fi-num span{font-size:.75rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}',
-  '#view-pessoa .fi-vazio{color:var(--muted);font-size:.8125rem;margin:0;padding:10px 2px}',
-  '#view-pessoa .fi-sl{display:block;font-size:.75rem;color:var(--muted);margin-top:2px}',
-  '#view-pessoa .fi-volta{margin-bottom:.9rem}',
-  '#view-pessoa .fi-topo > .grow{flex:1 1 auto;min-width:0}',
-  '#view-pessoa .fi-editar{flex:0 0 auto;align-self:flex-start}',
+  '.fi-ecra .fi-av img{width:100%;height:100%;object-fit:cover;display:block}',
+  '.fi-ecra .fi-nome{font-family:var(--serif,Newsreader),serif;font-size:1.5rem;margin:0}',
+  '.fi-ecra .fi-sub{color:var(--muted);font-size:.875rem;margin:.15rem 0 .5rem}',
+  '.fi-ecra .fi-nota{font-size:.875rem;color:var(--ink-2);margin:.6rem 0 0}',
+  '.fi-ecra .fi-num{display:flex;gap:1.5rem;margin-top:.9rem;flex-wrap:wrap}',
+  '.fi-ecra .fi-num div{min-width:4rem}',
+  '.fi-ecra .fi-num b{display:block;font-family:var(--mono);font-size:1.25rem;color:var(--ink)}',
+  '.fi-ecra .fi-num span{font-size:.75rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}',
+  '.fi-ecra .fi-vazio{color:var(--muted);font-size:.8125rem;margin:0;padding:10px 2px}',
+  '.fi-ecra .fi-sl{display:block;font-size:.75rem;color:var(--muted);margin-top:2px}',
+  '.fi-ecra .fi-volta{margin-bottom:.9rem}',
+  '.fi-ecra .fi-topo > .grow{flex:1 1 auto;min-width:0}',
+  '.fi-ecra .fi-editar{flex:0 0 auto;align-self:flex-start}',
   '#peDlg{max-height:calc(100dvh - 2rem);overflow-y:auto}',
   '.pe-dlgc .fi-par{display:grid;grid-template-columns:repeat(auto-fit,minmax(11rem,1fr));gap:0 .75rem}',
-  '#view-pessoa .fi-quando{flex:0 0 3.4rem;font-family:var(--mono);font-size:.75rem;color:var(--muted);line-height:1.35}',
-  '#view-pessoa .fi-quando b{display:block;font-size:.9375rem;color:var(--ink);font-weight:500}',
+  '.fi-ecra .fi-quando{flex:0 0 3.4rem;font-family:var(--mono);font-size:.75rem;color:var(--muted);line-height:1.35}',
+  '.fi-ecra .fi-quando b{display:block;font-size:.9375rem;color:var(--ink);font-weight:500}',
   '.pe-dlgc textarea{font:inherit;font-size:.875rem;color:var(--ink);background:var(--surface-2);border:1px solid var(--line);',
   'border-radius:8px;padding:9px 11px;width:100%;min-width:0;min-height:4.5rem;resize:vertical;box-sizing:border-box}',
   '.pe-dlgc textarea:focus{outline:0;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}',
@@ -47,33 +50,33 @@ var FI_CSS = [
   'width:100%;min-width:0;box-sizing:border-box}',
   '.pe-dlgc input[type=date]:focus,.pe-dlgc input[type=email]:focus,.pe-dlgc input[type=tel]:focus',
   '{outline:0;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}',
-  '#view-pessoa .fi-dados{display:grid;grid-template-columns:minmax(7.5rem,auto) 1fr;gap:.45rem 1rem;margin:0;font-size:.875rem}',
-  '#view-pessoa .fi-dados dt{color:var(--muted);font-size:.8125rem}',
-  '#view-pessoa .fi-dados dd{margin:0;color:var(--ink);min-width:0;overflow-wrap:anywhere}',
-  '#view-pessoa .fi-dados .fi-grupo{grid-column:1/-1;font-family:var(--mono);font-size:.6875rem;letter-spacing:.08em;',
+  '.fi-ecra .fi-dados{display:grid;grid-template-columns:minmax(7.5rem,auto) 1fr;gap:.45rem 1rem;margin:0;font-size:.875rem}',
+  '.fi-ecra .fi-dados dt{color:var(--muted);font-size:.8125rem}',
+  '.fi-ecra .fi-dados dd{margin:0;color:var(--ink);min-width:0;overflow-wrap:anywhere}',
+  '.fi-ecra .fi-dados .fi-grupo{grid-column:1/-1;font-family:var(--mono);font-size:.6875rem;letter-spacing:.08em;',
   'text-transform:uppercase;color:var(--muted);margin-top:.6rem;padding-top:.6rem;border-top:1px solid var(--line-soft)}',
-  '#view-pessoa .fi-dados .fi-grupo:first-child{margin-top:0;padding-top:0;border-top:0}',
-  '#view-pessoa .fi-num-id{font-family:var(--mono);letter-spacing:.02em}',
-  '#view-pessoa .fi-dados a{color:var(--accent);text-underline-offset:2px}',
-  '#view-pessoa .fi-ver{border:0;background:none;color:var(--accent);font:inherit;font-size:.75rem;cursor:pointer;padding:0}',
-  '#view-pessoa .fi-g{display:flex;flex-direction:column;gap:5px;align-items:flex-start}',
-  '#view-pessoa .fi-g small{color:var(--muted);font-size:.75rem}',
-  '#view-pessoa .fi-g small.mau{color:var(--bad)}',
-  '#view-pessoa .fi-gb{display:flex;gap:6px;flex-wrap:wrap}',
-  '#view-pessoa .fi-gb button{border:1px solid var(--line);background:var(--surface);color:var(--ink-2);',
+  '.fi-ecra .fi-dados .fi-grupo:first-child{margin-top:0;padding-top:0;border-top:0}',
+  '.fi-ecra .fi-num-id{font-family:var(--mono);letter-spacing:.02em}',
+  '.fi-ecra .fi-dados a{color:var(--accent);text-underline-offset:2px}',
+  '.fi-ecra .fi-ver{border:0;background:none;color:var(--accent);font:inherit;font-size:.75rem;cursor:pointer;padding:0}',
+  '.fi-ecra .fi-g{display:flex;flex-direction:column;gap:5px;align-items:flex-start}',
+  '.fi-ecra .fi-g small{color:var(--muted);font-size:.75rem}',
+  '.fi-ecra .fi-g small.mau{color:var(--bad)}',
+  '.fi-ecra .fi-gb{display:flex;gap:6px;flex-wrap:wrap}',
+  '.fi-ecra .fi-gb button{border:1px solid var(--line);background:var(--surface);color:var(--ink-2);',
   'border-radius:99px;padding:3px 10px;font:inherit;font-size:.75rem;cursor:pointer}',
-  '#view-pessoa .fi-gb button:hover{border-color:var(--accent);color:var(--accent-ink)}',
-  '#view-pessoa .fi-gb button[disabled]{opacity:.5;cursor:default}',
-  '#view-pessoa .fi-link{color:var(--accent);cursor:pointer;text-decoration:underline;text-underline-offset:2px}',
-  '#view-pessoa .fi-acc > header{cursor:pointer;user-select:none;align-items:center}',
-  '#view-pessoa .fi-acc > header h3{flex:1 1 auto;margin:0}',
-  '#view-pessoa .fi-acc > header .mono{margin-left:0}',
-  '#view-pessoa .fi-acc > header:focus-visible{outline:2px solid var(--accent);outline-offset:4px;border-radius:4px}',
-  '#view-pessoa .fi-chev{flex:0 0 auto;color:var(--muted);transition:transform .15s ease;display:inline-flex}',
-  '#view-pessoa .fi-acc.fechado .fi-chev{transform:rotate(-90deg)}',
-  '#view-pessoa .fi-acc.fechado > header{margin-bottom:0}',
-  '#view-pessoa .fi-acc.fechado > .fi-corpo{display:none}',
-  '#view-pessoa .fi-col-t{font-family:var(--mono);font-size:.6875rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0 0 -.25rem 2px}',
+  '.fi-ecra .fi-gb button:hover{border-color:var(--accent);color:var(--accent-ink)}',
+  '.fi-ecra .fi-gb button[disabled]{opacity:.5;cursor:default}',
+  '.fi-ecra .fi-link{color:var(--accent);cursor:pointer;text-decoration:underline;text-underline-offset:2px}',
+  '.fi-ecra .fi-acc > header{cursor:pointer;user-select:none;align-items:center}',
+  '.fi-ecra .fi-acc > header h3{flex:1 1 auto;margin:0}',
+  '.fi-ecra .fi-acc > header .mono{margin-left:0}',
+  '.fi-ecra .fi-acc > header:focus-visible{outline:2px solid var(--accent);outline-offset:4px;border-radius:4px}',
+  '.fi-ecra .fi-chev{flex:0 0 auto;color:var(--muted);transition:transform .15s ease;display:inline-flex}',
+  '.fi-ecra .fi-acc.fechado .fi-chev{transform:rotate(-90deg)}',
+  '.fi-ecra .fi-acc.fechado > header{margin-bottom:0}',
+  '.fi-ecra .fi-acc.fechado > .fi-corpo{display:none}',
+  '.fi-ecra .fi-col-t{font-family:var(--mono);font-size:.6875rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0 0 -.25rem 2px}',
   '.pe-dlg:has(.fi-tabs){max-width:37rem}',
   '.pe-dlgc .fi-tabs{display:flex;flex-wrap:wrap;gap:2px;border-bottom:1px solid var(--line);margin:0 0 1rem}',
   '.pe-dlgc .fi-tab{border:0;background:none;font:inherit;font-size:.8125rem;color:var(--muted);padding:8px 10px 9px;',
@@ -225,7 +228,7 @@ function fiMontar() {
   fiEstilo();
   if (window.TITLES) TITLES.pessoa = ['Pessoa', 'Tudo o que a casa sabe sobre esta pessoa'];
 
-  var sec = el('section', 'view');
+  var sec = el('section', 'view fi-ecra');
   sec.id = 'view-pessoa';
   var corpo = el('div');
   corpo.id = 'fiCorpo';
@@ -245,7 +248,7 @@ function fiAbrir(id) {
   corpo.appendChild(el('p', 'fi-vazio', 'A ler a ficha…'));
 
   apiGestao('/api/pessoas/' + FI.id + '/ficha')
-    .then(function (d) { FI.dados = d; fiDesenhar(); })
+    .then(function (d) { FI.dados = d; FI.contas = d.contas || []; fiDesenhar(); })
     .catch(function (e) {
       clear(corpo);
       corpo.appendChild(el('p', 'fi-vazio', e.message || 'Não foi possível ler a ficha.'));
@@ -552,22 +555,29 @@ function fiGooglePedir(url, corpo) {
   });
 }
 
-/* Depois de mexer no calendario: a ficha volta a ser o que a base diz, e a
-   Agenda tambem, porque os eventos mudaram. */
+/* Depois de mexer no calendario: o ecra volta a ser o que a base diz, e a
+   Agenda tambem, porque os eventos mudaram. O mesmo bloco «Na app» aparece
+   na ficha da Familia e no ecra de dados em Pessoas - relê-se aquele que
+   estiver a ser visto. */
 function fiRecarregar(tambemAgenda) {
-  var aqui = FI.id;
   var p = tambemAgenda && typeof apiGestao === 'function'
     ? apiGestao('/api/bootstrap').then(function (b) {
         if (b && b.people && typeof renderAll === 'function') { D = b; renderAll(); }
       }).catch(function () {})
     : Promise.resolve();
-  return p.then(function () { return apiGestao('/api/pessoas/' + aqui + '/ficha'); })
-    .then(function (f) {
+  return p.then(function () {
+    var v = document.getElementById('view-pessoa');
+    if (!(v && v.classList.contains('is-active') && FI.id)) {
+      return typeof pdRecarregar === 'function' ? pdRecarregar() : null;
+    }
+    var aqui = FI.id;
+    return apiGestao('/api/pessoas/' + aqui + '/ficha').then(function (f) {
       if (FI.id !== aqui) return;
       FI.dados = f;
-      var v = document.getElementById('view-pessoa');
-      if (v && v.classList.contains('is-active')) fiDesenhar();
-    }).catch(function () {});
+      FI.contas = f.contas || [];
+      fiDesenhar();
+    });
+  }).catch(function () {});
 }
 
 /* A volta da Google: diz como correu, limpa o endereco e abre a ficha. */
@@ -652,16 +662,19 @@ function fiCaixa(pai, itens) {
 /* O formulario e o da pagina de Pessoas (pessoas.js): os mesmos campos, as
    mesmas cores, a mesma fotografia encolhida no browser. Aqui so se abre numa
    janela e se acrescenta a nota, que e o que aparece no cartao da Familia. */
-function fiEditar(p) {
+function fiEditar(p, aoGravar) {
   if (typeof peMontarDialogo === 'function') peMontarDialogo();
   var dlg = $('peDlg');
   var cx = $('peDlgC');
   if (!dlg || !cx) { toast('Não foi possível abrir a edição.'); return; }
+  var nova = !p.id;
   PE.fotoNova = null;
   PE.fotoFora = false;
   clear(cx);
-  cx.appendChild(el('h3', null, 'Editar ' + p.name));
-  cx.appendChild(el('p', 'pe-dlgs', 'Muda o que estiver errado. O resto da app passa a ver a pessoa assim.'));
+  cx.appendChild(el('h3', null, nova ? 'Nova pessoa' : 'Editar ' + p.name));
+  cx.appendChild(el('p', 'pe-dlgs', nova
+    ? 'Conta quem é. O que não souberes agora fica para depois — só o nome é obrigatório.'
+    : 'Muda o que estiver errado. O resto da app passa a ver a pessoa assim.'));
 
   /* Um separador por bloco, como na ficha. O Geral nao muda; os outros
      dependem do tipo e redesenham-se quando ele muda, sem perder o que ja
@@ -718,9 +731,9 @@ function fiEditar(p) {
   var cancelar = el('button', 'btn', 'Cancelar');
   cancelar.type = 'button';
   cancelar.onclick = peFecharDlg;
-  var guardar = el('button', 'btn primary', 'Guardar');
+  var guardar = el('button', 'btn primary', nova ? 'Criar pessoa' : 'Guardar');
   guardar.type = 'button';
-  guardar.onclick = function () { fiGravar(p, guardar); };
+  guardar.onclick = function () { fiGravar(p, guardar, aoGravar); };
   acts.appendChild(cancelar);
   acts.appendChild(guardar);
   cx.appendChild(acts);
@@ -841,7 +854,7 @@ function fiCamposDados(box, p, kind, v) {
               peCampo('Telefone', fiInput('fiDEmTel', 'tel', v.emerg_tel)));
 
     var ap = painel('Na app');
-    var contas = (FI.dados && FI.dados.contas) || [];
+    var contas = FI.contas || (FI.dados && FI.dados.contas) || [];
     if (v.conta_email && contas.indexOf(v.conta_email) < 0) contas = contas.concat([v.conta_email]);
     ap.appendChild(peCampo('Conta de acesso', fiSelect('fiDConta',
       [['', '— sem conta —']].concat(contas.map(function (e) { return [e, e]; })), v.conta_email)));
@@ -879,7 +892,10 @@ function fiIrParaErro(msg) {
   }
 }
 
-function fiGravar(p, botao) {
+/* Serve os tres sitios de onde se mexe numa pessoa: a ficha da Familia, o
+   ecra de dados em Pessoas, e o botao de criar. Sem `p.id` e uma pessoa
+   nova; `aoGravar` e o que o ecra que abriu a janela quer fazer a seguir. */
+function fiGravar(p, botao, aoGravar) {
   var corpo = {
     name: ($('fiENome').value || '').trim(),
     full_name: ($('fiECompleto').value || '').trim(),
@@ -912,43 +928,65 @@ function fiGravar(p, botao) {
   }
 
   var foto = PE.fotoNova, fora = PE.fotoFora;
+  var nome = corpo.name;
   botao.disabled = true;
-  apiGestao('/api/pessoas/' + p.id, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(corpo)
-  }).then(function (d) {
-    if (foto) {
-      return apiGestao('/api/pessoas/' + p.id + '/avatar', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ avatar: foto })
-      });
-    }
-    if (fora) return apiGestao('/api/pessoas/' + p.id + '/avatar', { method: 'DELETE' });
-    return d;
-  }).then(function (d) {
+
+  /* Criar leva a fotografia no mesmo pedido, porque ainda nao ha id a quem
+     a mandar; corrigir manda-a a seguir, e so se ela mudou. */
+  var pedido;
+  if (p.id) {
+    pedido = apiGestao('/api/pessoas/' + p.id, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(corpo)
+    }).then(function (d) {
+      if (foto) {
+        return apiGestao('/api/pessoas/' + p.id + '/avatar', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ avatar: foto })
+        });
+      }
+      if (fora) return apiGestao('/api/pessoas/' + p.id + '/avatar', { method: 'DELETE' });
+      return d;
+    });
+  } else {
+    if (foto) corpo.avatar = foto;
+    pedido = apiGestao('/api/pessoas', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(corpo)
+    });
+  }
+
+  pedido.then(function (d) {
     peFecharDlg();
-    toast('Guardado.');
+    toast(p.id ? 'Guardado.' : nome + ' entrou na lista.');
     /* A fotografia vai para a cache do browser por um dia. Os cartoes da
        Familia pedem-na sem versao, por isso refresca-se a copia guardada. */
-    if (foto || fora) {
+    if (p.id && (foto || fora)) {
       try { fetch('/api/pessoas/' + p.id + '/avatar', { cache: 'reload', credentials: 'same-origin' }).catch(function () {}); }
       catch (e) { /* sem fetch */ }
     }
     /* Tudo o que mostra esta pessoa passa a mostra-la como ficou. */
     if (typeof peGuardar === 'function' && d && d.pessoas) peGuardar(d);
     if (window.loadGestao) loadGestao();
-    /* Primeiro o arranque (cartoes da Familia), depois a ficha: o renderAll
-       reescreve o subtitulo da pagina e a ficha tem de ficar por cima. */
-    var aqui = FI.id;
-    apiGestao('/api/bootstrap').then(function (b) {
+    /* Primeiro o arranque (cartoes da Familia), depois o ecra: o renderAll
+       reescreve o subtitulo da pagina e o ecra tem de ficar por cima. */
+    var arranque = apiGestao('/api/bootstrap').then(function (b) {
       if (b && b.people && typeof renderAll === 'function') { D = b; renderAll(); }
-    }).catch(function () { /* os cartoes actualizam no proximo arranque */ })
-      .then(function () { return apiGestao('/api/pessoas/' + aqui + '/ficha'); })
+    }).catch(function () { /* os cartoes actualizam no proximo arranque */ });
+
+    if (typeof aoGravar === 'function') { arranque.then(function () { aoGravar(d); }); return; }
+    /* Sem ficha aberta nao ha ficha para reler: a janela pode ter sido aberta
+       da lista de Pessoas, onde a lista ja se actualizou acima. */
+    if (!p.id || !FI.id) return;
+    var aqui = FI.id;
+    arranque.then(function () { return apiGestao('/api/pessoas/' + aqui + '/ficha'); })
       .then(function (f) {
         if (FI.id !== aqui) return;
         FI.dados = f;
+        FI.contas = f.contas || [];
         var v = document.getElementById('view-pessoa');
         if (v && v.classList.contains('is-active')) fiDesenhar();
       }).catch(function () { /* a ficha antiga fica */ });
