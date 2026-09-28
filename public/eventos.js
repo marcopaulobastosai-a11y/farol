@@ -99,8 +99,12 @@ function evLista(){
   var out = [];
   ((window.D && D.events) || []).forEach(function(e){
     var real = typeof e.id === 'number';
-    if (!passaOnde(real ? e.context_id : null) || !passaQuando(e.day)) return;
+    /* Um evento de varios dias que ja comecou ainda esta a acontecer. */
+    var dia = f.quando === 'proximos' && e.ends_on && e.ends_on > e.day ? e.ends_on : e.day;
+    if (!passaOnde(real ? e.context_id : null) || !passaQuando(dia)) return;
     out.push({ id: e.id, title: e.title, day: e.day, at: e.at, detail: e.detail,
+               location: e.location, tentative: e.tentative, pessoas: e.pessoas,
+               remind_min: e.remind_min, quando: real ? evjQuandoTxt(e) : null,
                context_id: e.context_id, onde: real ? areaNome(e.context_id) : 'aniversário',
                apagavel: real, orig: e });
   });
@@ -162,11 +166,10 @@ function evRender(){
   var h = el('header');
   h.appendChild(el('h3', null, 'Marcado'));
   h.appendChild(el('span', 'mono', lista.length ? lista.length + (lista.length === 1 ? ' data' : ' datas') : ''));
-  var novo = el('button', 'btn primary', '+ Marcar uma data');
-  novo.type = 'button';
-  novo.dataset.tfpop = '1';
-  novo.addEventListener('click', function(){ evPop(novo); });
-  h.appendChild(novo);
+  var bNovo = el('button', 'btn primary', '+ Marcar uma data');
+  bNovo.type = 'button';
+  bNovo.addEventListener('click', function(){ evJanela(null); });
+  h.appendChild(bNovo);
   card.appendChild(h);
 
   if (!lista.length){
@@ -191,80 +194,597 @@ function evRender(){
   box.appendChild(card);
 }
 
-/* Marcar uma data, para a area que se quiser - ou para nenhuma. */
-/* areaId: quem chama de um ecra de area ja sabe onde o evento vai ficar
-   (o «+ Novo» das areas). Sem ele vale o filtro da Agenda. */
-function evPop(ancora, areaId){
-  tfFecharPop();
-  var p = el('div', 'tf-pop');
-  p.style.width = '310px';
+/* ------------------------------------------------------------------ *
+ * A janela de um evento: marcar e corrigir (28 set)
+ *
+ * Marcar era um titulo, um dia, uma hora e uma nota. Para uma consulta ou
+ * uma reuniao faltava o que se pergunta logo a seguir: quanto tempo leva,
+ * onde e, quem vai, quando e que a app me lembra, e os papeis que e preciso
+ * levar. A mesma janela serve para marcar e para corrigir - clicar num evento
+ * da lista abre-a com o que la esta - e e chamada da Agenda, dos Eventos, do
+ * ecra de cada area e do aviso do Hoje.
+ *
+ * O lembrete nao finge ser uma notificacao: o evento entra no Hoje, em
+ * «Precisa de ti», a partir da hora escolhida. A janela di-lo com a data.
+ * ------------------------------------------------------------------ */
 
-  p.appendChild(el('label', null, 'O que é'));
-  var iT = el('input'); iT.type = 'text'; iT.placeholder = 'ex.: reunião na escola';
-  p.appendChild(iT);
+var EVJ_CSS = [
+  '.evj{border:none;border-radius:14px;padding:0;width:min(560px,calc(100% - 2rem));max-height:92vh;box-shadow:0 18px 48px rgba(15,23,32,.22);background:transparent}',
+  '.evj::backdrop{background:rgba(15,23,32,.38)}',
+  '.evj-c{background:var(--surface);border-radius:14px;padding:18px 20px;display:flex;flex-direction:column;gap:12px;max-height:92vh;overflow:auto;box-sizing:border-box}',
+  '.evj-c h3{margin:0;font-size:1.0625rem}',
+  '.evj-c label,.evj-lbl{display:block;font-size:.75rem;color:var(--muted);margin-bottom:4px}',
+  '.evj-c input[type=text],.evj-c input[type=date],.evj-c input[type=time],.evj-c select,.evj-c textarea{width:100%;box-sizing:border-box;padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:var(--ground);color:var(--ink);font:inherit;font-size:.875rem}',
+  '.evj-c textarea{min-height:64px;resize:vertical}',
+  '.evj-c input:focus,.evj-c select:focus,.evj-c textarea:focus{outline:0;border-color:var(--accent)}',
+  '.evj-g{display:grid;grid-template-columns:1fr 1fr;gap:10px 12px}',
+  '.evj-g3{display:grid;grid-template-columns:1.3fr 1fr 1.2fr;gap:10px 12px}',
+  '.evj-larga{grid-column:1 / -1}',
+  '.evj-sec{border-top:1px solid var(--line-soft,var(--line));padding-top:12px}',
+  '.evj-sec > .evj-lbl{font-family:var(--mono);font-size:.6875rem;letter-spacing:.07em;text-transform:uppercase;color:var(--faint);margin-bottom:8px}',
+  '.evj-c label.evj-chk{display:inline-flex;align-items:center;gap:6px;font-size:.8125rem;color:var(--ink-2,var(--ink));cursor:pointer;margin:0}',
+  '.evj-chk input{margin:0;accent-color:var(--accent)}',
+  '.evj-linha{display:flex;align-items:center;gap:14px;flex-wrap:wrap}',
+  '.evj-dica{font-size:.75rem;color:var(--muted);margin-top:4px;min-height:1em}',
+  '.evj-dica a{color:var(--accent-ink)}',
+  '.evj-pes{display:flex;flex-wrap:wrap;gap:6px}',
+  '.evj-pes button{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--ground);border-radius:99px;padding:4px 10px 4px 6px;font:inherit;font-size:.8125rem;color:var(--ink-2,var(--ink));cursor:pointer}',
+  '.evj-pes button .evj-av{width:18px;height:18px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:.58rem;font-weight:600;color:#fff;flex:none}',
+  '.evj-pes button.on{border-color:var(--accent);background:var(--accent-soft);color:var(--accent-ink);font-weight:500}',
+  '.evj-pend{display:flex;flex-direction:column;gap:2px;margin-bottom:4px}',
+  '.evj-pend .ax-lin small{color:var(--muted);font-size:.7rem}',
+  '.evj-drop.sobre{outline:2px dashed var(--accent);outline-offset:4px;border-radius:8px}',
+  '.evj-acoes{display:flex;align-items:center;justify-content:flex-end;gap:8px;border-top:1px solid var(--line-soft,var(--line));padding-top:12px}',
+  '.evj-acoes .btn{flex:none;width:auto;margin-left:0}',
+  /* O bloco dos anexos tem os seus tamanhos: as regras largas de cima nao lhe tocam. */
+  '.evj-c .ax select.ax-papel{width:auto;padding:1px 4px 1px 6px;font-family:var(--mono);font-size:.625rem;border-radius:99px;background:var(--surface-2)}',
+  '.evj-c .ax-proc input{padding:5px 8px;font-size:.75rem}',
+  '.evj-acoes .btn.esq{margin-right:auto}',
+  '.evj-acoes .apagar{color:var(--bad)}',
+  '.evj-erro{color:var(--bad);font-size:.8125rem}',
+  '@media (max-width:560px){.evj-g,.evj-g3{grid-template-columns:1fr}}'
+].join('\n');
 
-  var lin = el('div', 'tf-linha'); lin.style.marginTop = '8px';
-  var cd = el('div'); cd.style.flex = '1';
-  cd.appendChild(el('label', null, 'Dia'));
-  var iD = el('input'); iD.type = 'date'; iD.value = tfISO(tfHoje());
-  cd.appendChild(iD);
-  var ch = el('div'); ch.style.width = '96px';
-  ch.appendChild(el('label', null, 'Hora'));
-  var iH = el('input'); iH.type = 'time';
-  ch.appendChild(iH);
-  lin.appendChild(cd); lin.appendChild(ch);
-  p.appendChild(lin);
+var EVJ_DURACOES = [
+  ['', '—'], ['15', '15 min'], ['30', '30 min'], ['45', '45 min'], ['60', '1 h'], ['90', '1 h 30'],
+  ['120', '2 h'], ['150', '2 h 30'], ['180', '3 h'], ['240', '4 h'], ['360', '6 h'], ['480', '8 h'],
+  ['outra', 'termina às…']
+];
+var EVJ_LEMBRETES_HORA = [
+  ['', 'Sem lembrete'], ['0', 'À hora'], ['15', '15 min antes'], ['30', '30 min antes'],
+  ['60', '1 h antes'], ['120', '2 h antes'], ['1440', '1 dia antes'], ['2880', '2 dias antes'],
+  ['10080', '1 semana antes']
+];
+var EVJ_LEMBRETES_DIA = [
+  ['', 'Sem lembrete'], ['0', 'No próprio dia'], ['1440', '1 dia antes'], ['2880', '2 dias antes'],
+  ['4320', '3 dias antes'], ['10080', '1 semana antes'], ['20160', '2 semanas antes']
+];
 
-  p.appendChild(el('label', null, 'Área'));
-  var sC = el('select');
-  var o0 = el('option', null, '— sem área —'); o0.value = '';
-  sC.appendChild(o0);
+function evjEstilo(){
+  if (document.getElementById('evjCss')) return;
+  var s = document.createElement('style');
+  s.id = 'evjCss';
+  s.textContent = EVJ_CSS;
+  document.head.appendChild(s);
+}
+
+function evjFechar(){
+  var d = document.getElementById('evjDlg');
+  if (d){ try { d.close(); } catch (e) {} d.remove(); }
+}
+
+/* 'HH:MM' <-> minutos desde a meia-noite. */
+function evjMin(h){
+  if (!h || !/^\d{2}:\d{2}$/.test(h)) return null;
+  return Number(h.slice(0, 2)) * 60 + Number(h.slice(3, 5));
+}
+function evjHora(m){
+  m = ((m % 1440) + 1440) % 1440;
+  return String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
+}
+function evjDurTxt(m){
+  if (!m) return '';
+  var h = Math.floor(m / 60), r = m % 60;
+  return (h ? h + ' h' : '') + (h && r ? ' ' : '') + (r ? r + ' min' : '');
+}
+
+/* O texto curto de quando e, para a linha da lista: «10:00–11:30»,
+   «dia inteiro», «até 6 out». */
+function evjQuandoTxt(e){
+  if (!e) return '';
+  var p = [];
+  if (e.at){
+    var ini = evjMin(e.at);
+    p.push(e.duration_min && ini !== null ? e.at + '–' + evjHora(ini + Number(e.duration_min)) : e.at);
+  }
+  if (e.ends_on && e.ends_on !== e.day){
+    var d = parseDay(e.ends_on);
+    p.push('até ' + d.getDate() + ' ' + MESES[d.getMonth()].slice(0, 3).toLowerCase());
+  }
+  return p.join(' · ');
+}
+
+/* Quando e que o lembrete entra no Hoje, dito em portugues. */
+function evjAvisoTxt(dia, hora, remind){
+  if (remind === '' || remind === null || remind === undefined || !dia) return '';
+  var base = parseDay(dia);
+  var m = hora ? evjMin(hora) : 9 * 60;
+  var quando = new Date(base.getFullYear(), base.getMonth(), base.getDate(), 0, m - Number(remind));
+  var dd = quando.getDate() + ' ' + MESES[quando.getMonth()].slice(0, 3).toLowerCase();
+  var hh = String(quando.getHours()).padStart(2, '0') + ':' + String(quando.getMinutes()).padStart(2, '0');
+  var dia7 = (typeof DIAS !== 'undefined' && DIAS[(quando.getDay() + 6) % 7]) || '';
+  return 'Aparece no Hoje, em «Precisa de ti», a partir de ' + (dia7 ? dia7.toLowerCase().slice(0, 3) + ' ' : '') + dd + ' às ' + hh + '.';
+}
+
+function evjPessoas(){
+  var ps = (window.G && G.people) || (window.D && D.people) || [];
+  return ps.filter(function(p){ return p.active !== false; });
+}
+
+function evjSelect(ops, v){
+  var s = el('select');
+  ops.forEach(function(o){ s.appendChild(new Option(o[1], o[0])); });
+  if (v !== undefined && v !== null) s.value = String(v);
+  return s;
+}
+
+function evjAreas(v){
+  var s = el('select');
+  s.appendChild(new Option('— sem área —', ''));
   evAreas().forEach(function(a){
     var g = document.createElement('optgroup');
     g.label = a.name;
-    var oa = el('option', null, a.name + ' · geral'); oa.value = String(a.id);
-    g.appendChild(oa);
+    g.appendChild(new Option(a.name + ' · geral', String(a.id)));
     ((window.G && G.contextos) || []).filter(function(c){ return c.parent_id === a.id; }).forEach(function(c){
-      var o = el('option', null, c.name); o.value = String(c.id);
-      g.appendChild(o);
+      g.appendChild(new Option(c.name, String(c.id)));
     });
-    sC.appendChild(g);
+    s.appendChild(g);
   });
-  if (areaId) sC.value = String(areaId);
-  else if (EV.filtro.onde !== 'tudo' && EV.filtro.onde !== 'sem') sC.value = EV.filtro.onde;
-  p.appendChild(sC);
+  s.value = v ? String(v) : '';
+  return s;
+}
 
-  p.appendChild(el('label', null, 'Nota (opcional)'));
-  var iN = el('input'); iN.type = 'text'; iN.placeholder = 'onde, com quem, o que levar';
-  p.appendChild(iN);
+function evjCampo(pai, rotulo, elemento, cls){
+  var w = el('div', cls || null);
+  if (rotulo) w.appendChild(el('label', null, rotulo));
+  w.appendChild(elemento);
+  pai.appendChild(w);
+  return w;
+}
 
-  var ac = el('div', 'tf-acoes');
-  var bC = el('button', 'btn small', 'Cancelar'); bC.type = 'button';
-  bC.addEventListener('click', tfFecharPop);
-  var bOk = el('button', 'btn small primary', 'Marcar'); bOk.type = 'button';
-  bOk.addEventListener('click', function(){
-    var titulo = iT.value.trim();
-    if (!titulo) return iT.focus();
-    if (!iD.value) return iD.focus();
-    apiGestao('/api/gestao/eventos', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        title: titulo, day: iD.value, at: iH.value || null,
-        detail: iN.value.trim() || null,
-        context_id: sC.value ? Number(sC.value) : null
-      })
-    }).then(function(ev){
-      tfFecharPop();
-      D.events = (D.events || []).concat([ev]);
-      D.events.sort(function(x, y){ return x.day < y.day ? -1 : (x.day > y.day ? 1 : 0); });
-      toast('Marcado para ' + tfDataTxt(ev.day, ev.at) + '.');
-      renderAll();
-    }).catch(function(e){ toast(e.message || 'Não deu para marcar.'); });
+/* ev: o evento a corrigir (de D.events), ou null para marcar um novo.
+   opts.context_id: a area proposta; opts.day: o dia proposto. */
+function evJanela(ev, opts){
+  opts = opts || {};
+  evjEstilo();
+  if (typeof tfFecharPop === 'function') tfFecharPop();
+  evjFechar();
+  var novo = !ev;
+  var e = ev || {};
+
+  var dlg = el('dialog', 'evj');
+  dlg.id = 'evjDlg';
+  var c = el('div', 'evj-c');
+  dlg.appendChild(c);
+  c.appendChild(el('h3', null, novo ? 'Marcar um evento' : 'Evento'));
+
+  /* ---- o que e ---- */
+  var iT = el('input'); iT.type = 'text'; iT.placeholder = 'ex.: consulta de pediatria da Maria';
+  iT.value = e.title || '';
+  evjCampo(c, 'O que é', iT);
+
+  /* ---- quando ---- */
+  var sQ = el('div', 'evj-sec');
+  sQ.appendChild(el('div', 'evj-lbl', 'Quando'));
+  var lin0 = el('div', 'evj-linha');
+  lin0.style.marginBottom = '8px';
+  var lDia = el('label', 'evj-chk'); var cDia = el('input'); cDia.type = 'checkbox';
+  lDia.appendChild(cDia); lDia.appendChild(document.createTextNode('Dia inteiro'));
+  var lConf = el('label', 'evj-chk'); var cConf = el('input'); cConf.type = 'checkbox';
+  lConf.appendChild(cConf); lConf.appendChild(document.createTextNode('Ainda por confirmar'));
+  lin0.appendChild(lDia); lin0.appendChild(lConf);
+  sQ.appendChild(lin0);
+
+  var g1 = el('div', 'evj-g3');
+  var iD = el('input'); iD.type = 'date';
+  iD.value = e.day || opts.day || tfISO(tfHoje());
+  evjCampo(g1, 'Dia', iD);
+  var iH = el('input'); iH.type = 'time'; iH.value = e.at || '';
+  var wH = evjCampo(g1, 'Começa às', iH);
+  var sDur = evjSelect(EVJ_DURACOES);
+  var iFim = el('input'); iFim.type = 'time'; iFim.style.display = 'none'; iFim.style.marginTop = '6px';
+  var wDur = evjCampo(g1, 'Duração', sDur);
+  wDur.appendChild(iFim);
+  var iAte = el('input'); iAte.type = 'date'; iAte.value = e.ends_on || '';
+  var wAte = evjCampo(g1, 'Até (opcional)', iAte);
+  sQ.appendChild(g1);
+  var dQ = el('div', 'evj-dica');
+  sQ.appendChild(dQ);
+  c.appendChild(sQ);
+
+  cDia.checked = !novo && !e.at;
+  cConf.checked = Boolean(e.tentative);
+  if (e.duration_min){
+    var ex = EVJ_DURACOES.filter(function(o){ return o[0] === String(e.duration_min); })[0];
+    if (ex) sDur.value = ex[0];
+    else { sDur.value = 'outra'; iFim.value = e.at ? evjHora(evjMin(e.at) + Number(e.duration_min)) : ''; }
+  }
+
+  /* A duracao em minutos, a partir do que esta escolhido. */
+  function duracao(){
+    if (cDia.checked) return null;
+    if (sDur.value === 'outra'){
+      var a = evjMin(iH.value), b = evjMin(iFim.value);
+      if (a === null || b === null) return null;
+      var d = b - a;
+      if (d <= 0) d += 1440;   // acaba depois da meia-noite
+      return d;
+    }
+    return sDur.value ? Number(sDur.value) : null;
+  }
+
+  /* ---- onde e com quem ---- */
+  var sO = el('div', 'evj-sec');
+  sO.appendChild(el('div', 'evj-lbl', 'Onde e com quem'));
+  var g2 = el('div', 'evj-g');
+  var iL = el('input'); iL.type = 'text'; iL.placeholder = 'morada, sítio ou link da videochamada';
+  iL.value = e.location || '';
+  var wL = evjCampo(g2, 'Local', iL);
+  var dL = el('div', 'evj-dica'); wL.appendChild(dL);
+  var sC = evjAreas(novo ? (opts.context_id || (EV.filtro.onde !== 'tudo' && EV.filtro.onde !== 'sem' ? EV.filtro.onde : '')) : e.context_id);
+  evjCampo(g2, 'Área', sC);
+  sO.appendChild(g2);
+
+  var quem = {};
+  (e.pessoas || []).forEach(function(id){ quem[id] = true; });
+  if (novo && opts.person_id) quem[opts.person_id] = true;
+  var wP = el('div'); wP.style.marginTop = '10px';
+  wP.appendChild(el('label', null, 'Quem vai'));
+  var pes = el('div', 'evj-pes');
+  evjPessoas().forEach(function(p){
+    var b = el('button');
+    b.type = 'button';
+    var av = el('span', 'evj-av', p.initials || (p.name || '?').slice(0, 1));
+    av.style.background = p.color || 'var(--accent)';
+    b.appendChild(av);
+    b.appendChild(document.createTextNode(p.name));
+    b.setAttribute('aria-pressed', quem[p.id] ? 'true' : 'false');
+    if (quem[p.id]) b.classList.add('on');
+    b.addEventListener('click', function(){
+      quem[p.id] = !quem[p.id];
+      b.classList.toggle('on', quem[p.id]);
+      b.setAttribute('aria-pressed', quem[p.id] ? 'true' : 'false');
+    });
+    pes.appendChild(b);
   });
+  if (!pes.childNodes.length) pes.appendChild(el('span', 'evj-dica', 'Não há pessoas na app.'));
+  wP.appendChild(pes);
+  sO.appendChild(wP);
+  c.appendChild(sO);
+
+  /* ---- lembrete e notas ---- */
+  var sL = el('div', 'evj-sec');
+  sL.appendChild(el('div', 'evj-lbl', 'Lembrete e notas'));
+  var sRem = el('select');
+  evjCampo(sL, 'Lembrar', sRem);
+  var dR = el('div', 'evj-dica'); sL.appendChild(dR);
+  var iN = el('textarea'); iN.placeholder = 'o que levar, o que preparar, contactos, quem leva quem';
+  iN.value = e.detail || '';
+  var wN = evjCampo(sL, 'Notas', iN); wN.style.marginTop = '8px';
+  c.appendChild(sL);
+
+  function encherLembretes(){
+    var antes = sRem.value;
+    clear(sRem);
+    (cDia.checked ? EVJ_LEMBRETES_DIA : EVJ_LEMBRETES_HORA).forEach(function(o){ sRem.appendChild(new Option(o[1], o[0])); });
+    var alvo = antes !== undefined && antes !== null ? antes : '';
+    sRem.value = alvo;
+    if (sRem.value !== alvo){
+      /* Um valor que so existe na outra lista: fica o mais proximo por baixo. */
+      var n = Number(alvo), melhor = '';
+      Array.prototype.forEach.call(sRem.options, function(o){ if (o.value !== '' && Number(o.value) <= n) melhor = o.value; });
+      sRem.value = alvo === '' ? '' : melhor;
+    }
+  }
+  sRem.value = '';
+  encherLembretes();
+  if (e.remind_min !== null && e.remind_min !== undefined){
+    var r = String(e.remind_min);
+    if (!Array.prototype.some.call(sRem.options, function(o){ return o.value === r; })){
+      sRem.appendChild(new Option(evjDurTxt(Number(r)) + ' antes', r));
+    }
+    sRem.value = r;
+  }
+
+  /* ---- documentos ---- */
+  var sD = el('div', 'evj-sec evj-drop');
+  sD.appendChild(el('div', 'evj-lbl', 'Documentos'));
+  var pend = { ficheiros: [], docs: [] };   // so para um evento novo
+  if (!novo && typeof axBloco === 'function'){
+    /* O evento ja existe: o bloco dos anexos grava logo, como nas tarefas. */
+    sD.appendChild(axBloco(e, { tipo: 'evento', aoMudar: function(){ if (typeof renderAll === 'function') renderAll(); } }));
+    sD.classList.remove('evj-drop');
+  } else {
+    sD.appendChild(evjPendentes(pend));
+  }
+  c.appendChild(sD);
+
+  /* ---- acoes ---- */
+  var erro = el('div', 'evj-erro');
+  c.appendChild(erro);
+  var ac = el('div', 'evj-acoes');
+  if (!novo){
+    var bX = el('button', 'btn small apagar esq', 'Apagar');
+    bX.type = 'button';
+    bX.addEventListener('click', function(){
+      if (!window.confirm('Apagar «' + (e.title || '') + '»?\n\nSai do Hoje, da Agenda e das áreas. Os documentos ficam no arquivo.')) return;
+      apiGestao('/api/gestao/eventos/' + e.id, { method: 'DELETE' }).then(function(){
+        D.events = (D.events || []).filter(function(x){ return x.id !== e.id; });
+        evjFechar();
+        toast('Evento apagado.');
+        renderAll();
+      }).catch(function(er){ erro.textContent = er.message || 'Não deu para apagar.'; });
+    });
+    ac.appendChild(bX);
+  }
+  var bC = el('button', 'btn small' + (novo ? ' esq' : ''), novo ? 'Cancelar' : 'Fechar');
+  bC.type = 'button';
+  bC.addEventListener('click', evjFechar);
+  var bOk = el('button', 'btn small primary', novo ? 'Marcar' : 'Gravar');
+  bOk.type = 'button';
   ac.appendChild(bC); ac.appendChild(bOk);
-  p.appendChild(ac);
-  tfPosicionar(p, ancora);
-  iT.focus();
+  c.appendChild(ac);
+
+  /* ---- o que muda com o que se escolhe ---- */
+  function acertar(){
+    var inteiro = cDia.checked;
+    wH.style.display = inteiro ? 'none' : '';
+    wDur.style.display = inteiro ? 'none' : '';
+    wAte.style.display = inteiro ? '' : 'none';
+    iFim.style.display = !inteiro && sDur.value === 'outra' ? '' : 'none';
+    g1.className = inteiro ? 'evj-g' : 'evj-g3';
+
+    var txt = '';
+    if (!inteiro){
+      var d = duracao(), a = evjMin(iH.value);
+      if (a !== null && d) txt = 'Das ' + iH.value + ' às ' + evjHora(a + d) + (a + d >= 1440 ? ' do dia seguinte' : '') + ' · ' + evjDurTxt(d) + '.';
+      else if (a === null && sDur.value) txt = 'Falta a hora de início.';
+    } else if (iAte.value && iD.value && iAte.value > iD.value){
+      var n = Math.round((parseDay(iAte.value) - parseDay(iD.value)) / 86400000) + 1;
+      txt = n + ' dias.';
+    }
+    dQ.textContent = txt;
+
+    var l = iL.value.trim();
+    clear(dL);
+    if (l){
+      var a2 = el('a', null, /^https?:\/\//i.test(l) ? 'Abrir a ligação' : 'Ver no mapa');
+      a2.href = /^https?:\/\//i.test(l) ? l : 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(l);
+      a2.target = '_blank'; a2.rel = 'noopener';
+      dL.appendChild(a2);
+    }
+
+    dR.textContent = evjAvisoTxt(iD.value, inteiro ? '' : iH.value, sRem.value);
+  }
+  cDia.addEventListener('change', function(){ encherLembretes(); acertar(); });
+  [iD, iH, sDur, iFim, iAte, iL, sRem].forEach(function(x){
+    x.addEventListener('input', acertar);
+    x.addEventListener('change', acertar);
+  });
+  sDur.addEventListener('change', function(){
+    if (sDur.value === 'outra' && !iFim.value && iH.value) iFim.value = evjHora(evjMin(iH.value) + 60);
+  });
+  acertar();
+
+  /* ---- gravar ---- */
+  bOk.addEventListener('click', function(){
+    erro.textContent = '';
+    var titulo = iT.value.trim();
+    if (!titulo){ erro.textContent = 'Falta dizer o que é.'; return iT.focus(); }
+    if (!iD.value){ erro.textContent = 'Falta o dia.'; return iD.focus(); }
+    var inteiro = cDia.checked;
+    if (!inteiro && sDur.value === 'outra' && !duracao()){ erro.textContent = 'Falta a hora de início ou a de fim.'; return; }
+    if (inteiro && iAte.value && iAte.value < iD.value){ erro.textContent = 'O último dia é antes do primeiro.'; return iAte.focus(); }
+    var corpo = {
+      title: titulo,
+      day: iD.value,
+      at: inteiro ? null : (iH.value || null),
+      duration_min: inteiro || !iH.value ? null : duracao(),
+      ends_on: inteiro ? (iAte.value || null) : null,
+      location: iL.value.trim() || null,
+      context_id: sC.value ? Number(sC.value) : null,
+      person_ids: Object.keys(quem).filter(function(k){ return quem[k]; }).map(Number),
+      remind_min: sRem.value === '' ? null : Number(sRem.value),
+      tentative: cConf.checked,
+      detail: iN.value.trim() || null
+    };
+    bOk.disabled = true;
+    var url = novo ? '/api/gestao/eventos' : '/api/gestao/eventos/' + e.id;
+    apiGestao(url, {
+      method: novo ? 'POST' : 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(corpo)
+    }).then(function(r){
+      var fresco = novo ? r : (r && r.evento);
+      if (!fresco) throw new Error('O servidor não devolveu o evento.');
+      D.events = (D.events || []).filter(function(x){ return x.id !== fresco.id; }).concat([fresco]);
+      D.events.sort(function(x, y){ return x.day < y.day ? -1 : (x.day > y.day ? 1 : String(x.at || '').localeCompare(String(y.at || ''))); });
+      if (!novo || (!pend.ficheiros.length && !pend.docs.length)) return { ev: fresco };
+      return evjEnviarPendentes(fresco, pend);
+    }).then(function(res){
+      evjFechar();
+      toast((novo ? 'Marcado para ' : 'Gravado: ') + tfDataTxt(res.ev.day, res.ev.at) + '.' + (res.falhou ? ' ' + res.falhou : ''));
+      renderAll();
+    }).catch(function(er){
+      bOk.disabled = false;
+      erro.textContent = (er && er.message) || 'Não deu para gravar.';
+    });
+  });
+
+  dlg.addEventListener('cancel', function(){ setTimeout(evjFechar, 0); });
+  document.body.appendChild(dlg);
+  dlg.showModal();
+  if (novo) iT.focus();
+  return dlg;
+}
+
+/* Num evento novo ainda nao ha a que agarrar os ficheiros: ficam em espera na
+   janela e sobem depois de o evento existir. */
+function evjPendentes(pend){
+  if (typeof axEstilo === 'function') axEstilo();
+  var box = el('div');
+  function desenhar(){
+    clear(box);
+    var lista = el('div', 'evj-pend');
+    pend.ficheiros.forEach(function(f, i){
+      var l = el('div', 'ax-lin');
+      l.appendChild(el('span', 'ax-nome', f.name));
+      l.appendChild(el('small', null, Math.max(1, Math.round(f.size / 1024)) + ' KB · sobe ao marcar'));
+      var x = el('button', 'ax-x', '×'); x.type = 'button'; x.style.opacity = '1';
+      x.setAttribute('aria-label', 'Tirar ' + f.name);
+      x.addEventListener('click', function(){ pend.ficheiros.splice(i, 1); desenhar(); });
+      l.appendChild(x);
+      lista.appendChild(l);
+    });
+    pend.docs.forEach(function(d, i){
+      var l = el('div', 'ax-lin');
+      l.appendChild(el('span', 'ax-nome', d.name));
+      l.appendChild(el('small', null, 'do arquivo'));
+      var x = el('button', 'ax-x', '×'); x.type = 'button'; x.style.opacity = '1';
+      x.setAttribute('aria-label', 'Tirar ' + d.name);
+      x.addEventListener('click', function(){ pend.docs.splice(i, 1); desenhar(); });
+      l.appendChild(x);
+      lista.appendChild(l);
+    });
+    if (!pend.ficheiros.length && !pend.docs.length) lista.appendChild(el('div', 'ax-vazio', 'Sem documentos. Podes largar aqui ficheiros.'));
+    box.appendChild(lista);
+
+    var fim = el('div', 'ax-fim');
+    var inp = el('input'); inp.type = 'file'; inp.multiple = true; inp.style.display = 'none';
+    inp.addEventListener('change', function(){
+      juntar(inp.files);
+      inp.value = '';
+    });
+    fim.appendChild(inp);
+    var bt = el('button', 'ax-bt', '+ Anexar ficheiros');
+    bt.type = 'button';
+    bt.addEventListener('click', function(){ inp.click(); });
+    fim.appendChild(bt);
+    fim.appendChild(procura());
+    box.appendChild(fim);
+  }
+  function juntar(files){
+    var max = typeof AX_MAX === 'number' ? AX_MAX : 25 * 1024 * 1024;
+    Array.prototype.slice.call(files || []).forEach(function(f){
+      if (f.size > max){ toast('«' + f.name + '» passa dos 25 MB.'); return; }
+      pend.ficheiros.push(f);
+    });
+    desenhar();
+  }
+  function procura(){
+    var w = el('div', 'ax-proc');
+    var i = el('input'); i.type = 'text'; i.placeholder = 'Ligar a um documento do arquivo…'; i.autocomplete = 'off';
+    w.appendChild(i);
+    var res = el('div', 'ax-res'); res.style.display = 'none';
+    w.appendChild(res);
+    function abrir(){
+      var q = i.value.trim().toLowerCase();
+      var ja = {}; pend.docs.forEach(function(d){ ja[d.id] = true; });
+      var achados = ((window.D && D.documents) || []).filter(function(d){
+        if (ja[d.id]) return false;
+        if (!q) return true;
+        var p = typeof pessoa === 'function' ? pessoa(d.person_id) : null;
+        return (d.name + ' ' + (d.entity || '') + ' ' + (d.kind || '') + ' ' + (p ? p.name : '')).toLowerCase().indexOf(q) >= 0;
+      }).sort(function(a, b){ return b.id - a.id; });
+      clear(res);
+      if (!achados.length) res.appendChild(el('div', 'ax-nada', 'Nenhum documento com esse nome.'));
+      achados.slice(0, 8).forEach(function(d){
+        var b = el('button'); b.type = 'button';
+        b.appendChild(document.createTextNode(d.name));
+        if (d.entity) b.appendChild(el('small', null, '  ' + d.entity));
+        b.addEventListener('mousedown', function(ev){
+          ev.preventDefault();
+          pend.docs.push({ id: d.id, name: d.name });
+          desenhar();
+        });
+        res.appendChild(b);
+      });
+      if (achados.length > 8) res.appendChild(el('div', 'ax-nada', 'e mais ' + (achados.length - 8) + ' — escreve para afinar.'));
+      res.style.display = '';
+    }
+    i.addEventListener('focus', abrir);
+    i.addEventListener('input', abrir);
+    i.addEventListener('blur', function(){ setTimeout(function(){ res.style.display = 'none'; }, 120); });
+    return w;
+  }
+  box.juntar = juntar;
+  desenhar();
+  /* Largar ficheiros em cima da seccao. */
+  setTimeout(function(){
+    var sec = box.parentNode;
+    if (!sec) return;
+    sec.addEventListener('dragover', function(ev){ ev.preventDefault(); sec.classList.add('sobre'); });
+    sec.addEventListener('dragleave', function(){ sec.classList.remove('sobre'); });
+    sec.addEventListener('drop', function(ev){
+      ev.preventDefault(); sec.classList.remove('sobre');
+      if (ev.dataTransfer && ev.dataTransfer.files) juntar(ev.dataTransfer.files);
+    });
+  }, 0);
+  return box;
+}
+
+/* Depois de o evento existir: sobem os ficheiros (cada um fica documento do
+   arquivo, com a area do evento) e ligam-se os documentos escolhidos. Se
+   alguma coisa falhar, o evento fica marcado e a mensagem di-lo - os papeis
+   que faltam juntam-se depois pelo clipe da linha. */
+/* tipo: 'evento' (por omissao) ou 'tarefa' — a janela de criar uma tarefa,
+   um pagamento, um lembrete ou uma nota usa o mesmo caminho. */
+function evjEnviarPendentes(ev, pend, tipo){
+  var alvo = tipo || 'evento';
+  var papeis = [];
+  var falhas = 0;
+  var i = 0;
+  function seguinte(){
+    if (i >= pend.ficheiros.length) return Promise.resolve();
+    var fd = new FormData();
+    fd.append('ficheiro', pend.ficheiros[i]);
+    fd.append('papel', 'anexo');
+    i++;
+    return apiGestao('/api/anexos/' + alvo + '/' + ev.id + '/ficheiro', { method: 'POST', body: fd })
+      .then(function(r){
+        if (r && r.papeis) papeis = r.papeis;
+        if (r && r.documento && window.D && D.documents &&
+            !D.documents.some(function(d){ return d.id === r.documento.id; })) D.documents.push(r.documento);
+      }, function(){ falhas++; })
+      .then(seguinte);
+  }
+  return seguinte().then(function(){
+    if (!pend.docs.length) return;
+    var refs = papeis.map(function(r){ return { id: r.id, papel: r.papel }; });
+    pend.docs.forEach(function(d){
+      if (!refs.some(function(r){ return r.id === d.id; })) refs.push({ id: d.id, papel: 'anexo' });
+    });
+    return apiGestao('/api/anexos/' + alvo + '/' + ev.id, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ documents: refs })
+    }).then(function(r){ if (r && r.papeis) papeis = r.papeis; }, function(){ falhas += pend.docs.length; });
+  }).then(function(){
+    ev.papeis = papeis;
+    ev.documents = papeis.map(function(r){ return r.id; });
+    if (typeof renderDocumentos === 'function') { try { renderDocumentos(); } catch (e) {} }
+    return { ev: ev, falhou: falhas ? (falhas === 1 ? 'Um documento não ficou agarrado' : falhas + ' documentos não ficaram agarrados') + ' — junta-os pelo clipe.' : '' };
+  });
+}
+
+/* O botao «+ Marcar uma data» dos Eventos e da Agenda, e o «+ Novo › Evento»
+   das areas. areaId: quem chama de um ecra de area ja sabe onde o evento vai
+   ficar; sem ele vale o filtro dos Eventos. */
+function evPop(ancora, areaId){ evJanela(null, areaId ? { context_id: areaId } : {}); }
+
+/* Abrir um evento pelo id (o aviso do Hoje so sabe o id). */
+function evAbrirId(id){
+  var ev = ((window.D && D.events) || []).filter(function(x){ return x.id === id; })[0];
+  if (ev) evJanela(ev);
+  else toast('Não encontrei o evento — talvez já tenha sido apagado.');
 }
 
 /* Marcar uma data tambem a partir da Agenda: e o ecra onde se olha para o
@@ -275,8 +795,7 @@ function evBotaoNaAgenda(){
   var b = el('button', 'btn primary ev-novo', '+ Marcar uma data');
   b.type = 'button';
   b.style.marginLeft = 'auto';
-  b.dataset.tfpop = '1';
-  b.addEventListener('click', function(){ evPop(b); });
+  b.addEventListener('click', function(){ evJanela(null); });
   topo.appendChild(b);
 }
 

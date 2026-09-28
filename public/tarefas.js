@@ -91,6 +91,8 @@ var TF_CSS = [
   ".tf-tipos button.on{background:var(--surface);color:var(--ink);box-shadow:var(--shadow);font-weight:500}",
   ".tf-tipos button .n{font-family:var(--mono);font-size:.625rem;color:var(--faint)}",
   ".tf-add{position:relative;margin-bottom:12px}",
+  ".tf-mais-campos{border:0;background:none;font:inherit;font-size:.75rem;color:var(--accent-ink);cursor:pointer;padding:2px 0;margin:6px 0 0 34px}",
+  ".tf-mais-campos:hover{text-decoration:underline}",
   ".tf-add input{width:100%;font:inherit;font-size:.875rem;color:var(--ink);background:var(--surface-2);border:1px solid var(--line);border-radius:9px;padding:10px 12px 10px 34px}",
   ".tf-add input:focus{outline:0;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft);background:var(--surface)}",
   ".tf-add > svg{position:absolute;left:11px;top:12px;color:var(--faint)}",
@@ -593,6 +595,22 @@ function tfMontar(){
   inp.addEventListener('input', function(){ tfPrevisao(inp.value); });
   inp.addEventListener('keydown', function(e){ if (e.key === 'Enter'){ e.preventDefault(); tfCriarRapido(inp); } });
   add.appendChild(inp);
+  /* Uma linha chega para a maior parte. Para o resto - o local, quem vai por
+     causa disto, o lembrete, um papel agarrado - a janela completa, levando o
+     que ja se escreveu aqui. */
+  var mais = el('button', 'tf-mais-campos', 'com todos os campos…');
+  mais.type = 'button';
+  mais.addEventListener('click', function(){
+    if (typeof nvJanela !== 'function') return;
+    var lido = inp.value.trim() ? tfPerceber(inp.value.trim()) : null;
+    nvJanela(TF.tipo || 'tarefa', null, {
+      title: lido ? lido.title : '',
+      due_on: (lido && lido.due_on) || null,
+      context_id: (lido && lido.context_id) || null,
+      owner_id: (lido && lido.owner_id) || null
+    });
+  });
+  add.appendChild(mais);
   var prev = el('div', 'tf-prev'); prev.id = 'tfPrev';
   add.appendChild(prev);
   main.appendChild(add);
@@ -940,6 +958,8 @@ function tfLinha(t, sub){
   }
   if (t.repeat_rule){ var r = el('span'); r.innerHTML = tfSvg(TF_I.rep, 11); r.title = t.repeat_label; m.appendChild(r); }
   if ((t.reminders || []).length && !tfFechada(t)){ var s = el('span'); s.innerHTML = tfSvg(TF_I.sino, 11); m.appendChild(s); }
+  /* Onde e - como no evento, a linha diz o sitio sem se ter de abrir. */
+  if (t.location) m.appendChild(el('span', null, t.location));
   if (t.comments){ var co = el('span'); co.innerHTML = tfSvg(TF_I.com, 11); co.appendChild(document.createTextNode(String(t.comments))); m.appendChild(co); }
   (t.tags || []).forEach(function(tg){ m.appendChild(el('span', 'tf-tag', tg)); });
   if (m.childNodes.length) corpo.appendChild(m);
@@ -1146,6 +1166,11 @@ function tfRenderDetalhe(base){
     if (!fechada && !ehNota) ops.push(['Não farei', function(){ tfFechar(t, 'cancelada'); }]);
     ops.push(['Duplicar', function(){ tfDuplicar(t); }]);
     if (!t.parent_id) ops.push(['Adicionar subtarefa', function(){ var i = document.querySelector('[data-tfk=novasub]'); if (i) i.focus(); }]);
+    /* A mesma janela em que se criou, para mexer em tudo de uma vez em vez de
+       campo a campo. */
+    if (typeof nvJanela === 'function'){
+      ops.push(['Abrir a janela toda', function(){ nvJanela(tfTipo(t), t, {}); }]);
+    }
     ops.push(['Apagar', function(){ tfApagar(t); }, 'danger']);
     tfMenu(bMais, ops);
   });
@@ -1393,6 +1418,32 @@ function tfRenderDetalhe(base){
     tfGravar(t.id, dados);
   });
   campo('Projeto', sProj);
+
+  /* Onde e e quanto leva - o que veio da janela de criar. Editam-se aqui
+     mesmo, como tudo o resto neste painel. */
+  var iLoc = el('input'); iLoc.type = 'text'; iLoc.value = t.location || '';
+  iLoc.placeholder = 'morada, sítio ou link';
+  iLoc.addEventListener('change', function(){ tfGravar(t.id, { location: iLoc.value.trim() || null }); });
+  var wLoc = el('div'); wLoc.appendChild(iLoc);
+  if (t.location){
+    var aLoc = el('a', null, /^https?:\/\//i.test(t.location) ? 'Abrir a ligação' : 'Ver no mapa');
+    aLoc.href = /^https?:\/\//i.test(t.location) ? t.location
+      : 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(t.location);
+    aLoc.target = '_blank'; aLoc.rel = 'noopener';
+    aLoc.style.cssText = 'display:inline-block;margin-top:4px;font-size:.75rem';
+    wLoc.appendChild(aLoc);
+  }
+  campo('Local', wLoc);
+
+  if (t.duration_min || t.due_time){
+    var sDu = el('select');
+    (typeof EVJ_DURACOES !== 'undefined' ? EVJ_DURACOES : [['', '—']])
+      .filter(function(o){ return o[0] !== 'outra'; })
+      .forEach(function(o){ sDu.appendChild(new Option(o[1], o[0])); });
+    sDu.value = t.duration_min ? String(t.duration_min) : '';
+    sDu.addEventListener('change', function(){ tfGravar(t.id, { duration_min: sDu.value ? Number(sDu.value) : null }); });
+    campo('Duração', sDu);
+  }
 
   if (t.project_id){
     var iSec = el('input'); iSec.type = 'text'; iSec.value = t.section || ''; iSec.placeholder = 'ex.: Fase 2';

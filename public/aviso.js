@@ -294,4 +294,6 @@ function avAbrir(a){
   if (a.origem === 'tarefa') return avTarefa(a);
   if (a.origem === 'documento') return avDocumento(a);
   if (a.origem === 'pessoa') return avPessoa(a);
+  /* O lembrete de um evento abre a janela do proprio evento (eventos.js). */
+  if (a.origem === 'evento' && typeof evAbrirId === 'function') return evAbrirId(a.id);
 }

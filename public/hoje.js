@@ -38,6 +38,7 @@ var HJ_CSS =
   '#attnList .hj-ico.lem{color:#6b7fa8}' +
   '#attnList .hj-ico.ani{color:#c05688}' +
   '#attnList .hj-ico.doc{color:#5f7478}' +
+  '#attnList .hj-ico.ev{color:var(--accent-ink)}' +
   '#attnList .hj-box{flex:none;display:inline-flex}' +
   '#attnList .hj-box .tf-box{margin-top:0}' +
   '#attnList .hj-sem{flex:none;width:17px}' +
@@ -105,13 +106,14 @@ function hjTarefa(id) {
 function hjTipo(a, t) {
   if (a.origem === 'documento') return 'documento';
   if (a.origem === 'pessoa') return 'pessoa';
+  if (a.origem === 'evento') return 'evento';
   var tipo = (t && t.tipo) || 'tarefa';
   if (tipo === 'lembrete') return /YEARLY/.test((t && t.repeat_rule) || '') ? 'aniversario' : 'lembrete';
   return tipo === 'pagamento' ? 'pagamento' : 'tarefa';
 }
 var HJ_NOMES = { tarefa: 'Tarefa', pagamento: 'Pagamento', lembrete: 'Lembrete', aniversario: 'Aniversário',
-  documento: 'Documento a perder validade', pessoa: 'Documento de identificação' };
-var HJ_CLS = { tarefa: '', pagamento: 'pag', lembrete: 'lem', aniversario: 'ani', documento: 'doc', pessoa: 'doc' };
+  documento: 'Documento a perder validade', pessoa: 'Documento de identificação', evento: 'Evento (lembrete)' };
+var HJ_CLS = { tarefa: '', pagamento: 'pag', lembrete: 'lem', aniversario: 'ani', documento: 'doc', pessoa: 'doc', evento: 'ev' };
 
 /* Os periodos. Uma data cai no primeiro que a aceitar. */
 function hjDia(d) { return new Date(d.getFullYear(), d.getMonth(), d.getDate()); }
@@ -146,6 +148,8 @@ function hjCartao(x) {
 
   var p = art.querySelector('.grow p');
   if (p && a.origem === 'tarefa') p.textContent = a.detail || '';
+  /* O lembrete de um evento: «evento · 10:00 · Hospital da Luz». */
+  if (p && a.origem === 'evento') p.textContent = ['evento', a.detail].filter(Boolean).join(' \u00b7 ');
 
   var ico = el('span', 'hj-ico ' + HJ_CLS[tipo]);
   ico.innerHTML = hjSvg(HJ_I[tipo], 14);

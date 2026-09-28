@@ -182,6 +182,7 @@ var AE_CSS =
   '.ae-fim svg{transition:transform .15s;color:var(--faint)}' +
   '.ae-fim.rec svg{transform:rotate(-90deg)}' +
   '.ae-w .tf-row.done .tf-t{color:var(--faint);text-decoration:line-through}' +
+  '.tf-m .ae-ev-conf{color:#b7791f}' +
   '.ae-ev-dia{flex:none;width:46px;text-align:center;font-family:var(--mono);line-height:1.1;padding-top:1px}' +
   '.ae-ev-dia b{display:block;font-size:1rem;font-weight:500;color:var(--ink)}' +
   '.ae-ev-dia span{display:block;font-size:.625rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}' +
@@ -196,6 +197,8 @@ var AE_CSS =
   ':root[data-theme="dark"] .ae-novo-tipos button.on,:root:not([data-theme="light"]) .ae-novo-tipos button.on{color:#06181A}' +
   '.ae-novo-prev{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}' +
   '.ae-novo-dica{color:var(--muted);font-size:.75rem;margin:6px 0 0}' +
+  '.ae-mais-campos{border:0;background:none;font:inherit;font-size:.75rem;color:var(--accent-ink);cursor:pointer;padding:4px 0;margin-right:auto}' +
+  '.ae-mais-campos:hover{text-decoration:underline}' +
   /* 27 set: a lista unica a 3/4 e a coluna da direita (Agenda, Projetos) */
   '.ae-main{display:grid;grid-template-columns:minmax(0,1fr);gap:14px;align-items:start}' +
   '.ae-main.com-det{grid-template-columns:minmax(0,3fr) minmax(0,2fr)}' +
@@ -721,7 +724,16 @@ function aeLinhaEvento(x){
   var corpo = el('div', 'tf-body');
   corpo.appendChild(el('span', 'tf-t', x.title));
   var m = el('div', 'tf-m');
-  if (x.at) m.appendChild(el('span', null, x.at));
+  if (x.quando) m.appendChild(el('span', null, x.quando));
+  else if (x.at) m.appendChild(el('span', null, x.at));
+  if (x.tentative) m.appendChild(el('span', 'ae-ev-conf', 'por confirmar'));
+  if (x.location) m.appendChild(el('span', null, x.location));
+  (x.pessoas || []).forEach(function(id){
+    var pp = typeof pessoa === 'function' ? pessoa(id) : null;
+    if (!pp) return;
+    var sp = el('span'); var pd = el('i', 'dot'); pd.style.background = pp.color || 'var(--c1)';
+    sp.appendChild(pd); sp.appendChild(document.createTextNode(pp.name)); m.appendChild(sp);
+  });
   if (x.detail) m.appendChild(el('span', null, x.detail));
   if (x.onde) m.appendChild(el('span', null, x.onde));
   if (x.tipo === 'lembrete') m.appendChild(el('span', null, 'lembrete'));
@@ -739,6 +751,12 @@ function aeLinhaEvento(x){
       if (typeof avAbrir === 'function') avAbrir({ origem: 'tarefa', id: x.tarefa, quando: x.day, detail: areaNome(x.context_id) });
       else if (typeof tfIrPara === 'function') tfIrPara(x.tarefa);
     });
+  }
+  /* Um evento a serio abre a janela dele: corrigir a hora, quem vai, o
+     lembrete, os papeis. */
+  if (x.apagavel && x.orig && typeof evJanela === 'function'){
+    r.style.cursor = 'pointer';
+    r.addEventListener('click', function(){ evJanela(x.orig); });
   }
   if (x.apagavel && x.orig && typeof axClipe === 'function'){
     r.appendChild(axClipe(x.orig, { tipo: 'evento', aoMudar: function(){ if (typeof renderAll === 'function') renderAll(); } }));
@@ -767,6 +785,12 @@ function aeApagarEvento(x){
 /* Criar uma tarefa ou um pagamento sem sair da area. O essencial cabe numa
    janelinha - o resto afina-se depois, no detalhe. */
 function aePopNovo(a, ancora, area, subs, tipo){
+  /* A janela completa - a mesma dos eventos - com a area (ou a sub-area
+     filtrada) ja escolhida. A janelinha de baixo fica para o caso de ela nao
+     carregar. */
+  if (typeof nvJanela === 'function'){
+    return nvJanela(tipo, null, { context_id: aeOndeNovo(a, area, subs) });
+  }
   tfFecharPop();
   var pag = tipo === 'pagamento';
   var f = aeF(a.view);
@@ -899,9 +923,26 @@ function aeGrupoFechados(a, card, chave, titulo, lista, desenhar){
   if (aberto) desenhar(card);
 }
 
+/* A area onde nasce o que se cria a partir deste ecra: a sub-area, se houver
+   uma so filtrada; senao a area inteira. */
+function aeOndeNovo(a, area, subs){
+  var f = aeF(a.view);
+  if (subs && subs.length && f.subs && f.subs.length === 1) return f.subs[0];
+  if (f.sub !== undefined && f.sub !== 'tudo' && f.sub !== 'geral' && Number(f.sub)) return Number(f.sub);
+  return area ? area.id : null;
+}
+
 /* Marcar uma data nesta area. Fica um evento como os outros: aparece no Hoje e
    na Agenda, e aqui. */
 function aePopEvento(a, ancora, area, subs){
+  /* A janela completa dos Eventos, com a area (ou a sub-area filtrada) ja
+     escolhida. A janelinha de baixo fica para o caso de ela nao carregar. */
+  if (typeof evJanela === 'function'){
+    var fa = aeF(a.view);
+    var ctx = area.id;
+    if (subs.length && fa.sub !== 'tudo' && fa.sub !== 'geral') ctx = Number(fa.sub) || area.id;
+    return evJanela(null, { context_id: ctx });
+  }
   tfFecharPop();
   var p = el('div', 'tf-pop');
   p.style.width = '300px';
@@ -1465,6 +1506,8 @@ function aeRenderArea(a){
     var aniv = a.view === 'familia' && e.calendar === 'aniversarios';
     if ((!meu && !aniv) || !passaDia(e.day)) return;
     guardaEvento({ id: e.id, title: e.title, day: e.day, at: e.at, detail: e.detail,
+                   location: e.location, tentative: e.tentative, pessoas: e.pessoas,
+                   quando: typeof e.id === 'number' && typeof evjQuandoTxt === 'function' ? evjQuandoTxt(e) : null,
                    context_id: e.context_id, apagavel: typeof e.id === 'number', orig: e });
   });
   var semData = 0;
@@ -2400,6 +2443,26 @@ function aeNovoPop(ancora, a){
   };
   iT.addEventListener('keydown', function(e){ if (e.key === 'Enter'){ e.preventDefault(); criar(); } });
   bOk.addEventListener('click', criar);
+
+  /* Quem precisa de mais do que uma linha - o local, quem vai, o lembrete,
+     um papel agarrado - passa daqui para a janela completa, levando o que ja
+     escreveu. */
+  if (typeof nvJanela === 'function'){
+    var bMais = el('button', 'ae-mais-campos', 'com todos os campos…');
+    bMais.type = 'button';
+    bMais.addEventListener('click', function(){
+      var onde = sC.value ? Number(sC.value) : null;
+      var lido = iT.value.trim() ? tfPerceber(iT.value.trim()) : null;
+      tfFecharPop();
+      nvJanela(AE_NOVO_TIPO, null, {
+        context_id: (lido && lido.context_id) || onde,
+        title: lido ? lido.title : '',
+        due_on: (lido && lido.due_on) || null,
+        owner_id: (lido && lido.owner_id) || null
+      });
+    });
+    ac.insertBefore(bMais, ac.firstChild);
+  }
 
   tfPosicionar(p, ancora);
   iT.focus();

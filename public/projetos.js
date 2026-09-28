@@ -92,6 +92,8 @@ var PJ_CSS = [
   "#view-projetos .pj-lin .pj-r.bad{color:var(--bad)} #view-projetos .pj-lin .pj-r.warn{color:var(--warn)}",
   "#view-projetos .pj-add{width:100%;font:inherit;font-size:.8125rem;color:var(--ink);background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin-top:10px}",
   "#view-projetos .pj-add:focus{outline:0;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft);background:var(--surface)}",
+  "#view-projetos .pj-mais-campos{display:block;border:0;background:none;font:inherit;font-size:.75rem;color:var(--accent-ink);cursor:pointer;padding:5px 0 0}",
+  "#view-projetos .pj-mais-campos:hover{text-decoration:underline}",
   "#view-projetos .pj-ficha{display:grid;grid-template-columns:5.5rem minmax(0,1fr);gap:8px 10px;align-items:center;font-size:.8125rem}",
   "#view-projetos .pj-ficha > span{font-family:var(--mono);font-size:var(--fs-mono);letter-spacing:.06em;text-transform:uppercase;color:var(--faint)}",
   "#view-projetos .pj-ficha select,#view-projetos .pj-ficha input{font:inherit;font-size:.8125rem;color:var(--ink);background:var(--surface-2);border:1px solid var(--line);border-radius:7px;padding:5px 8px;width:100%;min-width:0}",
@@ -1522,6 +1524,20 @@ function pjAbaTarefas(box){
   var add = el('input', 'pj-add');
   add.type = 'text';
   add.placeholder = '+ Nova tarefa neste projeto';
+  /* Quem precisa de mais do que o titulo - prazo, local, quem, um papel -
+     abre a janela completa, ja com o projeto e a area postos. */
+  var maisPj = el('button', 'pj-mais-campos', 'com todos os campos…');
+  maisPj.type = 'button';
+  maisPj.addEventListener('click', function(){
+    if (typeof nvJanela !== 'function') return;
+    var titulo = add.value.trim();
+    add.value = '';
+    nvJanela('tarefa', null, {
+      title: titulo,
+      project_id: PJ.aberto,
+      context_id: (PJ.det && PJ.det.projeto && PJ.det.projeto.context_id) || null
+    });
+  });
   add.addEventListener('keydown', function(e){
     if (e.key !== 'Enter') return;
     var titulo = add.value.trim();
@@ -1541,6 +1557,7 @@ function pjAbaTarefas(box){
       .catch(function(){ toast('Não deu para criar a tarefa.'); });
   });
   box.appendChild(add);
+  box.appendChild(maisPj);
 }
 
 function pjLinhaTarefa(t){
