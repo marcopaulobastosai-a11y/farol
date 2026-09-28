@@ -2376,8 +2376,9 @@ function aeNovoPop(ancora, a){
 }
 
 /* O botao vive na barra de cima, ao lado do «Actualizar», e so aparece nos
-   ecras das areas. */
-function aeBotaoNovo(){
+   ecras das areas. (O aeBotaoNovo() e outro: esse e o dos rodapes dos
+   widgets, e leva o cartao onde se pendura.) */
+function aeBotaoTopoNovo(){
   var dir = document.querySelector('.topbar .right');
   if (!dir) return;
   var b = document.getElementById('aeNovo');
@@ -2406,7 +2407,7 @@ show = function(view){
   aeDevolverTudo();
   _aeShow(view);
   aeNavMarcar();
-  try { aeBotaoNovo(); } catch (e) { console.error('[farol] botao novo', e); }
+  try { aeBotaoTopoNovo(); } catch (e) { console.error('[farol] botao novo no topo', e); }
   var a = AE_AREAS.filter(function(x){ return x.view === view; })[0];
   if (a && window.G && G.contextos && G.contextos.length && typeof tfCaixa === 'function'){
     try { aeRenderArea(a); } catch (e) { console.error('[farol] area ' + a.view, e); }
@@ -2432,7 +2433,7 @@ function aeRender(){
   try { aeNavMontar(); } catch (e) { console.error('[farol] menu das areas', e); }
   /* As paginas gerais dos Eventos e das Despesas bebem dos mesmos dados: ou
      se desenham aqui, ou ficavam a espera de um clique. */
-  try { aeBotaoNovo(); } catch (e) { console.error('[farol] botao novo', e); }
+  try { aeBotaoTopoNovo(); } catch (e) { console.error('[farol] botao novo no topo', e); }
   try { if (typeof evRender === 'function') evRender(); } catch (e) { console.error('[farol] eventos', e); }
   try { if (typeof dpRender === 'function') dpRender(); } catch (e) { console.error('[farol] despesas', e); }
 }
