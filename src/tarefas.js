@@ -131,6 +131,7 @@ const CAMPOS = `t.id, t.title, t.notes, t.area, t.context_id, t.project_id, t.ow
   t.reminders, t.tags, t.section, t.sort_order, t.parent_id, t.series_id, t.done,
   t.completed_at, t.created_at,
   t.amount, t.payee, t.payment_ref, t.payment_method, t.paid_amount, t.expense_id,
+  t.location, t.duration_min,
   to_char(t.paid_on,'YYYY-MM-DD') AS paid_on, t.junta_faturas, t.destinatario_id, t.splitwise_grupo,
   (SELECT to_char(max(e.created_at),'YYYY-MM-DD') FROM email_envios e
     WHERE e.task_id = t.id AND e.estado = 'enviado') AS email_enviado`;
@@ -251,6 +252,16 @@ async function gravarItens(taskId, itens) {
 
 /* O valor chega da app com virgula ou com ponto, e as vezes com o euro
    colado. Aqui vira numero ou nada. */
+/* Quanto tempo leva, em minutos. Zero, vazio ou disparate ficam em branco:
+   nao se sabe e melhor do que um numero inventado. Duas semanas de tecto, o
+   mesmo dos eventos. */
+function minutos(v) {
+  if (v === undefined || v === null || v === '') return null;
+  const n = Number(v);
+  if (!Number.isInteger(n) || n <= 0 || n > 60 * 24 * 14) return null;
+  return n;
+}
+
 function valor(v) {
   if (v === undefined || v === null || v === '') return null;
   const n = Number(String(v).replace(/[^0-9,.-]/g, '').replace(/\.(?=\d{3}\b)/g, '').replace(',', '.'));
@@ -357,18 +368,21 @@ async function criar(b) {
     `INSERT INTO tasks (tipo, title, notes, area, context_id, project_id, owner_id, status, priority,
                         starts_on, due_on, due_time, repeat_every, repeat_rule, repeat_from, repeat_until,
                         reminders, tags, section, sort_order, parent_id,
-                        repeat_count, done, completed_at, amount, payee, payment_ref, origin, scope)
+                        repeat_count, done, completed_at, amount, payee, payment_ref, origin, scope,
+                        location, duration_min)
      VALUES ($23,$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,
              COALESCE($16::jsonb,'[]'::jsonb), COALESCE($17::text[],'{}'), $18,
              COALESCE($19, (SELECT COALESCE(min(sort_order),0) - 1 FROM tasks)), $20,
-             1, $21, $22, $24, $25, $26, 'real', NULL)
+             1, $21, $22, $24, $25, $26, 'real', NULL,
+             $27, $28)
      RETURNING id`,
     [title, limpar(b.notes), limpar(b.area), limpar(b.context_id), limpar(b.project_id),
      limpar(b.owner_id), status, priority, limpar(b.starts_on), limpar(b.due_on), limpar(b.due_time),
      limpar(b.repeat_every), regra, b.repeat_from === 'conclusao' ? 'conclusao' : 'prazo', limpar(b.repeat_until),
      lembretes(b.reminders), etiquetas(b.tags), limpar(b.section), b.sort_order != null ? Number(b.sort_order) : null,
      limpar(b.parent_id), status === 'concluida', FECHADAS.includes(status) ? new Date() : null, tipo,
-     valor(b.amount), limpar(b.payee), limpar(b.payment_ref)]);
+     valor(b.amount), limpar(b.payee), limpar(b.payment_ref),
+     limpar(b.location), minutos(b.duration_min)]);
   const id = rows[0].id;
   await gravarAssuntos(id, b.subjects);
   await gravarDocumentos(id, b.documents);
@@ -384,7 +398,8 @@ async function alterar(id, b) {
    'repeat_until', 'section', 'parent_id', 'destinatario_id', 'splitwise_grupo'].forEach((c) => { if (b[c] !== undefined) por(c, limpar(b[c])); });
   if (b.priority !== undefined && PRIOS.includes(b.priority)) por('priority', b.priority);
   if (b.tipo !== undefined && TIPOS.includes(b.tipo)) por('tipo', b.tipo);
-  ['payee', 'payment_ref'].forEach(function (c) { if (b[c] !== undefined) por(c, limpar(b[c])); });
+  ['payee', 'payment_ref', 'location'].forEach(function (c) { if (b[c] !== undefined) por(c, limpar(b[c])); });
+  if (b.duration_min !== undefined) por('duration_min', minutos(b.duration_min));
   if (b.amount !== undefined) por('amount', valor(b.amount));
   if (b.junta_faturas !== undefined) por('junta_faturas', juntaDe(b.junta_faturas));
   if (b.repeat_rule !== undefined || b.repeat_every !== undefined) {

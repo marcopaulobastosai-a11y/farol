@@ -108,6 +108,11 @@ app.get('/api/bootstrap', async (_req, res) => {
              FROM people WHERE active ORDER BY sort`),
       all('SELECT code, name, color FROM calendars ORDER BY sort'),
       all(`SELECT e.id, to_char(e.day,'YYYY-MM-DD') AS day, e.at, e.title, e.calendar, e.detail, e.context_id,
+                  e.duration_min, to_char(e.ends_on,'YYYY-MM-DD') AS ends_on, e.location,
+                  e.remind_min, e.tentative,
+                  /* Quem vai: a janela do evento marca-os, a linha mostra-os. */
+                  ARRAY(SELECT ep.person_id FROM event_people ep
+                         WHERE ep.event_id = e.id ORDER BY ep.person_id) AS pessoas,
                   /* Os papeis agarrados ao evento: a convocatoria, o mapa. */
                   COALESCE((SELECT json_agg(json_build_object('id', i.document_id, 'papel', i.papel)
                                             ORDER BY i.document_id)
@@ -135,6 +140,23 @@ app.get('/api/bootstrap', async (_req, res) => {
                FROM people p
               WHERE p.active AND p.id_doc_validade IS NOT NULL
                 AND p.id_doc_validade <= CURRENT_DATE + INTERVAL '60 days'
+             UNION ALL
+             /* O lembrete de um evento: entra aqui quando chega a hora de
+                avisar (remind_min antes do inicio; num evento de dia inteiro
+                conta a partir das 9h) e sai quando o dia passa. As horas do
+                evento sao de Lisboa; o servidor pode estar noutro fuso. */
+             SELECT 'evento', e.id,
+                    e.title,
+                    concat_ws(' · ', e.at, e.location),
+                    to_char(e.day,'YYYY-MM-DD'),
+                    e.context_id
+               FROM events e
+              WHERE e.origin = 'real' AND e.remind_min IS NOT NULL
+                AND e.day >= (now() AT TIME ZONE 'Europe/Lisbon')::date
+                AND e.day + CASE WHEN e.at ~ '^[0-2][0-9]:[0-5][0-9]$' AND e.at < '24:00'
+                                 THEN e.at::time ELSE time '09:00' END
+                      - make_interval(mins => e.remind_min)
+                    <= (now() AT TIME ZONE 'Europe/Lisbon')
              UNION ALL
              SELECT 'documento', d.id,
                     d.name,
@@ -627,6 +649,71 @@ app.delete('/api/gestao/projetos/:id', async (req, res) => {
 const DIA_ISO = /^\d{4}-\d{2}-\d{2}$/;
 const HORA = /^\d{2}:\d{2}$/;
 
+/* O que um evento sabe alem do dia e da hora. Devolve so os campos que
+   vieram no pedido, ja validados, ou um erro para mostrar. */
+const EV_MAX_DURACAO = 60 * 24 * 14;   // duas semanas, em minutos
+const EV_MAX_LEMBRETE = 60 * 24 * 60;  // dois meses antes
+function extrasDoEvento(b) {
+  const out = [];
+  const inteiro = (v, max, nome) => {
+    if (v === null || v === '' || v === undefined) return { v: null };
+    const n = Number(v);
+    if (!Number.isInteger(n) || n < 0 || n > max) return { erro: nome };
+    return { v: n };
+  };
+  if (b.duration_min !== undefined) {
+    const r = inteiro(b.duration_min, EV_MAX_DURACAO, 'A duração não está bem escrita.');
+    if (r.erro) return { erro: r.erro };
+    out.push(['duration_min', r.v || null]);
+  }
+  if (b.ends_on !== undefined) {
+    const d = String(b.ends_on || '').trim().slice(0, 10);
+    if (d && !DIA_ISO.test(d)) return { erro: 'O último dia não está bem escrito.' };
+    if (d && b.day && d < String(b.day).slice(0, 10)) return { erro: 'O último dia é antes do primeiro.' };
+    out.push(['ends_on', d && d !== String(b.day || '').slice(0, 10) ? d : null]);
+  }
+  if (b.location !== undefined) {
+    const l = String(b.location || '').trim().slice(0, 500);
+    out.push(['location', l || null]);
+  }
+  if (b.remind_min !== undefined) {
+    const r = inteiro(b.remind_min, EV_MAX_LEMBRETE, 'O lembrete não está bem escrito.');
+    if (r.erro) return { erro: r.erro };
+    out.push(['remind_min', r.v]);
+  }
+  if (b.tentative !== undefined) out.push(['tentative', Boolean(b.tentative)]);
+  return { campos: out };
+}
+
+/* Quem vai ao evento: a lista inteira substitui a que la estava. */
+async function pessoasDoEvento(id, lista) {
+  const ids = [...new Set((Array.isArray(lista) ? lista : [])
+    .map(Number).filter((n) => Number.isInteger(n) && n > 0))];
+  await query('DELETE FROM event_people WHERE event_id = $1', [id]);
+  if (ids.length) {
+    await query(
+      `INSERT INTO event_people (event_id, person_id)
+       SELECT $1, p.id FROM people p WHERE p.id = ANY($2::int[])
+       ON CONFLICT DO NOTHING`, [id, ids]);
+  }
+}
+
+/* O evento como o /api/bootstrap o manda, para o ecra o por na lista sem
+   ter de reler tudo. */
+async function linhaDoEvento(id) {
+  return (await all(
+    `SELECT e.id, to_char(e.day,'YYYY-MM-DD') AS day, e.at, e.title, e.calendar, e.detail, e.context_id,
+            e.duration_min, to_char(e.ends_on,'YYYY-MM-DD') AS ends_on, e.location,
+            e.remind_min, e.tentative,
+            ARRAY(SELECT ep.person_id FROM event_people ep
+                   WHERE ep.event_id = e.id ORDER BY ep.person_id) AS pessoas,
+            COALESCE((SELECT json_agg(json_build_object('id', i.document_id, 'papel', i.papel)
+                                      ORDER BY i.document_id)
+                        FROM item_documents i
+                       WHERE i.tipo = 'evento' AND i.item_id = e.id), '[]'::json) AS papeis
+       FROM events e WHERE e.id = $1`, [id]))[0] || null;
+}
+
 app.post('/api/gestao/eventos', async (req, res) => {
   const b = req.body || {};
   const title = String(b.title || '').trim();
@@ -635,24 +722,32 @@ app.post('/api/gestao/eventos', async (req, res) => {
   if (!DIA_ISO.test(day)) return res.status(400).json({ error: 'O evento tem de ter uma data.' });
   const at = String(b.at || '').trim();
   if (at && !HORA.test(at)) return res.status(400).json({ error: 'A hora não está bem escrita.' });
+  const ex = extrasDoEvento(b);
+  if (ex.erro) return res.status(400).json({ error: ex.erro });
   try {
+    const cols = ['day', 'at', 'title', 'calendar', 'detail', 'context_id', 'origin', 'sort'];
+    const vals = [day, limpar(at), title, 'areas', limpar(String(b.detail || '').trim()),
+      limpar(b.context_id), 'real', 0];
+    ex.campos.forEach(([c, v]) => { cols.push(c); vals.push(v); });
     const rows = await all(
-      `INSERT INTO events (day, at, title, calendar, detail, context_id, origin, sort)
-       VALUES ($1,$2,$3,'areas',$4,$5,'real',0)
-       RETURNING id, to_char(day,'YYYY-MM-DD') AS day, at, title, calendar, detail, context_id`,
-      [day, limpar(at), title, limpar(String(b.detail || '').trim()), limpar(b.context_id)]);
-    res.status(201).json(rows[0]);
+      `INSERT INTO events (${cols.join(', ')})
+       VALUES (${vals.map((_, k) => '$' + (k + 1)).join(', ')}) RETURNING id`, vals);
+    const id = rows[0].id;
+    if (b.person_ids !== undefined) await pessoasDoEvento(id, b.person_ids);
+    res.status(201).json(await linhaDoEvento(id));
   } catch (err) {
     console.error('[farol] POST evento:', err.message);
     res.status(500).json({ error: 'Não foi possível guardar o evento.' });
   }
 });
 
-/* Corrigir um evento: titulo, dia, hora, nota, area e de quem e. Ate 26 set
-   um evento so se corrigia apagando-o e voltando a catalogar o ficheiro.
-   «De quem»: num evento com uma pessoa so (o caso normal quando vem da caixa)
-   troca-se; num evento com varias, a escolhida junta-se as que la estao, para
-   nao se perder a boleia de quem acompanha. */
+/* Corrigir um evento: titulo, dia, hora, nota, area, duracao, local,
+   lembrete e quem vai. Ate 26 set um evento so se corrigia apagando-o e
+   voltando a catalogar o ficheiro.
+   «De quem» (person_id, o botao Pessoa da caixa): num evento com uma pessoa
+   so troca-se; num evento com varias, a escolhida junta-se as que la estao,
+   para nao se perder a boleia de quem acompanha. A janela do evento manda a
+   lista inteira (person_ids), que substitui. */
 app.patch('/api/gestao/eventos/:id', async (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isInteger(id)) return res.status(400).json({ error: 'id inválido' });
@@ -676,6 +771,9 @@ app.patch('/api/gestao/eventos/:id', async (req, res) => {
   }
   if (b.detail !== undefined) por('detail', limpar(String(b.detail || '').trim()));
   if (b.context_id !== undefined) por('context_id', limpar(b.context_id));
+  const ex = extrasDoEvento(b);
+  if (ex.erro) return res.status(400).json({ error: ex.erro });
+  ex.campos.forEach(([c, v]) => por(c, v));
   try {
     if (campos.length) {
       valores.push(id);
@@ -684,7 +782,9 @@ app.patch('/api/gestao/eventos/:id', async (req, res) => {
         valores);
       if (!rows.length) return res.status(404).json({ error: 'Evento não encontrado.' });
     }
-    if (b.person_id !== undefined) {
+    if (b.person_ids !== undefined) {
+      await pessoasDoEvento(id, b.person_ids);
+    } else if (b.person_id !== undefined) {
       const pid = b.person_id === null || b.person_id === '' || b.person_id === '-' ? null : Number(b.person_id);
       const [{ n }] = await all('SELECT count(*)::int AS n FROM event_people WHERE event_id = $1', [id]);
       if (n <= 1) await query('DELETE FROM event_people WHERE event_id = $1', [id]);
@@ -693,7 +793,7 @@ app.patch('/api/gestao/eventos/:id', async (req, res) => {
           [id, pid]);
       }
     }
-    res.json({ ok: true, id });
+    res.json({ ok: true, id, evento: await linhaDoEvento(id) });
   } catch (err) {
     console.error('[farol] PATCH evento:', err.message);
     res.status(500).json({ error: 'Não foi possível gravar o evento.' });
