@@ -190,8 +190,18 @@ var AE_CSS =
   '.ae-main{display:grid;grid-template-columns:minmax(0,1fr);gap:14px;align-items:start}' +
   '.ae-main.com-det{grid-template-columns:minmax(0,3fr) minmax(0,2fr)}' +
   '.ae-esq{display:flex;flex-direction:column;gap:14px;min-width:0}' +
-  '.ae-detslot{min-width:0}' +
-  '.ae-detslot .tf-det{margin:0}' +
+  /* O detalhe abre a direita a altura da tarefa que se escolheu, e fica
+     colado ao cimo quando se rola: numa lista comprida ele aparecia la em
+     cima, fora do ecra, e parecia que nao tinha aberto. */
+  '.ae-detslot{min-width:0;align-self:start;position:sticky;top:62px;'
+    + 'max-height:calc(100vh - 76px);overflow:auto;overscroll-behavior:contain}' +
+  /* Dentro da area quem cola ao cimo e a coluna, nao o painel: senao ele
+     ficava colado dentro de si proprio, que e o mesmo que nada. */
+  '.ae-detslot .tf-det{margin:0;position:static;max-height:none;overflow:visible}' +
+  /* Em ecra estreito as colunas empilham-se e o detalhe fica por baixo da
+     lista: ai nao cola nem se alinha com nada (quem poe a classe e o JS,
+     porque quem manda e a largura da grelha, nao a da janela). */
+  '.ae-detslot.solto{position:static;max-height:none;overflow:visible;margin-top:0}' +
   '.ae .tf-det .tf-fechar{display:inline-flex}' +
   '.card.ae-volta{display:flex;flex-direction:row;align-items:center;justify-content:flex-start;gap:14px;flex-wrap:wrap;padding:10px 14px}' +
   '.ae-volta > *,.ae-volta > .btn.small{margin:0}' +
@@ -1799,7 +1809,57 @@ function aeRenderArea(a){
     aeEmprestar('det', aeNo('det', 'tfDet'), slot);
   }
   box.appendChild(main);
+  if (detAqui) aeAlinharDetalhe(main, esq, slot);
 }
+
+/* Por o detalhe a altura da linha escolhida. Mede-se depois do ecra estar
+   desenhado, e conta-se a partir do cimo da grelha (o «sticky» ja mexeu no
+   sitio onde o painel se ve, mas nao no sitio que ele ocupa). Abrir o detalhe
+   estreita a lista e as linhas descem, por isso confere-se outra vez nos
+   quadros seguintes, ate a conta parar de mudar. */
+function aeAlinharDetalhe(main, esq, slot){
+  if (!main || !slot) return;
+  slot.style.marginTop = '';
+  var voltas = 0;
+  var por = function(){
+    if (!slot.parentNode || !main.parentNode) return;
+    var linha = main.querySelector('.tf-row.sel');
+    if (!linha) return;
+    var m = main.getBoundingClientRect();
+    /* Em ecra estreito as colunas empilham-se: ai nao ha nada a alinhar. */
+    if (slot.getBoundingClientRect().left < m.left + 20){
+      slot.classList.add('solto');
+      slot.style.marginTop = '';
+      return;
+    }
+    slot.classList.remove('solto');
+    var desvio = Math.round(linha.getBoundingClientRect().top - m.top);
+    /* Sem passar do fim da lista, senao ficava pagina em branco por baixo. */
+    var limite = Math.max(0, (esq ? esq.offsetHeight : 0) - 120);
+    desvio = Math.min(Math.max(0, desvio), limite);
+    var novo = desvio > 4 ? desvio + 'px' : '';
+    if (novo !== slot.style.marginTop) slot.style.marginTop = novo;
+    if (++voltas < 4) seguinte();
+  };
+  var seguinte = function(){
+    if (window.requestAnimationFrame) window.requestAnimationFrame(por); else setTimeout(por, 16);
+  };
+  seguinte();
+  setTimeout(function(){ voltas = 3; por(); }, 250);
+  AE.alinhar = function(){ voltas = 3; por(); };
+}
+
+/* Mudar a largura da janela pode empilhar (ou desempilhar) as colunas: a
+   conta da altura tem de ser refeita. */
+(function(){
+  var espera = null;
+  window.addEventListener('resize', function(){
+    if (!AE.alinhar) return;
+    clearTimeout(espera);
+    espera = setTimeout(function(){ try { AE.alinhar(); } catch (e) {} }, 150);
+  });
+})();
+
 
 /* O que ja fechou na area, do historico todo, por mes em que fechou. Fica em
    memoria por ecra; relê-se quando a gestao se relê (uma gravacao). */
