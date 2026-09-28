@@ -1066,3 +1066,42 @@ ALTER TABLE events ADD COLUMN IF NOT EXISTS google_pessoa INTEGER REFERENCES peo
 CREATE UNIQUE INDEX IF NOT EXISTS events_google_uidx
   ON events (google_pessoa, google_id) WHERE google_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS events_google_pessoa_idx ON events (google_pessoa);
+
+-- ---------------------------------------------------------------------------
+-- EVENTOS COM TUDO O QUE E PRECISO PARA LA ESTAR (28 set)
+--
+-- Um evento era um dia, uma hora e uma nota. Para marcar uma consulta ou uma
+-- reuniao faltava o resto: quanto tempo leva (e a que horas se esta livre),
+-- onde e, quem vai, e quando e que a app deve lembrar. Quem vai ja tinha
+-- tabela (event_people); o resto sao colunas.
+--
+--   duration_min  quanto dura, em minutos. NULL num evento de dia inteiro
+--                 (at IS NULL) ou quando nao se sabe.
+--   ends_on       o ultimo dia, num evento que atravessa varios (uma viagem,
+--                 um campo de ferias). NULL = acaba no proprio dia.
+--   location      onde: uma morada, um sitio, ou o link da videochamada.
+--   remind_min    quantos minutos antes o evento entra no Hoje, em «Precisa
+--                 de ti». Num evento de dia inteiro conta a partir das 9h.
+--                 NULL = sem lembrete.
+--   tentative     ainda por confirmar (a hora pode mudar, falta a resposta).
+-- ---------------------------------------------------------------------------
+ALTER TABLE events ADD COLUMN IF NOT EXISTS duration_min INTEGER;
+ALTER TABLE events ADD COLUMN IF NOT EXISTS ends_on      DATE;
+ALTER TABLE events ADD COLUMN IF NOT EXISTS location     TEXT;
+ALTER TABLE events ADD COLUMN IF NOT EXISTS remind_min   INTEGER;
+ALTER TABLE events ADD COLUMN IF NOT EXISTS tentative    BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- ---------------------------------------------------------------------------
+-- ONDE E QUANTO TEMPO, TAMBEM NUMA TAREFA (28 set)
+--
+-- A janela de criar passou a ser a mesma para tarefa, pagamento, lembrete,
+-- nota e evento. O evento ja sabia onde e e quanto dura; uma tarefa com
+-- deslocacao - levar o carro a inspecao, ir ao notario - precisa do mesmo.
+-- Quem vai (task_subjects) e os papeis (task_documents) ja tinham tabela, e o
+-- lembrete ja vivia na coluna `reminders`.
+--
+--   location      onde: uma morada, um sitio, ou o link da videochamada.
+--   duration_min  quanto tempo leva, em minutos. NULL = nao se sabe.
+-- ---------------------------------------------------------------------------
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS location     TEXT;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS duration_min INTEGER;
