@@ -592,10 +592,10 @@ function ibItem(item) {
       acoes.appendChild(ed);
     });
     ibBotaoTrocar(item, acoes);
-    var ok = el('button', 'btn primary', ibComprovativo(item) && !(item.links || []).some(function (l) { return l.tipo === 'pagamento'; })
+    var ok = el('button', 'btn primary', ibDespesaSo(item) ? 'Aprovar e lan\u00e7ar despesa' : ibComprovativo(item) && !(item.links || []).some(function (l) { return l.tipo === 'pagamento'; })
         ? 'Aprovar como despesa' : 'Aprovar');
     ok.type = 'button';
-    ok.onclick = function () { ibAprovar(item.id); };
+    ok.onclick = function () { if (ibDespesaSo(item)) ibAprovarDespesa(item); else ibAprovar(item.id); };
     acoes.appendChild(ok);
   } else if (item.status === 'catalogado' && item.approved_at) {
     (item.links || []).filter(function (l) { return IB_ROTAS[l.tipo] && l.dados; })
@@ -1721,14 +1721,91 @@ function ibGravarAlvo(item, link, d, dlg) {
 
 /* O passo que faltava: ate aqui e uma proposta da maquina, daqui para a
    frente e um documento da casa. */
-function ibAprovar(id) {
+/* Um papel que so da uma despesa (o talao, a fatura ja paga): a despesa que
+   nasceu dele, se nao houver pagamento no meio. */
+function ibDespesaSo(item) {
+  var ls = item.links || [];
+  if (ls.some(function (l) { return l.tipo === 'pagamento'; })) return null;
+  return ls.filter(function (l) { return l.tipo === 'despesa' && l.criado !== false; })[0] || null;
+}
+
+/* Aprovar uma despesa e lanca-la. Antes de aprovar pergunta-se se vai tambem
+   para o Splitwise: o grupo, quem pagou e como se divide, como na janela de
+   dar um pagamento por pago. Sem Splitwise ligado aprova-se logo. */
+function ibAprovarDespesa(item) {
+  var dl = ibDespesaSo(item);
+  var x = (dl && dl.dados) || {};
+  var temSw = typeof swBlocoPagar === 'function' && typeof swCarregar === 'function';
+  var pronto = temSw ? swCarregar() : Promise.resolve(null);
+  pronto.then(function (sw) {
+    var ativos = sw && sw.ligado ? (sw.grupos || []).filter(function (g) { return g.ativo; }) : [];
+    if (!ativos.length) { ibAprovar(item.id); return; }
+
+    var dlg = el('dialog', 'ib-dlg');
+    dlg.style.maxWidth = '32rem';
+    var cx = el('div', 'ib-dlgc');
+    cx.appendChild(el('h3', null, 'Lan\u00e7ar a despesa'));
+    var partes = [x.description || item.title || 'Despesa'];
+    if (x.amount !== null && x.amount !== undefined) partes.push(ibEuros(x.amount));
+    if (x.spent_on) partes.push(ibDataPt(x.spent_on));
+    if (x.merchant) partes.push(x.merchant);
+    cx.appendChild(el('p', 'ib-atual', partes.join(' \u00b7 ')));
+    cx.appendChild(el('p', null, 'Fica nas Finan\u00e7as ao aprovar. Se o dinheiro for de mais do que um, marca o Splitwise e diz o grupo e a divis\u00e3o.'));
+    var bloco = swBlocoPagar({ splitwise_grupo: null }, function () { return Number(x.amount) || 0; });
+    cx.appendChild(bloco.no);
+    /* O grupo com o nome da pessoa do papel vem escolhido (o material da Sofia
+       vai para o grupo da Sofia e da Maria); a caixa continua por marcar. */
+    var dono = ibPessoaPorId(item.person_id);
+    var gsel = bloco.no.querySelector('select');
+    if (dono && gsel) {
+      var alvo = ibSimples(dono.name);
+      var g = ativos.filter(function (gg) { return ibSimples(gg.nome).indexOf(alvo) >= 0; })[0];
+      if (g) { gsel.value = String(g.id); gsel.dispatchEvent(new Event('change')); }
+    }
+
+    var pe = el('div', 'ib-dlga');
+    var ok = el('button', 'btn primary', 'Aprovar e lan\u00e7ar');
+    ok.type = 'button';
+    ok.onclick = function () {
+      var pedido = bloco.valor();
+      ok.disabled = true;
+      dlg.close(); dlg.remove();
+      ibAprovar(item.id, pedido ? function () {
+        return apiGestao('/api/splitwise/despesa', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(Object.assign({ expense_id: dl.id }, pedido, {
+            descricao: x.description || item.title || 'Despesa',
+            valor: Number(x.amount) || 0, data: x.spent_on || null,
+            detalhe: [x.merchant, 'Farol \u00b7 caixa de entrada'].filter(Boolean).join(' \u00b7 ')
+          }))
+        }).then(function (r) {
+          toast('Aprovada e lan\u00e7ada no Splitwise \u00b7 ' + ((r && r.despesa && r.despesa.grupo) || ''));
+        }).catch(function (e) {
+          toast('A despesa ficou aprovada, mas o Splitwise falhou: ' + (e.message || ''));
+        });
+      } : null);
+    };
+    var fecha = el('button', 'btn', 'Cancelar');
+    fecha.type = 'button';
+    fecha.onclick = function () { dlg.close(); dlg.remove(); };
+    pe.appendChild(ok); pe.appendChild(fecha);
+    cx.appendChild(pe);
+    dlg.appendChild(cx);
+    dlg.addEventListener('cancel', function () { setTimeout(function () { dlg.remove(); }, 0); });
+    ($('view-inbox') || document.body).appendChild(dlg);
+    dlg.showModal();
+  });
+}
+
+function ibAprovar(id, depois) {
   apiGestao('/api/inbox/' + id + '/aprovar?estado=' + IB.estado, { method: 'POST' })
     .then(function (d) {
       IB.itens = d.itens || [];
       IB.porTriar = d.porTriar || 0;
       IB.porAprovar = d.porAprovar || 0;
       ibRender();
-      toast('Aprovado. Saiu da caixa e ja esta nos Documentos.');
+      if (typeof depois === 'function') depois();
+      else toast('Aprovado. Saiu da caixa e ja esta nos Documentos.');
       if (typeof load === 'function') load();
     })
     .catch(function (e) { toast(e.message || 'Nao foi possivel aprovar.'); });
