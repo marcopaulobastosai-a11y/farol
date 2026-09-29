@@ -311,6 +311,13 @@ function instalar(app, opcoes) {
           return res.status(409).json({ error: 'Esta despesa já foi para o Splitwise.' });
         }
         despesa = linha ? linha.id : null;
+      } else if (Number(b.expense_id)) {
+        /* Uma despesa que entrou pela caixa (um talao, uma fatura ja paga):
+           sobe ao aprovar, ligada a despesa do Farol como a de um pagamento. */
+        const linha = (await all('SELECT id, splitwise_id FROM expenses WHERE id = $1', [Number(b.expense_id)]))[0];
+        if (!linha) return res.status(404).json({ error: 'Essa despesa já não existe.' });
+        if (linha.splitwise_id) return res.status(409).json({ error: 'Esta despesa já foi para o Splitwise.' });
+        despesa = linha.id;
       }
       const feita = await lancar(b);
       if (despesa) await query('UPDATE expenses SET splitwise_id = $2 WHERE id = $1', [despesa, feita.id]);
