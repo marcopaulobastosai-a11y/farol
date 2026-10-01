@@ -74,7 +74,7 @@ async function mudarDeSitio() {
   MUDOU = true;
   const l = await ligacaoAntiga();
   if (!l || !l.token) return;
-  const ha = (await all('SELECT id FROM gmail_caixas WHERE email = $1', [REMETENTE]))[0];
+  const ha = (await all('SELECT id, email FROM gmail_caixas', [])).filter((x) => mesmaConta(x.email, REMETENTE))[0];
   if (ha) return;
   const nova = (await all(
     `INSERT INTO gmail_caixas (email, nome, token, ligado_em)
@@ -157,6 +157,23 @@ function enderecos(txt) {
   return String(txt || '').split(/[,;\s]+/).map((x) => x.trim()).filter(Boolean);
 }
 const valido = (e) => /^[^@\s<>"]+@[^@\s<>"]+\.[^@\s<>"]+$/.test(e);
+
+/* Duas escritas da mesma conta. No Gmail os pontos no nome nao contam
+   (amadora.kidsandnits@ e amadorakidsandnits@ sao a mesma caixa) e o que vem
+   depois de um «+» tambem nao. Fora do Gmail, um ponto e um ponto: ai
+   compara-se tal e qual. */
+function contaNormal(e) {
+  const t = String(e || '').trim().toLowerCase();
+  const i = t.lastIndexOf('@');
+  if (i < 0) return t;
+  const dominio = t.slice(i + 1);
+  let nome = t.slice(0, i);
+  if (dominio === 'gmail.com' || dominio === 'googlemail.com') {
+    nome = nome.split('+')[0].replace(/\./g, '');
+  }
+  return nome + '@' + dominio;
+}
+const mesmaConta = (a, b) => contaNormal(a) === contaNormal(b) && Boolean(contaNormal(a));
 
 function mime({ nome, de, para, cc, assunto, corpo, anexos }) {
   const limite = 'farol_' + crypto.randomBytes(12).toString('hex');
@@ -507,15 +524,16 @@ function instalar(app, { ehAdmin }) {
       const email = String(quem.email || '').toLowerCase();
       /* Autorizou outra conta que nao a que se pediu: nao se grava. Senao a
          caixa dizia uma coisa e o email saia de outra. */
-      if (email !== String(c.email || '').toLowerCase()) {
+      if (!mesmaConta(email, c.email)) {
         console.warn('[farol] Gmail: pediu-se', c.email, 'e autorizou', email);
         return volta('conta');
       }
       if (!j.refresh_token) return volta('sem-acesso');
       if (!String(j.scope || '').includes('gmail.send')) return volta('sem-envio');
+      /* Fica o endereco tal como a Google o escreve: e esse que vai no «De:». */
       await query(
-        `UPDATE gmail_caixas SET token = $2, nome = COALESCE(nome, $3), ligado_em = now(), erro = NULL
-          WHERE id = $1`, [c.id, cifrar(j.refresh_token), quem.name || null]);
+        `UPDATE gmail_caixas SET token = $2, nome = COALESCE(nome, $3), email = $4, ligado_em = now(), erro = NULL
+          WHERE id = $1`, [c.id, cifrar(j.refresh_token), quem.name || null, email]);
       CACHE.set(c.id, { token: j.access_token, ate: Date.now() + (Number(j.expires_in) || 3000) * 1000 });
       res.setHeader('Set-Cookie', COOKIE_ESTADO + '=; Path=/api/gmail; HttpOnly; Secure; SameSite=Lax; Max-Age=0');
       console.log('[farol] Gmail ligado:', email);
