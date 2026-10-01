@@ -2,11 +2,17 @@
 /**
  * Farol — mandar os papeis de um pagamento a quem se paga, pelo Gmail.
  *
- * O email sai sempre da mesma conta (GMAIL_REMETENTE, por omissao
- * marcopaulobastos@gmail.com), ligada uma vez na Administracao. O Farol so
- * pede a Google licenca para ENVIAR (gmail.send): nao le a caixa de correio.
- * O acesso que a Google devolve guarda-se cifrado em settings ('gmail'), com
- * uma chave tirada do SESSION_SECRET.
+ * Ha mais do que uma caixa de correio (tabela gmail_caixas): a pessoal e a
+ * da loja, por exemplo. Quem decide por qual sai o email e o DESTINATARIO -
+ * cada um aponta para a sua caixa. Um destinatario sem caixa escolhida nao
+ * envia: o Farol recusa e pede que se escolha, porque mandar o correio de uma
+ * empresa pela conta de casa so se percebe do outro lado, tarde.
+ *
+ * O Farol so pede a Google licenca para ENVIAR (gmail.send): nao le a caixa
+ * de correio. O acesso de cada caixa guarda-se cifrado na coluna `token`, com
+ * uma chave tirada do SESSION_SECRET. A conta unica que existia antes
+ * (settings 'gmail') passa sozinha para a primeira caixa, na primeira vez que
+ * se olha para a lista.
  *
  * Os destinatarios (o senhorio, o British, o contabilista) configuram-se na
  * Administracao, cada um com o seu texto. Um pagamento encontra o seu pelo
@@ -52,15 +58,52 @@ function decifrar(b64) {
   return Buffer.concat([d.update(b.subarray(28)), d.final()]).toString('utf8');
 }
 
-async function lerLigacao() {
+/* ---------------- as caixas ---------------- */
+/* A ligacao antiga, de quando so havia uma conta. So serve para a mudanca. */
+async function ligacaoAntiga() {
   const r = (await all("SELECT value FROM settings WHERE key = 'gmail'"))[0];
   if (!r) return null;
   try { return JSON.parse(r.value); } catch (e) { return null; }
 }
-async function gravarLigacao(v) {
-  await query(
-    `INSERT INTO settings (key, value) VALUES ('gmail', $1)
-     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`, [JSON.stringify(v)]);
+
+/* A conta unica que ja estava ligada vira a primeira caixa, uma so vez. Sem
+   isto, o envio parava no dia em que isto subisse. */
+let MUDOU = false;
+async function mudarDeSitio() {
+  if (MUDOU) return;
+  MUDOU = true;
+  const l = await ligacaoAntiga();
+  if (!l || !l.token) return;
+  const ha = (await all('SELECT id FROM gmail_caixas WHERE email = $1', [REMETENTE]))[0];
+  if (ha) return;
+  const nova = (await all(
+    `INSERT INTO gmail_caixas (email, nome, token, ligado_em)
+     VALUES ($1,$2,$3, COALESCE($4::timestamptz, now()))
+     ON CONFLICT (email) DO NOTHING
+     RETURNING id`,
+    [REMETENTE, limpar(l.nome), l.token, l.desde || null]))[0];
+  if (!nova) return;
+  /* Os destinatarios que ja existiam saiam todos desta conta, porque so havia
+     esta. Ficam a aponta-la, senao no dia em que isto subisse nenhum email
+     saia e ninguem percebia porque. O que for de outra caixa muda-se depois,
+     um a um. */
+  const r = await all(
+    'UPDATE destinatarios SET caixa_id = $1 WHERE caixa_id IS NULL RETURNING id', [nova.id]);
+  console.log('[farol] gmail: a conta que estava ligada passou a caixa', REMETENTE,
+    '-', r.length, 'destinatario(s) ficaram a sair por ela');
+}
+
+async function caixas() {
+  await mudarDeSitio();
+  return all(
+    `SELECT id, email, nome, (token IS NOT NULL) AS ligada, erro,
+            to_char(ligado_em AT TIME ZONE 'Europe/Lisbon','YYYY-MM-DD HH24:MI') AS ligado_em
+       FROM gmail_caixas ORDER BY id`);
+}
+
+async function caixaPorId(id) {
+  if (!id) return null;
+  return (await all('SELECT * FROM gmail_caixas WHERE id = $1', [id]))[0] || null;
 }
 
 /* ---------------- Google ---------------- */
@@ -81,14 +124,17 @@ async function pedirToken(campos) {
   return j;
 }
 
-let CACHE = null; // { token, ate }
-async function acesso() {
-  if (CACHE && CACHE.ate > Date.now() + 60000) return CACHE.token;
-  const l = await lerLigacao();
-  if (!l || !l.token) throw new Error('O Gmail não está ligado. Liga-o na Administração › Destinatários.');
-  const j = await pedirToken({ grant_type: 'refresh_token', refresh_token: decifrar(l.token) });
-  CACHE = { token: j.access_token, ate: Date.now() + (Number(j.expires_in) || 3000) * 1000 };
-  return CACHE.token;
+/* Um acesso curto por caixa, guardado enquanto dura. */
+const CACHE = new Map(); // id -> { token, ate }
+async function acesso(caixa) {
+  if (!caixa || !caixa.token) {
+    throw new Error('A caixa «' + ((caixa && caixa.email) || '?') + '» não está ligada. Liga-a na Administração › Destinatários.');
+  }
+  const guardado = CACHE.get(caixa.id);
+  if (guardado && guardado.ate > Date.now() + 60000) return guardado.token;
+  const j = await pedirToken({ grant_type: 'refresh_token', refresh_token: decifrar(caixa.token) });
+  CACHE.set(caixa.id, { token: j.access_token, ate: Date.now() + (Number(j.expires_in) || 3000) * 1000 });
+  return j.access_token;
 }
 
 function payloadDo(idToken) {
@@ -137,10 +183,10 @@ function mime({ nome, de, para, cc, assunto, corpo, anexos }) {
   return linhas.join('\r\n');
 }
 
-async function enviarGmail(raw) {
+async function enviarGmail(raw, caixa) {
   const r = await fetch('https://gmail.googleapis.com/upload/gmail/v1/users/me/messages/send?uploadType=media', {
     method: 'POST',
-    headers: { Authorization: 'Bearer ' + (await acesso()), 'Content-Type': 'message/rfc822' },
+    headers: { Authorization: 'Bearer ' + (await acesso(caixa)), 'Content-Type': 'message/rfc822' },
     body: raw
   });
   const j = await r.json().catch(() => ({}));
@@ -278,10 +324,15 @@ async function preparar(taskId, porGravar) {
   };
   const anexos = papeis.filter((p) => (p.papel === 'fatura' ? (!d || d.anexar_faturas) : (!d || d.anexar_comprovativo)))
     .map((p) => ({ id: p.id, nome: p.file_name || p.name, papel: p.papel, ficheiro: Boolean(p.file_path) }));
+  await mudarDeSitio();
+  const caixa = d ? await caixaPorId(d.caixa_id) : null;
   return {
     pagamento: { id: t.id, titulo: t.title, pago: t.paid_on, total: v.total },
     destinatario: d ? { id: d.id, nome: d.nome, email: d.email, quando: d.quando, como: achado.como } : null,
-    de: REMETENTE,
+    /* De que caixa sai. Sem destinatario, ou com um destinatario que ainda
+       nao escolheu caixa, fica por decidir - e o ecra diz porque. */
+    caixa: caixa ? { id: caixa.id, email: caixa.email, nome: caixa.nome, ligada: Boolean(caixa.token) } : null,
+    de: caixa ? caixa.email : '',
     para: d ? d.email : '',
     cc: d ? (d.cc || '') : '',
     assunto: preencher((d && d.assunto) || ASSUNTO_BASE, v),
@@ -315,27 +366,36 @@ async function enviar(taskId, b, automatico) {
     anexos.push({ nome: p.file_name || (p.name + '.pdf'), mime: p.mime_type, buffer, id: p.id });
   }
   if (total > MAX_BYTES) throw new Error('Os anexos passam dos 24 MB que o Gmail aceita.');
-  const l = await lerLigacao();
+  await mudarDeSitio();
   const achado = await destinatarioDe(t);
+  /* Por que caixa sai. Quem manda e o destinatario; sem caixa escolhida nao
+     se envia, para o correio de uma empresa nao sair da conta de casa. */
+  const caixa = await caixaPorId(achado && achado.d && achado.d.caixa_id);
+  if (!caixa) {
+    throw new Error(achado && achado.d
+      ? 'O destinatário «' + achado.d.nome + '» ainda não diz por que caixa sai. Escolhe-a na Administração › Destinatários.'
+      : 'Este pagamento não tem destinatário, por isso não há caixa de onde enviar. Escolhe um destinatário.');
+  }
+  if (!caixa.token) throw new Error('A caixa ' + caixa.email + ' não está ligada à Google. Liga-a na Administração › Destinatários.');
   const registo = {
     task: t.id, dest: achado ? achado.d.id : null, para: para.join(', '), cc: cc.join(', ') || null,
     assunto, corpo: String(b.corpo || ''), anexos: JSON.stringify(anexos.map((a) => ({ id: a.id, nome: a.nome })))
   };
   try {
-    const r = await enviarGmail(mime({ nome: l && l.nome, de: REMETENTE, para, cc, assunto, corpo: b.corpo, anexos }));
+    const r = await enviarGmail(mime({ nome: caixa.nome, de: caixa.email, para, cc, assunto, corpo: b.corpo, anexos }), caixa);
     const row = (await all(
-      `INSERT INTO email_envios (task_id, destinatario_id, estado, automatico, de, para, cc, assunto, corpo, anexos, gmail_id)
-       VALUES ($1,$2,'enviado',$3,$4,$5,$6,$7,$8,$9::jsonb,$10) RETURNING id`,
-      [registo.task, registo.dest, Boolean(automatico), REMETENTE, registo.para, registo.cc,
-       registo.assunto, registo.corpo, registo.anexos, r.id || null]))[0];
+      `INSERT INTO email_envios (task_id, destinatario_id, estado, automatico, de, para, cc, assunto, corpo, anexos, gmail_id, caixa_id)
+       VALUES ($1,$2,'enviado',$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11) RETURNING id`,
+      [registo.task, registo.dest, Boolean(automatico), caixa.email, registo.para, registo.cc,
+       registo.assunto, registo.corpo, registo.anexos, r.id || null, caixa.id]))[0];
     console.log('[farol] email do pagamento', t.id, 'enviado para', registo.para, automatico ? '(sozinho)' : '');
     return { id: row.id, gmail_id: r.id };
   } catch (err) {
     await query(
-      `INSERT INTO email_envios (task_id, destinatario_id, estado, automatico, de, para, cc, assunto, corpo, anexos, erro)
-       VALUES ($1,$2,'erro',$3,$4,$5,$6,$7,$8,$9::jsonb,$10)`,
-      [registo.task, registo.dest, Boolean(automatico), REMETENTE, registo.para, registo.cc,
-       registo.assunto, registo.corpo, registo.anexos, err.message]).catch(() => {});
+      `INSERT INTO email_envios (task_id, destinatario_id, estado, automatico, de, para, cc, assunto, corpo, anexos, erro, caixa_id)
+       VALUES ($1,$2,'erro',$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11)`,
+      [registo.task, registo.dest, Boolean(automatico), caixa.email, registo.para, registo.cc,
+       registo.assunto, registo.corpo, registo.anexos, err.message, caixa.id]).catch(() => {});
     throw err;
   }
 }
@@ -356,7 +416,12 @@ async function aoPagar(taskId) {
   if (!p || !p.destinatario || p.destinatario.quando !== 'auto') return;
   const ja = await all("SELECT 1 FROM email_envios WHERE task_id = $1 AND estado = 'enviado' LIMIT 1", [t.id]);
   if (ja.length) return;
-  if (!(await lerLigacao())) return;
+  /* Sem caixa ligada no destinatario nao se envia sozinho - e o enviar()
+     diria o mesmo, mas aqui poupa-se um registo de erro a cada pagamento. */
+  if (!p.caixa || !p.caixa.ligada) {
+    console.warn('[farol] email automatico do pagamento', t.id, 'parado: a caixa do destinatário não está pronta');
+    return;
+  }
   await enviar(t.id, { para: p.para, cc: p.cc, assunto: p.assunto, corpo: p.corpo, anexos: p.anexos.filter((a) => a.ficheiro).map((a) => a.id) }, true);
 }
 
@@ -371,19 +436,55 @@ function instalar(app, { ehAdmin }) {
 
   app.get('/api/gmail/estado', async (req, res) => {
     try {
-      const l = await lerLigacao();
-      res.json({ configurado: configurado(), remetente: REMETENTE, ligado: Boolean(l && l.token),
-        email: l ? l.email : null, ligado_em: l ? l.em : null, redirect: redirecionamento(req) });
+      res.json({ configurado: configurado(), caixas: await caixas(), redirect: redirecionamento(req) });
     } catch (err) { falha(res, err, 'GET gmail'); }
   });
 
-  app.get('/api/gmail/ligar', soAdmin, (req, res) => {
+  /* Uma caixa nova nasce aqui, so com o endereco; a ligacao a Google vem a
+     seguir, e e la que se confirma que foi mesmo esta conta que autorizou. */
+  app.post('/api/gmail/caixas', soAdmin, async (req, res) => {
+    const email = String((req.body || {}).email || '').trim().toLowerCase();
+    const nome = limpar(String((req.body || {}).nome || '').trim());
+    if (!valido(email)) return res.status(400).json({ error: 'Email inválido.' });
+    try {
+      await mudarDeSitio();
+      await query(
+        `INSERT INTO gmail_caixas (email, nome) VALUES ($1,$2)
+         ON CONFLICT (email) DO UPDATE SET nome = COALESCE(EXCLUDED.nome, gmail_caixas.nome)`, [email, nome]);
+      res.status(201).json({ ok: true, caixas: await caixas() });
+    } catch (err) { falha(res, err, 'POST caixa gmail'); }
+  });
+
+  app.delete('/api/gmail/caixas/:id(\\d+)', soAdmin, async (req, res) => {
+    const id = Number(req.params.id);
+    try {
+      const c = await caixaPorId(id);
+      if (!c) return res.status(404).json({ error: 'Caixa não encontrada.' });
+      const [{ n }] = await all('SELECT count(*)::int AS n FROM destinatarios WHERE caixa_id = $1 AND ativo', [id]);
+      if (n) return res.status(409).json({ error: 'Há ' + n + (n === 1 ? ' destinatário que sai' : ' destinatários que saem') + ' por esta caixa. Muda-os primeiro.' });
+      if (c.token) {
+        await fetch('https://oauth2.googleapis.com/revoke', {
+          method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({ token: decifrar(c.token) })
+        }).catch(() => {});
+      }
+      await query('DELETE FROM gmail_caixas WHERE id = $1', [id]);
+      CACHE.delete(id);
+      res.json({ ok: true, caixas: await caixas() });
+    } catch (err) { falha(res, err, 'DELETE caixa gmail'); }
+  });
+
+  app.get('/api/gmail/ligar', soAdmin, async (req, res) => {
     if (!configurado()) return res.status(400).send('Falta o GOOGLE_CLIENT_SECRET nas Variables do Railway.');
+    const c = await caixaPorId(Number(req.query.caixa));
+    if (!c) return res.status(400).send('Escolhe primeiro a caixa a ligar.');
     const estado = crypto.randomBytes(18).toString('hex');
-    res.setHeader('Set-Cookie', COOKIE_ESTADO + '=' + estado + '; Path=/api/gmail; HttpOnly; Secure; SameSite=Lax; Max-Age=600');
+    /* O id da caixa viaja no cookie, nao no `state` que a Google devolve: o
+       que volta de fora nao manda em quem recebe o acesso. */
+    res.setHeader('Set-Cookie', COOKIE_ESTADO + '=' + estado + '.' + c.id + '; Path=/api/gmail; HttpOnly; Secure; SameSite=Lax; Max-Age=600');
     const q = new URLSearchParams({
       client_id: CLIENT_ID, redirect_uri: redirecionamento(req), response_type: 'code', scope: ESCOPOS,
-      access_type: 'offline', prompt: 'consent', login_hint: REMETENTE, state: estado
+      access_type: 'offline', prompt: 'consent', login_hint: c.email, state: estado
     });
     res.redirect('https://accounts.google.com/o/oauth2/v2/auth?' + q.toString());
   });
@@ -393,16 +494,29 @@ function instalar(app, { ehAdmin }) {
     try {
       const galletas = {};
       (req.headers.cookie || '').split(';').forEach((p) => { const i = p.indexOf('='); if (i > 0) galletas[p.slice(0, i).trim()] = p.slice(i + 1).trim(); });
-      if (!req.query.state || req.query.state !== galletas[COOKIE_ESTADO]) return volta('estado');
+      const guardado = String(galletas[COOKIE_ESTADO] || '');
+      const ponto = guardado.indexOf('.');
+      const segredo = ponto > 0 ? guardado.slice(0, ponto) : guardado;
+      const caixaId = ponto > 0 ? Number(guardado.slice(ponto + 1)) : 0;
+      if (!req.query.state || !segredo || req.query.state !== segredo) return volta('estado');
       if (req.query.error) return volta('recusado');
+      const c = await caixaPorId(caixaId);
+      if (!c) return volta('estado');
       const j = await pedirToken({ grant_type: 'authorization_code', code: String(req.query.code || ''), redirect_uri: redirecionamento(req) });
       const quem = payloadDo(j.id_token);
       const email = String(quem.email || '').toLowerCase();
-      if (email !== REMETENTE) { console.warn('[farol] Gmail: autorizou outra conta'); return volta('conta'); }
+      /* Autorizou outra conta que nao a que se pediu: nao se grava. Senao a
+         caixa dizia uma coisa e o email saia de outra. */
+      if (email !== String(c.email || '').toLowerCase()) {
+        console.warn('[farol] Gmail: pediu-se', c.email, 'e autorizou', email);
+        return volta('conta');
+      }
       if (!j.refresh_token) return volta('sem-acesso');
       if (!String(j.scope || '').includes('gmail.send')) return volta('sem-envio');
-      await gravarLigacao({ email, nome: quem.name || null, token: cifrar(j.refresh_token), em: new Date().toISOString() });
-      CACHE = { token: j.access_token, ate: Date.now() + (Number(j.expires_in) || 3000) * 1000 };
+      await query(
+        `UPDATE gmail_caixas SET token = $2, nome = COALESCE(nome, $3), ligado_em = now(), erro = NULL
+          WHERE id = $1`, [c.id, cifrar(j.refresh_token), quem.name || null]);
+      CACHE.set(c.id, { token: j.access_token, ate: Date.now() + (Number(j.expires_in) || 3000) * 1000 });
       res.setHeader('Set-Cookie', COOKIE_ESTADO + '=; Path=/api/gmail; HttpOnly; Secure; SameSite=Lax; Max-Age=0');
       console.log('[farol] Gmail ligado:', email);
       volta('ligado');
@@ -412,23 +526,26 @@ function instalar(app, { ehAdmin }) {
     }
   });
 
+  /* Desligar e so tirar o acesso: a caixa fica na lista, e os destinatarios
+     que saem por ela continuam a aponta-la, a espera de se ligar outra vez. */
   app.post('/api/gmail/desligar', soAdmin, async (req, res) => {
     try {
-      const l = await lerLigacao();
-      if (l && l.token) {
+      const c = await caixaPorId(Number((req.body || {}).caixa));
+      if (!c) return res.status(400).json({ error: 'Escolhe a caixa a desligar.' });
+      if (c.token) {
         await fetch('https://oauth2.googleapis.com/revoke', {
           method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: new URLSearchParams({ token: decifrar(l.token) })
+          body: new URLSearchParams({ token: decifrar(c.token) })
         }).catch(() => {});
       }
-      await query("DELETE FROM settings WHERE key = 'gmail'");
-      CACHE = null;
-      res.json({ ok: true });
+      await query('UPDATE gmail_caixas SET token = NULL, ligado_em = NULL WHERE id = $1', [c.id]);
+      CACHE.delete(c.id);
+      res.json({ ok: true, caixas: await caixas() });
     } catch (err) { falha(res, err, 'POST gmail desligar'); }
   });
 
   /* Destinatarios */
-  const CAMPOS = ['nome', 'email', 'cc', 'termos', 'quando', 'assunto', 'texto', 'anexar_faturas', 'anexar_comprovativo', 'ativo'];
+  const CAMPOS = ['nome', 'email', 'cc', 'termos', 'quando', 'assunto', 'texto', 'anexar_faturas', 'anexar_comprovativo', 'ativo', 'caixa_id'];
   function valores(b) {
     const out = {};
     CAMPOS.forEach((c) => { if (b[c] !== undefined) out[c] = b[c]; });
@@ -437,6 +554,10 @@ function instalar(app, { ehAdmin }) {
     ['nome', 'email', 'cc', 'termos', 'assunto', 'texto'].forEach((c) => { if (out[c] !== undefined) out[c] = limpar(typeof out[c] === 'string' ? out[c].trim() : out[c]); });
     if (out.email !== undefined && (!out.email || enderecos(out.email).some((e) => !valido(e)))) throw new Error('Email inválido.');
     if (out.cc && enderecos(out.cc).some((e) => !valido(e))) throw new Error('Email em Cc inválido.');
+    if (out.caixa_id !== undefined) {
+      const n = Number(out.caixa_id);
+      out.caixa_id = Number.isInteger(n) && n > 0 ? n : null;
+    }
     return out;
   }
   const lista = () => all('SELECT * FROM destinatarios ORDER BY ativo DESC, nome, id');
@@ -476,8 +597,7 @@ function instalar(app, { ehAdmin }) {
     const id = Number(req.params.id);
     const p = await preparar(id, porGravar);
     if (!p) return res.status(404).json({ error: 'Pagamento não encontrado.' });
-    const l = await lerLigacao();
-    p.gmail = { ligado: Boolean(l && l.token), configurado: configurado() };
+    p.gmail = { ligado: Boolean(p.caixa && p.caixa.ligada), configurado: configurado() };
     p.envios = await all(
       `SELECT id, estado, automatico, para, cc, assunto, anexos, gmail_id, erro,
               to_char(created_at AT TIME ZONE 'Europe/Lisbon','YYYY-MM-DD HH24:MI') AS quando
