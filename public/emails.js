@@ -25,6 +25,7 @@ var EM_CSS =
   '#view-destinatarios .em-corpo{flex:1;min-width:0}' +
   '#view-destinatarios .em-nome{font-weight:600}' +
   '#view-destinatarios .em-sub{font-size:.78rem;color:var(--muted)}' +
+  '#view-destinatarios .em-sub.em-falta,.em-dlg .em-sub.em-falta{color:var(--warn)}' +
   '#view-destinatarios .em-off{opacity:.5}' +
   '.em-dlg{border:none;border-radius:14px;padding:0;max-width:44rem;width:calc(100% - 2rem);box-shadow:0 18px 48px rgba(15,23,32,.22)}' +
   '.em-dlg::backdrop{background:rgba(15,23,32,.38)}' +
@@ -104,33 +105,7 @@ function emCarregar(){
 
 function emRender(){
   var g = $('emGmail');
-  if (g){
-    clear(g);
-    var hd = el('header'); hd.appendChild(el('h3', null, 'Gmail')); g.appendChild(hd);
-    var s = EM.gmail || {};
-    if (!s.configurado){
-      g.appendChild(el('p', 'em-sub', 'Ainda não dá para ligar: falta o GOOGLE_CLIENT_SECRET nas Variables do Railway (ver as instruções no projeto).'));
-    } else if (s.ligado){
-      var l = el('div', 'em-linha');
-      var cp = el('div', 'em-corpo');
-      cp.appendChild(el('div', 'em-nome', 'Ligado · ' + (s.email || s.remetente)));
-      cp.appendChild(el('div', 'em-sub', 'O Farol só pode enviar emails por esta conta. Não lê a caixa de correio.'));
-      l.appendChild(cp);
-      var bd = el('button', 'btn danger', 'Desligar'); bd.type = 'button';
-      bd.addEventListener('click', function(){
-        if (!window.confirm('Desligar o Gmail? Os emails deixam de sair até o voltares a ligar.')) return;
-        apiGestao('/api/gmail/desligar', { method: 'POST' }).then(emCarregar).catch(function(e){ toast(e.message); });
-      });
-      l.appendChild(bd);
-      g.appendChild(l);
-    } else {
-      g.appendChild(el('p', 'em-sub', 'Os emails saem sempre de ' + s.remetente + '. Na Google, entra com essa conta e autoriza o Farol a enviar emails.'));
-      var bl = el('a', 'btn primary', 'Ligar ao Gmail');
-      bl.href = '/api/gmail/ligar';
-      g.appendChild(bl);
-      if (s.redirect) g.appendChild(el('p', 'em-sub', 'Endereço de retorno a autorizar na Google: ' + s.redirect));
-    }
-  }
+  if (g) emCaixasRender(g);
   var box = $('emLista');
   if (!box) return;
   clear(box);
@@ -140,6 +115,10 @@ function emRender(){
     var cp = el('div', 'em-corpo');
     cp.appendChild(el('div', 'em-nome', d.nome));
     cp.appendChild(el('div', 'em-sub', [d.email, d.termos ? 'pagamentos de: ' + d.termos : null, EM_QUANDO_CURTO[d.quando] || d.quando].filter(Boolean).join(' · ')));
+    /* Por que caixa sai: e o que decide se o email chega a sair. */
+    var cx = emCaixaTxt(d.caixa_id);
+    var sai = el('div', 'em-sub' + (cx ? '' : ' em-falta'), cx ? 'sai por ' + cx : 'sem caixa escolhida — não envia');
+    cp.appendChild(sai);
     w.appendChild(cp);
     var be = el('button', 'btn', 'Editar'); be.type = 'button';
     be.addEventListener('click', function(){ emJanelaDest(d); });
@@ -152,6 +131,90 @@ function emRender(){
     w.appendChild(be); w.appendChild(ba);
     box.appendChild(w);
   });
+}
+
+/* As caixas de correio. Mais do que uma, porque o correio de uma empresa nao
+   sai da conta de casa: cada destinatario diz por qual sai. */
+function emCaixas(){ return (EM.gmail && EM.gmail.caixas) || []; }
+
+function emCaixaTxt(id){
+  var c = emCaixas().filter(function(x){ return x.id === id; })[0];
+  if (!c) return null;
+  return c.email + (c.ligada ? '' : ' (por ligar)');
+}
+
+function emCaixasRender(g){
+  clear(g);
+  var hd = el('header');
+  hd.appendChild(el('h3', null, 'Caixas de correio'));
+  g.appendChild(hd);
+  var s = EM.gmail || {};
+  /* Sem o segredo da Google nao se liga nenhuma caixa - mas ve-se a lista e
+     junta-se a que falta, que e metade do trabalho. */
+  if (!s.configurado){
+    g.appendChild(el('p', 'em-sub em-falta', 'Ainda não dá para ligar à Google: falta o GOOGLE_CLIENT_SECRET nas Variables do Railway.'));
+  }
+  g.appendChild(el('p', 'em-sub',
+    'Cada destinatário diz por que caixa sai o email. O Farol só pede licença para enviar: não lê nenhuma destas caixas.'));
+
+  emCaixas().forEach(function(c){
+    var l = el('div', 'em-linha');
+    var cp = el('div', 'em-corpo');
+    cp.appendChild(el('div', 'em-nome', c.email + (c.nome ? ' · ' + c.nome : '')));
+    var quantos = EM.dest.filter(function(d){ return d.caixa_id === c.id && d.ativo; }).length;
+    cp.appendChild(el('div', 'em-sub', [
+      c.ligada ? 'ligada' + (c.ligado_em ? ' desde ' + c.ligado_em : '') : 'por ligar — os emails desta caixa não saem',
+      quantos ? quantos + (quantos === 1 ? ' destinatário' : ' destinatários') : 'sem destinatários'
+    ].join(' · ')));
+    l.appendChild(cp);
+    if (c.ligada){
+      var bd = el('button', 'btn danger', 'Desligar'); bd.type = 'button';
+      bd.addEventListener('click', function(){
+        if (!window.confirm('Desligar ' + c.email + '?\n\nOs emails que saem por esta caixa param até a voltares a ligar.')) return;
+        apiGestao('/api/gmail/desligar', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ caixa: c.id })
+        }).then(emCarregar).catch(function(e){ toast(e.message); });
+      });
+      l.appendChild(bd);
+    } else {
+      if (s.configurado){
+        var bl = el('a', 'btn primary', 'Ligar à Google');
+        bl.href = '/api/gmail/ligar?caixa=' + c.id;
+        l.appendChild(bl);
+      }
+      var bx = el('button', 'btn danger', 'Apagar'); bx.type = 'button';
+      bx.addEventListener('click', function(){
+        if (!window.confirm('Apagar a caixa ' + c.email + '?')) return;
+        apiGestao('/api/gmail/caixas/' + c.id, { method: 'DELETE' }).then(emCarregar).catch(function(e){ toast(e.message); });
+      });
+      l.appendChild(bx);
+    }
+    g.appendChild(l);
+  });
+
+  if (!emCaixas().length) g.appendChild(el('p', 'vazio', 'Ainda não há caixas. Junta a primeira aqui em baixo.'));
+
+  var nova = el('div', 'em-linha');
+  var iE = emInput('email', '', 'outra@gmail.com');
+  var iN = emInput('text', '', 'nome em «De:» (opcional)');
+  iE.style.cssText = 'flex:1 1 220px;min-width:0';
+  iN.style.cssText = 'flex:1 1 180px;min-width:0';
+  nova.appendChild(iE); nova.appendChild(iN);
+  var bJ = el('button', 'btn', 'Juntar caixa'); bJ.type = 'button';
+  bJ.addEventListener('click', function(){
+    var email = iE.value.trim();
+    if (!email) return iE.focus();
+    apiGestao('/api/gmail/caixas', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: email, nome: iN.value.trim() || null })
+    }).then(function(){ iE.value = ''; iN.value = ''; return emCarregar(); })
+      .catch(function(e){ toast(e.message || 'Não deu para juntar.'); });
+  });
+  nova.appendChild(bJ);
+  g.appendChild(nova);
+  if (EM.gmail && EM.gmail.redirect){
+    g.appendChild(el('p', 'em-sub', 'Endereço de retorno a autorizar na Google: ' + EM.gmail.redirect));
+  }
 }
 
 function emCampo(cx, rotulo, no){
@@ -181,9 +244,20 @@ function emJanelaDest(d){
   var iTermos = emInput('text', d && d.termos, 'ex.: Ricardo Costa; despesas da casa');
   emCampo(duas2, 'Cc', iCc); emCampo(duas2, 'Pagamentos de (nome de quem recebe ou título)', iTermos);
   cx.appendChild(duas2);
+  var duas3 = el('div', 'em-2');
   var sQ = el('select');
   EM_QUANDO.forEach(function(q){ var o = new Option(q[1], q[0]); if ((d ? d.quando : 'manual') === q[0]) o.selected = true; sQ.appendChild(o); });
-  emCampo(cx, 'Quando se envia', sQ);
+  emCampo(duas3, 'Quando se envia', sQ);
+  /* De que caixa sai este email. Sem isto, nao sai: e de proposito. */
+  var sCx = el('select');
+  sCx.appendChild(new Option('— escolhe a caixa —', ''));
+  emCaixas().forEach(function(c){
+    var o = new Option(c.email + (c.ligada ? '' : ' (por ligar)'), String(c.id));
+    if (d && d.caixa_id === c.id) o.selected = true;
+    sCx.appendChild(o);
+  });
+  emCampo(duas3, 'Sai pela caixa', sCx);
+  cx.appendChild(duas3);
   var iAss = emInput('text', d && d.assunto, '{titulo} — {total}');
   emCampo(cx, 'Assunto', iAss);
   var iTxt = el('textarea');
@@ -205,8 +279,10 @@ function emJanelaDest(d){
   var bG = el('button', 'btn primary', 'Gravar'); bG.type = 'button';
   bG.addEventListener('click', function(){
     var corpo = { nome: iNome.value.trim(), email: iEmail.value.trim(), cc: iCc.value.trim(), termos: iTermos.value.trim(),
-      quando: sQ.value, assunto: iAss.value.trim(), texto: iTxt.value, anexar_faturas: cF.checked, anexar_comprovativo: cC.checked, ativo: cA.checked };
+      quando: sQ.value, assunto: iAss.value.trim(), texto: iTxt.value, anexar_faturas: cF.checked, anexar_comprovativo: cC.checked, ativo: cA.checked,
+      caixa_id: sCx.value ? Number(sCx.value) : null };
     if (!corpo.nome || !corpo.email){ toast('Falta o nome ou o email.'); return; }
+    if (!corpo.caixa_id && !window.confirm('Sem caixa escolhida, os emails deste destinatário não saem.\n\nGravar na mesma?')) return;
     apiGestao(d ? '/api/destinatarios/' + d.id : '/api/destinatarios', {
       method: d ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo)
     }).then(function(r){ EM.dest = r.destinatarios || EM.dest; EM.pag = {}; emRender(); dlg.close(); dlg.remove(); })
@@ -267,12 +343,23 @@ function emDesenharBloco(id){
     });
     b.appendChild(sD);
     if (d.destinatario) b.appendChild(el('span', 'em-l', 'Para ' + d.para + (d.cc ? ' · Cc ' + d.cc : '') + ' · ' + (EM_QUANDO_CURTO[d.destinatario.quando] || '')));
+    /* De que caixa sai - antes de se carregar em enviar, nao depois. */
+    if (d.destinatario){
+      b.appendChild(d.caixa
+        ? el('span', 'em-l', 'Sai de ' + d.caixa.email + (d.caixa.ligada ? '' : ' — que ainda não está ligada'))
+        : el('span', 'em-l erro', 'Este destinatário ainda não diz por que caixa sai: o email não é enviado.'));
+    }
     b.appendChild(el('span', 'em-l', d.anexos.length ? d.anexos.length + ' anexo' + (d.anexos.length === 1 ? '' : 's') + ': ' +
       d.anexos.map(function(a){ return a.papel; }).join(', ') : 'Sem faturas nem comprovativo para anexar.'));
     var acts = el('div', 'em-acts');
     var bR = el('button', 'btn small primary', enviados.length ? 'Enviar outra vez' : 'Rever e enviar');
     bR.type = 'button';
     bR.style.marginLeft = '0';
+    if (!d.caixa || !d.caixa.ligada){
+      bR.disabled = true;
+      bR.title = d.caixa ? 'A caixa ' + d.caixa.email + ' ainda não está ligada à Google.'
+        : 'Escolhe a caixa deste destinatário na Administração › Destinatários.';
+    }
     bR.addEventListener('click', function(){ emJanelaEnvio(id, d); });
     acts.appendChild(bR);
     b.appendChild(acts);
@@ -327,7 +414,11 @@ function emJanelaEnvio(id, d, modo){
   var dlg = el('dialog', 'em-dlg');
   var cx = el('div', 'em-dlgc');
   cx.appendChild(el('h3', null, modo.fechar ? 'Antes de fechar: o email a quem se paga' : 'Rever antes de enviar'));
-  cx.appendChild(el('div', 'em-sub', 'De ' + d.de + ' · ' + d.pagamento.titulo + (d.pagamento.total ? ' · ' + d.pagamento.total : '')));
+  /* O remetente a vista: com duas caixas, saber de qual sai e metade do que
+     se esta a rever. */
+  cx.appendChild(el('div', 'em-sub' + (d.de ? '' : ' em-falta'),
+    (d.de ? 'De ' + d.de : 'Sem caixa escolhida — este email não sai') +
+    ' · ' + d.pagamento.titulo + (d.pagamento.total ? ' · ' + d.pagamento.total : '')));
   var iPara = emInput('text', d.para, 'email de quem recebe');
   var iCc = emInput('text', d.cc, 'opcional');
   var duas = el('div', 'em-2'); emCampo(duas, 'Para', iPara); emCampo(duas, 'Cc', iCc); cx.appendChild(duas);
