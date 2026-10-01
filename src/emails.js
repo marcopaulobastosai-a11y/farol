@@ -257,7 +257,7 @@ async function papeisDe(taskId) {
            FROM inbox_links l JOIN inbox_items ii ON ii.id = l.inbox_id
           WHERE l.target_type = 'documento' AND l.target_id = d.id AND ii.file_path IS NOT NULL
           ORDER BY l.inbox_id DESC LIMIT 1) i ON TRUE
-      WHERE td.task_id = $1 AND td.papel IN ('fatura','comprovativo','recibo')
+      WHERE td.task_id = $1
       ORDER BY CASE td.papel WHEN 'fatura' THEN 0 ELSE 1 END, d.issued_on NULLS LAST, td.document_id`, [taskId]);
 }
 
@@ -290,6 +290,10 @@ function juntar(l) { return l.length <= 1 ? (l[0] || '') : l.slice(0, -1).join('
 
 const TEXTO_BASE = 'Olá {nome},\n\nSegue o comprovativo do pagamento de {titulo}, no valor de {total}, feito a {data do pagamento}.\n\n{lista das faturas}\n\nObrigado,\nMarco';
 const ASSUNTO_BASE = '{titulo} — {total}';
+/* Uma tarefa que nao e pagamento nao tem valor nem data de pagamento: o texto
+   por omissao fala do que vai em anexo, que e o que ha para dizer. */
+const TEXTO_TAREFA = 'Olá {nome},\n\nSegue {titulo}.\n\n{lista dos anexos}\n\nObrigado,\nMarco';
+const ASSUNTO_TAREFA = '{titulo}';
 
 function preencher(modelo, v) {
   return String(modelo || '').replace(/\{([^{}]{1,40})\}/g, (m, k) => {
@@ -304,7 +308,11 @@ function preencher(modelo, v) {
 async function preparar(taskId, porGravar) {
   const x = porGravar || {};
   const t = await pagamento(taskId);
-  if (!t || t.tipo !== 'pagamento') return null;
+  /* Qualquer tarefa pode levar um email - mandar dois ficheiros a
+     contabilidade todos os meses e uma tarefa, nao um pagamento. Lembretes e
+     notas ficam de fora: nao sao coisas que se mandem a alguem. */
+  if (!t || (t.tipo !== 'pagamento' && t.tipo !== 'tarefa')) return null;
+  const ehPagamento = t.tipo === 'pagamento';
   if (x.paid_on) t.paid_on = String(x.paid_on).slice(0, 10);
   if (x.paid_amount !== undefined && x.paid_amount !== null && x.paid_amount !== '') {
     t.paid_amount = Number(String(x.paid_amount).replace(',', '.'));
@@ -328,6 +336,7 @@ async function preparar(taskId, porGravar) {
   if (!meses.length && t.due_on) meses.push(t.due_on.slice(0, 7));
   meses.sort();
   const lista = faturas.map((f) => '- ' + (f.name || 'Fatura') + (f.valor !== null ? ' — ' + euros(f.valor) : '')).join('\n');
+  const listaAnexos = papeis.map((f) => '- ' + (f.file_name || f.name)).join('\n');
   const v = {
     nome: d ? String(d.nome).split(' ')[0] : '',
     titulo: t.title,
@@ -336,15 +345,23 @@ async function preparar(taskId, porGravar) {
     prazo: dataLonga(t.due_on),
     meses: juntar(meses.map((k) => MESES[Number(k.slice(5, 7)) - 1])),
     'lista das faturas': lista,
+    'lista dos anexos': listaAnexos,
     referencia: t.payment_ref || '',
     pessoa: t.pessoas || ''
   };
-  const anexos = papeis.filter((p) => (p.papel === 'fatura' ? (!d || d.anexar_faturas) : (!d || d.anexar_comprovativo)))
-    .map((p) => ({ id: p.id, nome: p.file_name || p.name, papel: p.papel, ficheiro: Boolean(p.file_path) }));
+  /* As duas opcoes do destinatario mandam nos papeis que elas nomeiam. Um
+     papel de outra especie - um ficheiro qualquer agarrado a tarefa - vai por
+     omissao, e desmarca-se na janela antes de enviar. */
+  const anexos = papeis.filter((p) => {
+    if (!d) return true;
+    if (p.papel === 'fatura') return d.anexar_faturas;
+    if (p.papel === 'comprovativo' || p.papel === 'recibo') return d.anexar_comprovativo;
+    return true;
+  }).map((p) => ({ id: p.id, nome: p.file_name || p.name, papel: p.papel, ficheiro: Boolean(p.file_path) }));
   await mudarDeSitio();
   const caixa = d ? await caixaPorId(d.caixa_id) : null;
   return {
-    pagamento: { id: t.id, titulo: t.title, pago: t.paid_on, total: v.total },
+    pagamento: { id: t.id, titulo: t.title, pago: ehPagamento ? t.paid_on : (t.done ? t.paid_on || true : null), total: ehPagamento ? v.total : '' },
     destinatario: d ? { id: d.id, nome: d.nome, email: d.email, quando: d.quando, como: achado.como } : null,
     /* De que caixa sai. Sem destinatario, ou com um destinatario que ainda
        nao escolheu caixa, fica por decidir - e o ecra diz porque. */
@@ -352,15 +369,16 @@ async function preparar(taskId, porGravar) {
     de: caixa ? caixa.email : '',
     para: d ? d.email : '',
     cc: d ? (d.cc || '') : '',
-    assunto: preencher((d && d.assunto) || ASSUNTO_BASE, v),
-    corpo: preencher((d && d.texto) || TEXTO_BASE, v),
+    tipo: t.tipo,
+    assunto: preencher((d && d.assunto) || (ehPagamento ? ASSUNTO_BASE : ASSUNTO_TAREFA), v),
+    corpo: preencher((d && d.texto) || (ehPagamento ? TEXTO_BASE : TEXTO_TAREFA), v),
     anexos
   };
 }
 
 async function enviar(taskId, b, automatico) {
   const t = await pagamento(taskId);
-  if (!t) throw new Error('Pagamento não encontrado.');
+  if (!t) throw new Error('Tarefa não encontrada.');
   const para = enderecos(b.para), cc = enderecos(b.cc);
   if (!para.length) throw new Error('Falta o email de quem recebe.');
   const maus = para.concat(cc).filter((e) => !valido(e));
@@ -610,11 +628,12 @@ function instalar(app, { ehAdmin }) {
     } catch (err) { falha(res, err, 'DELETE destinatario'); }
   });
 
-  /* O email de um pagamento: o que se enviaria, e o que ja se enviou. */
+  /* O email de uma tarefa (ou de um pagamento, que e uma tarefa com dinheiro):
+     o que se enviaria, e o que ja se enviou. */
   const responder = async (req, res, porGravar) => {
     const id = Number(req.params.id);
     const p = await preparar(id, porGravar);
-    if (!p) return res.status(404).json({ error: 'Pagamento não encontrado.' });
+    if (!p) return res.status(404).json({ error: 'Não há email a preparar para isto.' });
     p.gmail = { ligado: Boolean(p.caixa && p.caixa.ligada), configurado: configurado() };
     p.envios = await all(
       `SELECT id, estado, automatico, para, cc, assunto, anexos, gmail_id, erro,
@@ -636,6 +655,23 @@ function instalar(app, { ehAdmin }) {
   });
 
   app.post('/api/emails/pagamento/:id(\\d+)/enviar', async (req, res) => {
+    try {
+      const r = await enviar(Number(req.params.id), req.body || {}, false);
+      res.json({ ok: true, ...r });
+    } catch (err) { falha(res, err, 'POST enviar email'); }
+  });
+
+  /* Os mesmos tres caminhos com o nome certo, agora que isto ja nao e so dos
+     pagamentos. Os de cima ficam: ha ecras antigos a usa-los. */
+  app.get('/api/emails/tarefa/:id(\\d+)', async (req, res) => {
+    try { await responder(req, res, null); }
+    catch (err) { falha(res, err, 'GET email tarefa'); }
+  });
+  app.post('/api/emails/tarefa/:id(\\d+)/preparar', async (req, res) => {
+    try { await responder(req, res, req.body || {}); }
+    catch (err) { falha(res, err, 'POST preparar email'); }
+  });
+  app.post('/api/emails/tarefa/:id(\\d+)/enviar', async (req, res) => {
     try {
       const r = await enviar(Number(req.params.id), req.body || {}, false);
       res.json({ ok: true, ...r });
