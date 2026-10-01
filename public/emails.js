@@ -1,4 +1,11 @@
-/* Farol — enviar os papeis de um pagamento a quem se paga (27 set).
+/* Farol — enviar por email os papeis de uma tarefa a quem os espera.
+ *
+ * Comecou nos pagamentos (27 set), a mandar a fatura e o comprovativo a quem
+ * se paga. Desde 2 out serve qualquer tarefa - mandar dois ficheiros a
+ * contabilidade todos os meses e uma tarefa, nao um pagamento - e qualquer
+ * documento agarrado a ela pode ir em anexo, nao so faturas e comprovativos.
+ * Num pagamento o bloco esta sempre no detalhe; numa tarefa so nasce quando
+ * se escolhe o destinatario em «Mandar email a».
  *
  * Duas coisas:
  *  - Administracao › Destinatarios: a ligacao ao Gmail e a lista de a quem
@@ -303,7 +310,7 @@ function emLerPagamento(id, forcar){
   if (c && !forcar && Date.now() - c.t < 30000) return;
   if (EM.aLer[id]) return;
   EM.aLer[id] = true;
-  apiGestao('/api/emails/pagamento/' + id).then(function(d){
+  apiGestao('/api/emails/tarefa/' + id).then(function(d){
     EM.pag[id] = { t: Date.now(), d: d };
   }).catch(function(){ EM.pag[id] = { t: Date.now(), d: null }; })
     .then(function(){ EM.aLer[id] = false; emDesenharBloco(id); });
@@ -314,8 +321,11 @@ function emDesenharBloco(id){
   if (!det || det.hidden || !window.TF || TF.aberta !== id) return;
   var velho = det.querySelector('.em-sec');
   var sec = el('div', 'tf-sec em-sec');
-  sec.appendChild(el('div', 'tf-lbl', 'Email a quem se paga'));
   var c = EM.pag[id];
+  /* «A quem se paga» so num pagamento; numa tarefa manda-se a alguem e nao se
+     lhe paga nada. */
+  var ehPag = c && c.d ? c.d.tipo === 'pagamento' : (typeof tfPorId === 'function' && tfPorId(id) && tfTipo(tfPorId(id)) === 'pagamento');
+  sec.appendChild(el('div', 'tf-lbl', ehPag ? 'Email a quem se paga' : 'Email a quem se manda'));
   var b = el('div', 'em-bloco');
   sec.appendChild(b);
   if (!c){ b.appendChild(el('span', 'em-l', 'A preparar…')); }
@@ -326,7 +336,8 @@ function emDesenharBloco(id){
     var top = el('div', 'em-top');
     top.appendChild(el('b', null, d.destinatario ? d.destinatario.nome : 'Sem destinatário'));
     top.appendChild(enviados.length ? pill('enviado ' + enviados[0].quando.slice(8, 10) + '/' + enviados[0].quando.slice(5, 7), 'good')
-      : (d.pagamento.pago ? pill('por enviar', 'warn') : pill('ainda por pagar', '')));
+      : (d.pagamento.pago ? pill('por enviar', 'warn')
+        : pill(d.tipo === 'pagamento' ? 'ainda por pagar' : 'ainda por fazer', '')));
     b.appendChild(top);
     /* Escolher o destinatario deste pagamento (ou deixar pelos termos). */
     var sD = el('select');
@@ -349,8 +360,10 @@ function emDesenharBloco(id){
         ? el('span', 'em-l', 'Sai de ' + d.caixa.email + (d.caixa.ligada ? '' : ' — que ainda não está ligada'))
         : el('span', 'em-l erro', 'Este destinatário ainda não diz por que caixa sai: o email não é enviado.'));
     }
-    b.appendChild(el('span', 'em-l', d.anexos.length ? d.anexos.length + ' anexo' + (d.anexos.length === 1 ? '' : 's') + ': ' +
-      d.anexos.map(function(a){ return a.papel; }).join(', ') : 'Sem faturas nem comprovativo para anexar.'));
+    b.appendChild(el('span', 'em-l', d.anexos.length
+      ? d.anexos.length + ' anexo' + (d.anexos.length === 1 ? '' : 's') + ': ' +
+        d.anexos.map(function(a){ return d.tipo === 'pagamento' ? a.papel : a.nome; }).join(', ')
+      : 'Sem documentos para anexar — junta-os pelo clipe ou em «+ Anexar ficheiro».'));
     var acts = el('div', 'em-acts');
     var bR = el('button', 'btn small primary', enviados.length ? 'Enviar outra vez' : 'Rever e enviar');
     bR.type = 'button';
@@ -392,7 +405,7 @@ function emAntesDeFechar(id, porGravar, rotulos){
   return new Promise(function(resolve, reject){
     var segue = function(){ resolve('nada'); };
     if (typeof apiGestao !== 'function') return segue();
-    apiGestao('/api/emails/pagamento/' + id + '/preparar', {
+    apiGestao('/api/emails/tarefa/' + id + '/preparar', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(porGravar || {})
     }).then(function(d){
@@ -413,7 +426,9 @@ function emJanelaEnvio(id, d, modo){
   modo = modo || {};
   var dlg = el('dialog', 'em-dlg');
   var cx = el('div', 'em-dlgc');
-  cx.appendChild(el('h3', null, modo.fechar ? 'Antes de fechar: o email a quem se paga' : 'Rever antes de enviar'));
+  cx.appendChild(el('h3', null, modo.fechar
+    ? 'Antes de fechar: o email ' + (d.tipo === 'pagamento' ? 'a quem se paga' : 'a quem se manda')
+    : 'Rever antes de enviar'));
   /* O remetente a vista: com duas caixas, saber de qual sai e metade do que
      se esta a rever. */
   cx.appendChild(el('div', 'em-sub' + (d.de ? '' : ' em-falta'),
@@ -451,7 +466,7 @@ function emJanelaEnvio(id, d, modo){
   if (!d.gmail.ligado){ bE.disabled = true; bE.title = 'Liga primeiro o Gmail na Administração'; }
   bE.addEventListener('click', function(){
     bE.disabled = true; bE.textContent = 'A enviar…';
-    apiGestao('/api/emails/pagamento/' + id + '/enviar', {
+    apiGestao('/api/emails/tarefa/' + id + '/enviar', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ para: iPara.value, cc: iCc.value, assunto: iAss.value, corpo: iTxt.value,
         anexos: marcas.filter(function(m){ return m.i.checked; }).map(function(m){ return m.a.id; }) })
@@ -482,13 +497,29 @@ if (typeof tfRenderDetalhe === 'function'){
   tfRenderDetalhe = function(base){
     _emRenderDetalhe(base);
     try {
-      if (base && tfTipo(base) === 'pagamento'){
+      /* Num pagamento o bloco esta sempre la - e parte de pagar. Numa tarefa
+         so nasce quando ha destinatario escolhido, para nao encher o detalhe
+         de quem nunca manda nada. */
+      var tp = base && tfTipo(base);
+      if (base && (tp === 'pagamento' || tp === 'tarefa')){
         emEstilo();
-        if (!EM.carregado) emCarregar();
+        /* A lista dos destinatarios e precisa mesmo numa tarefa sem nenhum
+           escolhido: e dela que sai o campo «Mandar email a». Na primeira vez
+           chega depois do desenho, por isso redesenha-se. */
+        if (!EM.carregado){
+          emCarregar().then(function(){
+            try {
+              var n = typeof tfPorId === 'function' ? tfPorId(base.id) : null;
+              if (n && TF.aberta === base.id) tfRenderDetalhe(n);
+            } catch (e) {}
+          });
+        }
+      }
+      if (base && (tp === 'pagamento' || (tp === 'tarefa' && base.destinatario_id))){
         emDesenharBloco(base.id);
         emLerPagamento(base.id);
       }
-    } catch (e) { console.error('[farol] email do pagamento', e); }
+    } catch (e) { console.error('[farol] email da tarefa', e); }
   };
 }
 

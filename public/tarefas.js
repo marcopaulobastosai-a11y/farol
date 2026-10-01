@@ -1028,9 +1028,11 @@ function tfAlternar(t){
    estado: numa rotina fica o registo e a tarefa anda para a proxima data. */
 function tfFechar(t, estado){
   if (tfFechada(t)) return tfGravar(t.id, { status: estado });
-  /* Um pagamento que tem email a quem se paga trata do email antes de fechar,
-     venha de onde vier o fecho. «Nao farei» nao manda email nenhum. */
-  if (estado === 'concluida' && tfTipo(t) === 'pagamento' && typeof emAntesDeFechar === 'function' && !t.__emailVisto){
+  /* O que tem email a quem se manda trata do email antes de fechar, venha de
+     onde vier o fecho - um pagamento ou uma tarefa, como a de mandar os
+     ficheiros a contabilidade. «Nao farei» nao manda email nenhum. */
+  if (estado === 'concluida' && (tfTipo(t) === 'pagamento' || tfTipo(t) === 'tarefa') &&
+      typeof emAntesDeFechar === 'function' && !t.__emailVisto){
     return emAntesDeFechar(t.id, {}, { enviar: 'Enviar e concluir', sem: 'Concluir sem enviar' })
       .then(function(){ t.__emailVisto = true; return tfFechar(t, estado); },
             function(){ toast('Ficou por concluir.'); });
@@ -1418,6 +1420,23 @@ function tfRenderDetalhe(base){
     tfGravar(t.id, dados);
   });
   campo('Projeto', sProj);
+
+  /* A quem se manda o que esta tarefa produz. Escolher aqui faz nascer o
+     bloco do email mais abaixo: numa tarefa ele so aparece quando ha alguem
+     para quem mandar. Num pagamento o bloco esta sempre la. */
+  if (tfTipo(t) === 'tarefa' && window.EM && (EM.dest || []).length){
+    var sDest = el('select');
+    sDest.appendChild(new Option('— ninguém —', ''));
+    EM.dest.filter(function(x){ return x.ativo; }).forEach(function(x){
+      var o = new Option(x.nome + ' · ' + x.email, String(x.id));
+      if (t.destinatario_id === x.id) o.selected = true;
+      sDest.appendChild(o);
+    });
+    sDest.addEventListener('change', function(){
+      tfGravar(t.id, { destinatario_id: sDest.value ? Number(sDest.value) : null });
+    });
+    campo('Mandar email a', sDest);
+  }
 
   /* Onde e e quanto leva - o que veio da janela de criar. Editam-se aqui
      mesmo, como tudo o resto neste painel. */
