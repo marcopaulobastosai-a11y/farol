@@ -1105,3 +1105,35 @@ ALTER TABLE events ADD COLUMN IF NOT EXISTS tentative    BOOLEAN NOT NULL DEFAUL
 -- ---------------------------------------------------------------------------
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS location     TEXT;
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS duration_min INTEGER;
+
+-- ---------------------------------------------------------------------------
+-- MAIS DO QUE UMA CAIXA DE CORREIO (1 out)
+--
+-- Ate agora o Farol enviava sempre pela mesma conta. Mas o correio da casa e
+-- o correio de uma empresa nao se misturam: o que e da Cupula Arejada tem de
+-- sair da caixa da loja, e o que e da familia da caixa pessoal. Quem decide e
+-- o destinatario: cada um diz por que caixa sai, e um pagamento sem caixa
+-- decidida nao e enviado - o Farol pede que se escolha, em vez de mandar pela
+-- conta errada e so se dar por isso do outro lado.
+--
+-- O acesso de cada caixa vai cifrado na coluna `token`, com a chave tirada do
+-- SESSION_SECRET, como ja ia o da conta unica. Uma caixa sem token e uma
+-- caixa que ainda esta por ligar a Google.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS gmail_caixas (
+  id         SERIAL PRIMARY KEY,
+  email      TEXT NOT NULL UNIQUE,
+  nome       TEXT,                       -- o nome que aparece em «De:»
+  token      TEXT,                       -- o acesso, cifrado; NULL = por ligar
+  ligado_em  TIMESTAMPTZ,
+  erro       TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Por que caixa sai o email deste destinatario.
+ALTER TABLE destinatarios ADD COLUMN IF NOT EXISTS caixa_id INTEGER
+  REFERENCES gmail_caixas(id) ON DELETE SET NULL;
+
+-- E por qual saiu, de facto, cada email que ja foi.
+ALTER TABLE email_envios ADD COLUMN IF NOT EXISTS caixa_id INTEGER
+  REFERENCES gmail_caixas(id) ON DELETE SET NULL;
