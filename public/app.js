@@ -649,36 +649,26 @@ function renderDocsFiltro(){
   }
 }
 
-/* Os papeis de um pagamento sao um conjunto: a declaracao ou fatura, o
-   comprovativo e o recibo. Na lista dos Documentos aparecem numa linha so, a
-   da fatura, com os outros pendurados por baixo - soltos perdiam o contexto
-   (um comprovativo de 14 euros nao diz a que se refere). Sem fatura, a
-   cabeca e o comprovativo. A ligacao vem de d.tarefas (/api/bootstrap). */
-var DOCS_ORDEM_PAPEL = { fatura: 0, comprovativo: 1, recibo: 2 };
-function docsConjuntos(){
-  var porTarefa = {};
+/* Um papel nunca desaparece da lista. Os tres papeis de um pagamento - a
+   fatura, o comprovativo e o recibo - viviam pendurados dentro da fatura, e
+   quem procurasse o comprovativo pelo nome nao o encontrava: tinha deixado de
+   ter linha propria. Agora cada documento tem a sua linha e a relacao entre
+   eles diz-se por palavras, por baixo do nome. */
+function docsPorTarefa(){
+  var por = {};
   (D.documents || []).forEach(function(d){
     (d.tarefas || []).forEach(function(u){
-      if (!u.task_id || !(u.papel in DOCS_ORDEM_PAPEL)) return;
-      (porTarefa[u.task_id] = porTarefa[u.task_id] || { u: u, docs: [] }).docs.push({ d: d, papel: u.papel });
+      if (!u.task_id) return;
+      (por[u.task_id] = por[u.task_id] || []).push({ d: d, papel: u.papel });
     });
   });
-  var filhos = {}, cabecas = {}, pendurado = {};
-  Object.keys(porTarefa).forEach(function(k){
-    var g = porTarefa[k];
-    if (g.docs.length < 2) return;
-    g.docs.sort(function(a, b){ return DOCS_ORDEM_PAPEL[a.papel] - DOCS_ORDEM_PAPEL[b.papel]; });
-    var cab = g.docs[0].d;
-    cabecas[cab.id] = true;
-    g.docs.slice(1).forEach(function(x){
-      if (x.d.id === cab.id) return;
-      (filhos[cab.id] = filhos[cab.id] || []).push({ d: x.d, papel: x.papel, u: g.u });
-      (pendurado[x.d.id] = pendurado[x.d.id] || []).push(cab.id);
-    });
-  });
-  /* Um documento que e cabeca de algum conjunto nunca se esconde. */
-  Object.keys(cabecas).forEach(function(id){ delete pendurado[id]; });
-  return { filhos: filhos, pendurado: pendurado };
+  return por;
+}
+
+/* O nome de um papel irmao nao pode empurrar a tabela para fora do ecra. */
+function docsCurto(nome){
+  nome = String(nome || '');
+  return nome.length > 42 ? nome.slice(0, 40) + '\u2026' : nome;
 }
 
 function renderDocumentos(){
@@ -693,15 +683,8 @@ function renderDocumentos(){
   var passa = function(d){
     return (!DOCS_PESSOA || d.person_id === DOCS_PESSOA) && docsPassaArea(d);
   };
-  var CJ = docsConjuntos();
-  var visivel = {};
-  D.documents.forEach(function(d){ if (passa(d)) visivel[d.id] = true; });
-  var lista = D.documents.filter(function(d){
-    if (!passa(d)) return false;
-    /* Pendurado numa fatura que esta a vista: aparece dentro dela. */
-    var cabs = CJ.pendurado[d.id];
-    return !(cabs && cabs.some(function(c){ return visivel[c]; }));
-  });
+  var PT = docsPorTarefa();
+  var lista = D.documents.filter(passa);
 
   lista.forEach(function(d){
     var tr = el('tr');
@@ -757,30 +740,39 @@ function renderDocumentos(){
       sub.style.cssText = 'font-size:.6875rem;color:var(--muted);margin-top:2px';
       tdn.appendChild(sub);
     }
-    /* Os outros papeis do mesmo pagamento, por baixo da fatura. */
-    (CJ.filhos[d.id] || []).forEach(function(f){
+    /* Com que pagamento ou tarefa este papel esta relacionado, e que outros
+       papeis estao agarrados ao mesmo - a relacao diz-se, nao esconde a
+       linha de ninguem. «Mudar» abre a janela de relacionar, que e onde se
+       classifica (fatura, comprovativo, recibo) e se liga ou desliga. */
+    (d.tarefas || []).forEach(function(u){
       var linha = el('div');
-      linha.style.cssText = 'font-size:.75rem;margin-top:3px;color:var(--ink-2);display:flex;gap:6px;align-items:baseline;flex-wrap:wrap';
-      var rot = el('span', null, '\u21b3 ' + f.papel);
-      rot.style.color = 'var(--muted)';
-      linha.appendChild(rot);
-      var ff = (f.d.ficheiros && f.d.ficheiros.length) ? f.d.ficheiros[0] : f.d.inbox_id;
-      var nm = el(ff ? 'a' : 'span', null, f.d.name);
-      if (ff){ nm.href = '/api/inbox/' + ff + '/ficheiro'; nm.target = '_blank'; nm.rel = 'noopener'; }
-      linha.appendChild(nm);
-      var ed = el('button', null, 'editar');
-      ed.type = 'button';
-      ed.style.cssText = 'border:0;background:none;padding:0;font:inherit;font-size:.6875rem;color:var(--faint);cursor:pointer';
-      ed.addEventListener('click', function(){ editarDocumento(f.d); });
-      linha.appendChild(ed);
+      linha.style.cssText = 'font-size:.6875rem;color:var(--muted);margin-top:3px';
+      linha.appendChild(document.createTextNode('\u21b3 ' +
+        (u.papel && u.papel !== 'anexo' ? u.papel + ' de ' : '') +
+        '\u00ab' + u.title + '\u00bb' +
+        (u.paid_on ? ', pago a ' + dataCurta(u.paid_on) : '')));
+      var irmaos = (PT[u.task_id] || []).filter(function(x){ return x.d.id !== d.id; });
+      if (irmaos.length){
+        linha.appendChild(document.createTextNode(' \u00b7 com '));
+        irmaos.forEach(function(x, i){
+          if (i) linha.appendChild(document.createTextNode(', '));
+          var ff = (x.d.ficheiros && x.d.ficheiros.length) ? x.d.ficheiros[0] : x.d.inbox_id;
+          var n = el(ff ? 'a' : 'span', null,
+            (x.papel && x.papel !== 'anexo' ? x.papel + ' ' : '') + docsCurto(x.d.name));
+          n.title = x.d.name;
+          if (ff){ n.href = '/api/inbox/' + ff + '/ficheiro'; n.target = '_blank'; n.rel = 'noopener'; }
+          linha.appendChild(n);
+        });
+      }
+      if (typeof relAbrir === 'function'){
+        var mu = el('button', null, 'mudar');
+        mu.type = 'button';
+        mu.style.cssText = 'margin-left:.4rem;border:0;background:none;padding:0;font:inherit;font-size:.6875rem;color:var(--faint);cursor:pointer';
+        mu.addEventListener('click', function(){ relAbrir(d, load); });
+        linha.appendChild(mu);
+      }
       tdn.appendChild(linha);
     });
-    var umPag = (CJ.filhos[d.id] || [])[0];
-    if (umPag){
-      var pg = el('div', null, 'pagamento \u00ab' + umPag.u.title + '\u00bb' + (umPag.u.paid_on ? ', pago a ' + dataCurta(umPag.u.paid_on) : ''));
-      pg.style.cssText = 'font-size:.6875rem;color:var(--accent-ink);margin-top:3px';
-      tdn.appendChild(pg);
-    }
     tr.appendChild(tdn);
 
     var dono = pessoaDoc(d.person_id);
@@ -796,6 +788,17 @@ function renderDocumentos(){
        ficava no ecra para sempre. */
     var tdx = el('td');
     tdx.style.whiteSpace = 'nowrap';
+    /* Classificar e relacionar sem ter de abrir o Editar primeiro: e o que
+       falta quase sempre a um comprovativo acabado de chegar. */
+    if (typeof relAbrir === 'function'){
+      var br = el('button', 'btn', 'Relacionar');
+      br.type = 'button';
+      br.style.padding = '.18rem .5rem';
+      br.style.fontSize = '.75rem';
+      br.style.marginRight = '.35rem';
+      br.addEventListener('click', function(){ relAbrir(d, load); });
+      tdx.appendChild(br);
+    }
     var ba = el('button', 'btn', (d.ficheiros && d.ficheiros.length) || d.inbox_id ? '+ Ficheiro' : 'Anexar');
     ba.type = 'button';
     ba.title = 'Pendurar um ficheiro neste documento';
