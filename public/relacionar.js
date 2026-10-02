@@ -39,7 +39,13 @@
     '.rel-linha{display:flex;align-items:center;gap:8px;padding:5px 0;font-size:.8125rem}',
     '.rel-linha .rel-x{margin-left:auto;border:0;background:none;color:var(--faint);cursor:pointer;font:inherit;padding:2px 6px;border-radius:6px}',
     '.rel-linha .rel-x:hover{background:var(--surface-2);color:var(--bad)}',
-    '.rel-acoes{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}'
+    '.rel-acoes{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}',
+    '.rel-novo{margin-top:12px;border-top:1px solid var(--line);padding-top:10px}',
+    '.rel-novo > button.rel-abre{border:0;background:none;padding:0;font:inherit;font-size:.8125rem;color:var(--accent-ink);cursor:pointer}',
+    '.rel-novo .rel-campos{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}',
+    '.rel-novo input,.rel-novo select{padding:7px 9px;border:1px solid var(--line);border-radius:9px;font:inherit;font-size:.8125rem;background:var(--ground);color:var(--ink)}',
+    '.rel-novo input.titulo{flex:1 1 100%;min-width:0}',
+    '.rel-novo .rel-dica{font-size:.75rem;color:var(--faint);margin-top:6px}'
   ].join('\n');
 
   var REL_PAPEIS = ['anexo', 'fatura', 'comprovativo', 'recibo'];
@@ -167,6 +173,137 @@
     return tipo === 'despesa' ? 'Despesa' : tipo;
   }
 
+  /* Criar ali mesmo o que ainda nao existe.
+   *
+   * Procurar so serve quando a coisa ja esta criada. O caso mais comum e o
+   * contrario: chega um cartao que expira em 2029 e o que falta e um lembrete
+   * nesse dia; chega um contrato e o que falta e uma nota a dizer o que ficou
+   * combinado. Aqui cria-se - tarefa, lembrete, nota ou evento, com data - e
+   * fica logo relacionado com o papel.
+   *
+   * A area vem do documento: um papel arrumado em «Casa > Quinta do Anjo» da
+   * um lembrete da mesma area, sem ninguem ter de o dizer. */
+  var REL_NOVOS = [
+    ['lembrete', 'Lembrete'],
+    ['tarefa', 'Tarefa'],
+    ['nota', 'Nota'],
+    ['evento', 'Evento']
+  ];
+
+  function relBlocoCriar(doc, gravar) {
+    var caixa = el('div', 'rel-novo');
+    var abre = el('button', 'rel-abre', '+ Criar e relacionar');
+    abre.type = 'button';
+    caixa.appendChild(abre);
+
+    var campos = el('div', 'rel-campos');
+    campos.hidden = true;
+    caixa.appendChild(campos);
+
+    var oQue = el('select');
+    REL_NOVOS.forEach(function (x) { oQue.appendChild(new Option(x[1], x[0])); });
+    /* Um papel com validade pede quase sempre um lembrete para a renovar. */
+    var validade = doc.valid_on || doc.valid_until || '';
+    oQue.value = validade ? 'lembrete' : 'tarefa';
+    campos.appendChild(oQue);
+
+    var titulo = el('input', 'titulo');
+    titulo.type = 'text';
+    titulo.placeholder = 'O que é?';
+    titulo.value = (validade ? 'Renovar ' : '') + (doc.name || '');
+    campos.appendChild(titulo);
+
+    var quando = el('input');
+    quando.type = 'date';
+    quando.value = validade ? String(validade).slice(0, 10) : '';
+    campos.appendChild(quando);
+
+    var hora = el('input');
+    hora.type = 'time';
+    hora.hidden = true;
+    campos.appendChild(hora);
+
+    var criar = el('button', 'btn primary', 'Criar');
+    criar.type = 'button';
+    campos.appendChild(criar);
+
+    var dica = el('div', 'rel-dica', '');
+    caixa.appendChild(dica);
+
+    function ajustar() {
+      var ev = oQue.value === 'evento';
+      hora.hidden = !ev;
+      quando.title = ev ? 'Dia' : 'Prazo';
+      dica.textContent = ev
+        ? 'Entra na Agenda e no Hoje, na \u00e1rea do papel.'
+        : (oQue.value === 'nota'
+          ? 'Uma nota n\u00e3o se conclui; a data \u00e9 opcional.'
+          : 'Entra nas Tarefas com este prazo, na \u00e1rea do papel.');
+    }
+    oQue.addEventListener('change', ajustar);
+    ajustar();
+
+    abre.addEventListener('click', function () {
+      campos.hidden = !campos.hidden;
+      abre.textContent = campos.hidden ? '+ Criar e relacionar' : '\u2212 Criar e relacionar';
+      if (!campos.hidden) titulo.focus();
+    });
+
+    criar.addEventListener('click', function () {
+      var t = titulo.value.trim();
+      if (!t) { toast('Escreve o que \u00e9.'); titulo.focus(); return; }
+      var tipo = oQue.value;
+      var dia = quando.value;
+      if (tipo === 'evento' && !dia) { toast('Um evento precisa de um dia.'); quando.focus(); return; }
+      if (tipo !== 'nota' && tipo !== 'evento' && !dia) { toast('Escolhe uma data.'); quando.focus(); return; }
+      criar.disabled = true;
+
+      var feito = function (relTipo, id) {
+        criar.disabled = false;
+        campos.hidden = true;
+        abre.textContent = '+ Criar e relacionar';
+        gravar('POST', relTipo, id);
+      };
+      var falhou = function (e) {
+        criar.disabled = false;
+        toast((e && e.message) || 'N\u00e3o foi poss\u00edvel criar.');
+      };
+
+      if (tipo === 'evento') {
+        apiGestao('/api/gestao/eventos', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title: t, day: dia, at: hora.value || null,
+            context_id: doc.context_id || null, detail: doc.name || null })
+        }).then(function (ev) {
+          if (!ev || !ev.id) throw new Error('O evento n\u00e3o voltou com id.');
+          if (typeof load === 'function') load();
+          feito('evento', ev.id);
+        }).catch(falhou);
+        return;
+      }
+
+      /* O POST das tarefas devolve o G inteiro, nao o id: o novo e o que
+         aparece a mais. */
+      var antes = {};
+      ((window.G && G.tasks) || []).forEach(function (x) { antes[x.id] = true; });
+      apiGestao('/api/gestao/tarefas', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tipo: tipo, title: t, due_on: dia || null,
+          context_id: doc.context_id || null })
+      }).then(function (g) {
+        if (g && g.tasks) { window.G = g; if (typeof renderGestao === 'function') renderGestao(); }
+        var novo = ((g && g.tasks) || []).filter(function (x) { return !antes[x.id]; })
+          .sort(function (a, b) { return b.id - a.id; })[0];
+        if (!novo) throw new Error('A tarefa foi criada mas n\u00e3o se encontrou.');
+        feito(tipo === 'pagamento' ? 'pagamento' : 'tarefa', novo.id);
+      }).catch(falhou);
+    });
+
+    return caixa;
+  }
+
   /* A janela. `doc` e a linha do documento (precisa de id e, se houver, nome e
      tipo); `depois` e chamado sempre que alguma coisa muda, para quem abriu a
      janela recarregar o seu ecra. */
@@ -208,6 +345,8 @@
 
     var lista = el('div', 'rel-lista');
     cx.appendChild(lista);
+
+    cx.appendChild(relBlocoCriar(doc, gravar));
 
     var ja = el('div', 'rel-ja');
     cx.appendChild(ja);
