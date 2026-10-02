@@ -23,7 +23,11 @@ var EM = { dest: [], gmail: null, carregado: false, pag: {}, aLer: {} };
 
 var EM_QUANDO = [['manual', 'Só quando eu carregar em Enviar'], ['rever', 'Preparar e esperar que eu reveja'], ['auto', 'Enviar sozinho quando o comprovativo for aprovado']];
 var EM_QUANDO_CURTO = { manual: 'manual', rever: 'pede para rever', auto: 'envia sozinho' };
-var EM_CAMPOS = ['{nome}', '{titulo}', '{total}', '{data do pagamento}', '{prazo}', '{meses}', '{lista das faturas}', '{referência}', '{pessoa}'];
+/* O que se pode escrever entre chavetas no assunto e no texto. Os quatro do
+   dinheiro so se preenchem num pagamento; numa tarefa ficam em branco. */
+var EM_CAMPOS = ['{nome}', '{titulo}', '{data}', '{mês}', '{prazo}', '{pessoa}',
+  '{lista dos anexos}', '{total}', '{data do pagamento}', '{meses}', '{lista das faturas}', '{referência}'];
+var EM_CAMPOS_DINHEIRO = ['{total}', '{data do pagamento}', '{meses}', '{lista das faturas}', '{referência}'];
 
 var EM_CSS =
   '#view-destinatarios .em-card{margin-bottom:14px}' +
@@ -46,6 +50,9 @@ var EM_CSS =
   '.em-dlgc .em-chk label{display:flex;gap:.4rem;align-items:center;color:var(--ink);font-size:.85rem;margin:0}' +
   '.em-dlgc .em-campos{display:flex;gap:4px;flex-wrap:wrap;font-family:var(--mono);font-size:.7rem;color:var(--muted)}' +
   '.em-dlgc .em-campos span{border:1px solid var(--line);border-radius:5px;padding:1px 5px}' +
+  /* Os campos que so existem num pagamento ficam a tracejado, para se ver de
+     relance que numa tarefa simples nao se preenchem. */
+  '.em-dlgc .em-campos span.em-campo-pag{border-style:dashed;opacity:.72}' +
   '.em-dlga{display:flex;justify-content:flex-end;gap:.5rem;margin-top:.25rem;flex-wrap:wrap}' +
   '.em-anx{display:flex;flex-direction:column;gap:4px;font-size:.84rem}' +
   '.em-anx label{display:flex;gap:.45rem;align-items:center;color:var(--ink);margin:0;font-size:.84rem}' +
@@ -70,7 +77,7 @@ function emEstilo(){
 function emMontar(){
   if (document.getElementById('view-destinatarios')) return;
   emEstilo();
-  if (window.TITLES) TITLES.destinatarios = ['Destinatários', 'A quem se mandam os emails dos pagamentos'];
+  if (window.TITLES) TITLES.destinatarios = ['Destinatários', 'A quem se mandam os emails das tarefas e dos pagamentos'];
   var nav = $('nav');
   if (!nav) return;
   var b = el('button', null, ' Destinatários');
@@ -249,7 +256,7 @@ function emJanelaDest(d){
   var duas2 = el('div', 'em-2');
   var iCc = emInput('text', d && d.cc, 'opcional, separados por vírgula');
   var iTermos = emInput('text', d && d.termos, 'ex.: Ricardo Costa; despesas da casa');
-  emCampo(duas2, 'Cc', iCc); emCampo(duas2, 'Pagamentos de (nome de quem recebe ou título)', iTermos);
+  emCampo(duas2, 'Cc', iCc); emCampo(duas2, 'Apanha os pagamentos de (nome de quem recebe ou título)', iTermos);
   cx.appendChild(duas2);
   var duas3 = el('div', 'em-2');
   var sQ = el('select');
@@ -272,7 +279,11 @@ function emJanelaDest(d){
   emCampo(cx, 'Texto', iTxt);
   var campos = el('div', 'em-campos');
   campos.appendChild(document.createTextNode('Campos: '));
-  EM_CAMPOS.forEach(function(c){ campos.appendChild(el('span', null, c)); });
+  EM_CAMPOS.forEach(function(c){
+    var sp = el('span', EM_CAMPOS_DINHEIRO.indexOf(c) >= 0 ? 'em-campo-pag' : '', c);
+    if (EM_CAMPOS_DINHEIRO.indexOf(c) >= 0) sp.title = 'Só num pagamento — numa tarefa fica em branco.';
+    campos.appendChild(sp);
+  });
   cx.appendChild(campos);
   var chk = el('div', 'em-chk');
   function caixa(rot, v){ var l = el('label'); var i = el('input'); i.type = 'checkbox'; i.checked = v; l.appendChild(i); l.appendChild(document.createTextNode(rot)); chk.appendChild(l); return i; }
@@ -528,7 +539,7 @@ if (typeof tfRenderDetalhe === 'function'){
   var m = /[?&]gmail=([^&]+)/.exec(location.search);
   if (!m) return;
   var v = decodeURIComponent(m[1]);
-  var msg = { ligado: 'Gmail ligado. Os emails dos pagamentos já podem sair.', recusado: 'A Google não deu autorização.',
+  var msg = { ligado: 'Gmail ligado. Os emails já podem sair.', recusado: 'A Google não deu autorização.',
     conta: 'Autorizaste outra conta: entra na Google com a conta que envia os emails.', 'sem-envio': 'Falta autorizar o envio de emails.',
     'sem-acesso': 'A Google não devolveu acesso permanente: tenta outra vez.', estado: 'A ligação expirou: tenta outra vez.', erro: 'Não foi possível ligar o Gmail.' }[v] || 'Gmail: ' + v;
   history.replaceState(null, '', location.pathname);
