@@ -399,6 +399,173 @@ function eur(n){ return num(n) + ' €'; }
    tem documentos - uma fila de chips vazios nao ajuda ninguem. */
 var DOCS_PESSOA = null;
 var DOCS_AREA = null;   /* id de area/sub-area, 'sem' para os que nao tem, null para todas */
+/* Um filtro por coluna, mais uma procura que corre tudo. Com 135 papeis a
+   lista deixou de se ler de cima a baixo: o que se quer e chegar depressa a
+   um deles. Vazio quer dizer «qualquer». */
+var DOCS_F = { texto: '', nome: '', pessoa: '', entidade: '', data: '', validade: '' };
+
+function docsNorm(s){
+  return String(s == null ? '' : s).toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+
+/* Tudo o que a procura olha: o nome, o tipo, a entidade, a area, a pessoa e os
+   pagamentos a que o papel serve - procurar «renda» tem de encontrar o
+   comprovativo cujo nome nao diz renda nenhuma. */
+function docsTextoDe(d){
+  /* Sem cache de proposito: a area so se sabe quando o /api/gestao chega, e um
+     texto guardado antes disso procurava sem ela para sempre. */
+  var p = pessoaDoc(d.person_id);
+  return docsNorm([d.name, d.kind, d.entity, areaNome(d.context_id), p ? p.name : '',
+    d.issued_on, d.valid_on, d.valid_until]
+    .concat((d.tarefas || []).map(function(u){ return (u.papel || '') + ' ' + u.title; }))
+    .filter(Boolean).join(' '));
+}
+
+function docsValidade(d){ return d.valid_on || d.valid_until || ''; }
+
+function docsPassaFiltros(d){
+  var F = DOCS_F;
+  if (F.texto && docsTextoDe(d).indexOf(F.texto) < 0) return false;
+  if (F.nome && docsNorm(d.name).indexOf(F.nome) < 0) return false;
+  if (F.pessoa === 'sem' && d.person_id) return false;
+  if (F.pessoa && F.pessoa !== 'sem' && d.person_id !== Number(F.pessoa)) return false;
+  if (F.entidade === 'sem' && d.entity) return false;
+  if (F.entidade && F.entidade !== 'sem' && d.entity !== F.entidade) return false;
+  if (F.data === 'sem' && d.issued_on) return false;
+  if (F.data && F.data !== 'sem' && String(d.issued_on || '').slice(0, 4) !== F.data) return false;
+
+  var v = docsValidade(d);
+  if (F.validade === 'sem' && v) return false;
+  if (F.validade === 'tem' && !v) return false;
+  if (F.validade === 'expira' || F.validade === 'expirado'){
+    if (!v) return false;
+    var dias = diasAte(v);
+    if (F.validade === 'expira' && (dias < 0 || dias > 60)) return false;
+    if (F.validade === 'expirado' && dias >= 0) return false;
+  } else if (F.validade && F.validade !== 'sem' && F.validade !== 'tem'
+      && String(v).slice(0, 4) !== F.validade) return false;
+  return true;
+}
+
+function docsHaFiltro(){
+  return Boolean(DOCS_PESSOA || DOCS_AREA || DOCS_F.texto || DOCS_F.nome ||
+    DOCS_F.pessoa || DOCS_F.entidade || DOCS_F.data || DOCS_F.validade);
+}
+
+function docsLimparFiltros(){
+  DOCS_PESSOA = null; DOCS_AREA = null;
+  DOCS_F = { texto: '', nome: '', pessoa: '', entidade: '', data: '', validade: '' };
+  var p = $('docsProcura'); if (p) p.value = '';
+  var tr = $('docsColunas'); if (tr) tr.remove();   /* nasce outra vez limpo */
+  renderDocumentos();
+}
+
+/* A caixa de procura, por cima da tabela. Vive fora do tbody, por isso o
+   redesenho de cada tecla nao lhe tira o foco. */
+function renderDocsProcura(){
+  if ($('docsProcura')) return;
+  var ref = $('docsFiltro');
+  if (!ref) return;
+  var caixa = el('div');
+  caixa.style.cssText = 'display:flex;gap:8px;align-items:center;margin:8px 0 2px';
+  var inp = el('input');
+  inp.id = 'docsProcura';
+  inp.type = 'search';
+  inp.placeholder = 'Procurar em tudo \u2014 nome, entidade, \u00e1rea, pessoa, pagamento\u2026';
+  inp.style.cssText = 'flex:1;min-width:0;padding:6px 10px;border:1px solid var(--line);border-radius:8px;font:inherit;font-size:.8125rem;background:var(--ground);color:var(--ink)';
+  inp.addEventListener('input', function(){
+    DOCS_F.texto = docsNorm(inp.value).trim();
+    renderDocumentos();
+  });
+  caixa.appendChild(inp);
+  var lim = el('button', 'btn', 'Limpar filtros');
+  lim.id = 'docsLimpar';
+  lim.type = 'button';
+  lim.style.cssText = 'padding:.2rem .6rem;font-size:.75rem';
+  lim.addEventListener('click', docsLimparFiltros);
+  caixa.appendChild(lim);
+  ref.parentNode.insertBefore(caixa, ref.nextSibling);
+}
+
+/* Um filtro por coluna, na linha a seguir aos titulos. Os seletores
+   refazem-se so quando a lista de valores muda - mexer-lhes a cada tecla
+   fechava o menu aberto. */
+function docsSelect(celula, chave, opcoes){
+  var assinatura = opcoes.map(function(o){ return o[0]; }).join('|');
+  var sel = celula.querySelector('select');
+  if (sel && sel.dataset.ops === assinatura){ sel.value = DOCS_F[chave]; return; }
+  if (sel) sel.remove();
+  sel = el('select');
+  sel.dataset.ops = assinatura;
+  sel.style.cssText = 'width:100%;max-width:190px;padding:4px 6px;border:1px solid var(--line);border-radius:8px;font:inherit;font-size:.72rem;background:var(--ground);color:var(--ink)';
+  opcoes.forEach(function(o){ sel.appendChild(new Option(o[1], o[0])); });
+  sel.value = DOCS_F[chave];
+  sel.addEventListener('change', function(){ DOCS_F[chave] = sel.value; renderDocumentos(); });
+  celula.appendChild(sel);
+}
+
+function renderDocsColunas(){
+  var tb = $('documents');
+  var thead = tb && tb.parentNode ? tb.parentNode.querySelector('thead') : null;
+  if (!thead) return;
+  var tr = $('docsColunas');
+  if (!tr){
+    tr = el('tr');
+    tr.id = 'docsColunas';
+    for (var i = 0; i < 6; i++){
+      var th = el('th');
+      th.style.cssText = 'padding-top:4px;padding-bottom:8px;font-weight:400;text-transform:none;letter-spacing:0';
+      tr.appendChild(th);
+    }
+    var nome = el('input');
+    nome.type = 'search';
+    nome.placeholder = 'nome do documento';
+    nome.style.cssText = 'width:100%;max-width:280px;padding:4px 6px;border:1px solid var(--line);border-radius:8px;font:inherit;font-size:.72rem;background:var(--ground);color:var(--ink)';
+    nome.addEventListener('input', function(){
+      DOCS_F.nome = docsNorm(nome.value).trim();
+      renderDocumentos();
+    });
+    tr.children[0].appendChild(nome);
+    thead.appendChild(tr);
+  }
+
+  var pessoas = [], vistas = {};
+  (D.documents || []).forEach(function(d){
+    if (!d.person_id || vistas[d.person_id]) return;
+    vistas[d.person_id] = true;
+    var p = pessoaDoc(d.person_id);
+    if (p) pessoas.push([String(p.id), p.name]);
+  });
+  pessoas.sort(function(a, b){ return a[1].localeCompare(b[1]); });
+  docsSelect(tr.children[1], 'pessoa',
+    [['', 'Qualquer'], ['sem', 'Sem pessoa']].concat(pessoas));
+
+  var ents = [];
+  (D.documents || []).forEach(function(d){ if (d.entity && ents.indexOf(d.entity) < 0) ents.push(d.entity); });
+  ents.sort(function(a, b){ return a.localeCompare(b); });
+  docsSelect(tr.children[2], 'entidade',
+    [['', 'Qualquer'], ['sem', 'Sem entidade']].concat(ents.map(function(e){ return [e, e]; })));
+
+  var anos = function(campo){
+    var a = [];
+    (D.documents || []).forEach(function(d){
+      var v = campo === 'data' ? d.issued_on : docsValidade(d);
+      var y = String(v || '').slice(0, 4);
+      if (y && a.indexOf(y) < 0) a.push(y);
+    });
+    return a.sort().reverse().map(function(y){ return [y, y]; });
+  };
+  docsSelect(tr.children[3], 'data',
+    [['', 'Qualquer'], ['sem', 'Sem data']].concat(anos('data')));
+  docsSelect(tr.children[4], 'validade',
+    [['', 'Qualquer'], ['tem', 'Com validade'], ['expira', 'A expirar (60 dias)'],
+     ['expirado', 'J\u00e1 expirado'], ['sem', 'Sem validade']].concat(anos('validade')));
+
+  var lim = $('docsLimpar');
+  if (lim) lim.style.visibility = docsHaFiltro() ? 'visible' : 'hidden';
+}
+
 
 function pessoaDoc(id){
   if (!id || !D.people) return null;
@@ -676,12 +843,15 @@ function renderDocumentos(){
   clear(tb);
   renderDocsAreas();
   renderDocsFiltro();
+  renderDocsProcura();
+  renderDocsColunas();
 
   var porLer = 0;
   D.documents.forEach(function(d){ if (!d.lido) porLer++; });
 
   var passa = function(d){
-    return (!DOCS_PESSOA || d.person_id === DOCS_PESSOA) && docsPassaArea(d);
+    return (!DOCS_PESSOA || d.person_id === DOCS_PESSOA) && docsPassaArea(d)
+      && docsPassaFiltros(d);
   };
   var PT = docsPorTarefa();
   var lista = D.documents.filter(passa);
@@ -826,8 +996,8 @@ function renderDocumentos(){
 
   if (!lista.length){
     var vazio = el('tr');
-    var c = el('td', 'empty', (DOCS_PESSOA || DOCS_AREA)
-      ? 'Nada com este filtro.'
+    var c = el('td', 'empty', docsHaFiltro()
+      ? 'Nada com estes filtros.'
       : 'Ainda n\u00e3o h\u00e1 documentos.');
     c.colSpan = 6;
     vazio.appendChild(c);
@@ -838,9 +1008,10 @@ function renderDocumentos(){
   $('badgeDocs').textContent = porLer;
   var resumo = $('docsResumo');
   if (resumo){
-    resumo.textContent = porLer
-      ? porLer + ' por ler'
-      : (D.documents.length ? 'tudo lido' : '');
+    /* Com filtros, o que interessa e quantos ficaram a vista. */
+    resumo.textContent = docsHaFiltro()
+      ? lista.length + ' de ' + D.documents.length
+      : (porLer ? porLer + ' por ler' : (D.documents.length ? 'tudo lido' : ''));
   }
 }
 
