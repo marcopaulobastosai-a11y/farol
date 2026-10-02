@@ -336,19 +336,6 @@ async function preparar(taskId, porGravar) {
   if (!meses.length && t.due_on) meses.push(t.due_on.slice(0, 7));
   meses.sort();
   const lista = faturas.map((f) => '- ' + (f.name || 'Fatura') + (f.valor !== null ? ' — ' + euros(f.valor) : '')).join('\n');
-  const listaAnexos = papeis.map((f) => '- ' + (f.file_name || f.name)).join('\n');
-  const v = {
-    nome: d ? String(d.nome).split(' ')[0] : '',
-    titulo: t.title,
-    total: euros(t.paid_amount !== null ? t.paid_amount : t.amount),
-    'data do pagamento': dataLonga(t.paid_on),
-    prazo: dataLonga(t.due_on),
-    meses: juntar(meses.map((k) => MESES[Number(k.slice(5, 7)) - 1])),
-    'lista das faturas': lista,
-    'lista dos anexos': listaAnexos,
-    referencia: t.payment_ref || '',
-    pessoa: t.pessoas || ''
-  };
   /* As duas opcoes do destinatario mandam nos papeis que elas nomeiam. Um
      papel de outra especie - um ficheiro qualquer agarrado a tarefa - vai por
      omissao, e desmarca-se na janela antes de enviar. */
@@ -358,6 +345,24 @@ async function preparar(taskId, porGravar) {
     if (p.papel === 'comprovativo' || p.papel === 'recibo') return d.anexar_comprovativo;
     return true;
   }).map((p) => ({ id: p.id, nome: p.file_name || p.name, papel: p.papel, ficheiro: Boolean(p.file_path) }));
+  const listaAnexos = anexos.map((f) => '- ' + f.nome).join('\n');
+  /* A data de referencia desta tarefa: a que ficou paga, senao o prazo, senao
+     hoje. E dela que saem o {data} e o {mes} - «o mapa do referido mes». */
+  const quando = t.paid_on || t.due_on || new Date().toISOString().slice(0, 10);
+  const v = {
+    nome: d ? String(d.nome).split(' ')[0] : '',
+    titulo: t.title,
+    data: dataLonga(quando),
+    mes: MESES[Number(quando.slice(5, 7)) - 1] || '',
+    total: euros(t.paid_amount !== null ? t.paid_amount : t.amount),
+    'data do pagamento': dataLonga(t.paid_on),
+    prazo: dataLonga(t.due_on),
+    meses: juntar(meses.map((k) => MESES[Number(k.slice(5, 7)) - 1])),
+    'lista das faturas': lista,
+    'lista dos anexos': listaAnexos,
+    referencia: t.payment_ref || '',
+    pessoa: t.pessoas || ''
+  };
   await mudarDeSitio();
   const caixa = d ? await caixaPorId(d.caixa_id) : null;
   return {
