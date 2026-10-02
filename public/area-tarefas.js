@@ -1009,7 +1009,7 @@ function aePopEvento(a, ancora, area, subs){
   iT.focus();
 }
 
-function aeLinhaDoc(d, filhos){
+function aeLinhaDoc(d){
   var r = el('div', 'ae-doc');
   var g = el('div');
   var url = aeFicheiro(d);
@@ -1025,16 +1025,6 @@ function aeLinhaDoc(d, filhos){
     g.appendChild(el('small', 'uso', '↳ ' + (usos[0].papel && usos[0].papel !== 'anexo' ? usos[0].papel + ' de ' : '') +
       '«' + usos[0].title + '»' + (usos.length > 1 ? ' e mais ' + (usos.length - 1) : '')));
   }
-  /* Comprovativo e recibo do mesmo pagamento, pendurados na fatura. */
-  (filhos || []).forEach(function(f){
-    g.appendChild(document.createElement('br'));
-    var url2 = aeFicheiro(f.d);
-    var sm = el('small', null, '↳ ' + f.papel + ': ');
-    var n2 = el(url2 ? 'a' : 'span', null, f.d.name);
-    if (url2){ n2.href = url2; n2.target = '_blank'; n2.rel = 'noopener'; n2.style.color = 'var(--accent-ink)'; }
-    sm.appendChild(n2);
-    g.appendChild(sm);
-  });
   r.appendChild(g);
   var dt = d.valid_on || d.issued_on;
   var dir = el('span', 'mono');
@@ -1199,7 +1189,6 @@ function aeCorpoDocs(card, docs, area, grupos, havia){
       : 'Nenhum papel arrumado nesta área. Arrumam-se nos Documentos.'));
     return;
   }
-  var CJ = typeof docsConjuntos === 'function' ? docsConjuntos() : { filhos: {}, pendurado: {} };
   var ordem = grupos.filter(function(c){ return c.id !== area.id; })
     .concat(grupos.filter(function(c){ return c.id === area.id; }));
   var gs = ordem.map(function(c){ return { c: c, lista: docs.filter(function(d){ return d.context_id === c.id; }) }; })
@@ -1212,7 +1201,9 @@ function aeCorpoDocs(card, docs, area, grupos, havia){
       h4.appendChild(el('span', null, String(g.lista.length)));
       gr.appendChild(h4);
     }
-    g.lista.forEach(function(d){ gr.appendChild(aeLinhaDoc(d, CJ.filhos[d.id])); });
+    /* Cada papel tem a sua linha, com a relacao dele escrita por baixo: os
+       tres papeis de um pagamento deixaram de viver dentro da fatura. */
+    g.lista.forEach(function(d){ gr.appendChild(aeLinhaDoc(d)); });
     card.appendChild(gr);
   });
 }
