@@ -11,6 +11,12 @@
  * existiam no Farol (recibos da caixa, pagamentos dados por pagos) ligam-se a
  * ele - a reconciliacao - e passam a ter prova; nao se somam duas vezes.
  *
+ * Uma conta dividida (o jantar pago pelo Marco, os amigos devolvem a parte
+ * deles) reparte o movimento: so a parte do Marco conta como despesa; a dos
+ * outros e dinheiro adiantado, na conta corrente de cada um, e o reembolso que
+ * chega depois tambem nao e receita. Um movimento ligado a uma conta corrente
+ * e um acerto: nem gasto nem rendimento.
+ *
  * A IA so sugere. Categorizar faz-se em tres passos: as regras (aplicam-se
  * sozinhas, foram escritas pelo Marco), o historico (o mesmo comerciante ja
  * teve categoria) e o Gemini (le a descricao, o valor e a conta). As duas
@@ -75,8 +81,12 @@ async function base() {
   return { contas, cats, catPor, contaPor, ctx, ctxPor, topo };
 }
 
-/* Natureza de um movimento: a da categoria; sem categoria, o sinal decide. */
+/* Natureza de um movimento: a da categoria; sem categoria, o sinal decide.
+   A parte de outra pessoa numa conta dividida e um acerto com uma conta
+   corrente nao contam nem como gasto nem como rendimento. */
 function natureza(m, B) {
+  if (m._nat) return m._nat;
+  if (m.cc_ligado) return 'acerto';
   const c = m.categoria_id ? B.catPor[m.categoria_id] : null;
   if (c) return c.natureza;
   return Number(m.valor) < 0 ? 'despesa' : 'receita';
@@ -85,9 +95,26 @@ function natureza(m, B) {
 /* Os movimentos de uma janela, com o filtro de ambito e de area. */
 async function movimentosEntre(de, ate, f, B) {
   const ms = await all(
-    `SELECT id, conta_id, to_char(data,'YYYY-MM-DD') AS data, descricao, valor, categoria_id, context_id, expense_id
+    `SELECT id, conta_id, to_char(data,'YYYY-MM-DD') AS data, descricao, valor, categoria_id, context_id, expense_id,
+            EXISTS (SELECT 1 FROM fin_cc_mov c WHERE c.movimento_id = fin_movimentos.id) AS cc_ligado
        FROM fin_movimentos WHERE data BETWEEN $1 AND $2`, [de, ate]);
-  return ms.filter((m) => passa(m, f, B)).map((m) => Object.assign(m, { valor: Number(m.valor) }));
+  const pts = await all(
+    `SELECT p.movimento_id, p.valor, p.categoria_id, p.pessoa_id FROM fin_mov_partes p
+       JOIN fin_movimentos m ON m.id = p.movimento_id WHERE m.data BETWEEN $1 AND $2 ORDER BY p.id`, [de, ate]);
+  const partesDe = {};
+  pts.forEach((p) => { (partesDe[p.movimento_id] = partesDe[p.movimento_id] || []).push(p); });
+  const out = [];
+  ms.filter((m) => passa(m, f, B)).forEach((m) => {
+    m.valor = Number(m.valor);
+    const ps = partesDe[m.id];
+    if (!ps) { out.push(m); return; }
+    /* Dividido: cada parte conta por si. */
+    ps.forEach((p) => out.push(Object.assign({}, m, {
+      valor: Number(p.valor), categoria_id: p.pessoa_id ? null : p.categoria_id,
+      _nat: p.pessoa_id ? 'partilha' : null, cc_ligado: false
+    })));
+  });
+  return out;
 }
 function passa(m, f, B) {
   const conta = B.contaPor[m.conta_id];
@@ -836,13 +863,19 @@ function instalar(app) {
       if (q.estado === 'reconciliar') w.push(`m.expense_id IS NULL AND m.valor < 0 AND EXISTS (SELECT 1 FROM expenses e
           WHERE abs(e.amount - abs(m.valor)) < 0.006 AND e.spent_on BETWEEN m.data - 12 AND m.data + 6
             AND NOT EXISTS (SELECT 1 FROM fin_movimentos x WHERE x.expense_id = e.id))`);
+      if (q.estado === 'divididos') w.push('EXISTS (SELECT 1 FROM fin_mov_partes pt WHERE pt.movimento_id = m.id)');
+      if (q.estado === 'reembolsos') w.push('m.valor > 0 AND NOT EXISTS (SELECT 1 FROM fin_cc_mov c WHERE c.movimento_id = m.id)');
       if (q.estado === 'repetidos') w.push(`EXISTS (SELECT 1 FROM fin_movimentos y WHERE y.id <> m.id AND y.conta_id = m.conta_id
           AND y.data = m.data AND y.valor = m.valor AND lower(y.descricao) = lower(m.descricao))`);
       const rows = await all(
         `SELECT m.id, m.conta_id, to_char(m.data,'YYYY-MM-DD') AS data, m.descricao, m.valor, m.saldo, m.categoria_id, m.categoria_fonte,
                 m.context_id, m.person_id, m.expense_id, m.ia_categoria_id, m.ia_confianca, m.ia_fonte, m.nota, m.origem,
                 e.description AS despesa, (e.document_id IS NOT NULL) AS despesa_papel, e.splitwise_id::text AS despesa_splitwise,
-                ccm.pessoa_id AS cc_pessoa_id, ccp.nome AS cc_pessoa
+                ccm.pessoa_id AS cc_pessoa_id, ccp.nome AS cc_pessoa, ccm.origem AS cc_origem,
+                (SELECT json_agg(json_build_object('id', pt.id, 'valor', pt.valor, 'categoria_id', pt.categoria_id,
+                                                   'pessoa_id', pt.pessoa_id, 'pessoa', cp2.nome) ORDER BY pt.id)
+                   FROM fin_mov_partes pt LEFT JOIN fin_cc_pessoas cp2 ON cp2.id = pt.pessoa_id
+                  WHERE pt.movimento_id = m.id) AS partes
            FROM fin_movimentos m
            LEFT JOIN expenses e ON e.id = m.expense_id
            LEFT JOIN fin_cc_mov ccm ON ccm.movimento_id = m.id
@@ -850,10 +883,18 @@ function instalar(app) {
           ${w.length ? 'WHERE ' + w.join(' AND ') : ''}
           ORDER BY m.data DESC, m.id DESC LIMIT ${Math.min(3000, Number(q.limite) || 600)}`, v);
       const fl = f(q);
-      const lista = rows.filter((m) => passa(m, fl, B)).map((m) => Object.assign(m, {
+      let lista = rows.filter((m) => passa(m, fl, B)).map((m) => Object.assign(m, {
         valor: Number(m.valor), saldo: m.saldo == null ? null : Number(m.saldo), ia_confianca: m.ia_confianca == null ? null : Number(m.ia_confianca),
-        natureza: natureza(m, B)
-      }));
+        cc_ligado: Boolean(m.cc_pessoa_id),
+        partes: m.partes ? m.partes.map((p) => Object.assign(p, { valor: Number(p.valor) })) : null
+      })).map((m) => Object.assign(m, { natureza: natureza(m, B) }));
+      /* Entradas que podem ser alguem a devolver uma conta dividida. */
+      const entradas = lista.filter((m) => m.valor > 0 && !m.cc_pessoa_id && (!m.categoria_id || natureza(m, B) === 'receita'));
+      if (entradas.length) {
+        const ab = await cc.abertos();
+        if (ab.length) entradas.forEach((m) => { const r = cc.reembolsoDe(m, ab); if (r.length) m.reembolso = r[0]; });
+      }
+      if (q.estado === 'reembolsos') lista = lista.filter((m) => m.reembolso);
       res.json({ movimentos: lista });
     } catch (e) { falha(res, e, 'os movimentos'); }
   });
@@ -888,7 +929,16 @@ function instalar(app) {
       }
       ['context_id', 'person_id', 'nota', 'expense_id', 'data', 'descricao'].forEach((k) => { if (b[k] !== undefined) set(k, b[k] === '' ? null : b[k]); });
       if (sets.length) { vals.push(m.id); await query('UPDATE fin_movimentos SET ' + sets.join(', ') + ' WHERE id = $' + vals.length, vals); }
-      if (b.cc_pessoa_id !== undefined) await cc.ligarMovimento(m.id, b.cc_pessoa_id || null);
+      if (b.categoria_id !== undefined) await cc.categoriaDaMinhaParte(m.id, b.categoria_id || null);
+      if (b.cc_pessoa_id !== undefined) {
+        await cc.ligarMovimento(m.id, b.cc_pessoa_id || null);
+        /* Um acerto sem categoria fica em «Acertos de contas correntes», para
+           nao aparecer por categorizar. */
+        if (b.cc_pessoa_id) {
+          await query(`UPDATE fin_movimentos SET categoria_id = (SELECT id FROM fin_categorias WHERE natureza = 'transferencia' AND nome ILIKE '%acerto%' ORDER BY id LIMIT 1),
+                         categoria_fonte = 'tu', categoria_em = now() WHERE id = $1 AND categoria_id IS NULL`, [m.id]);
+        }
+      }
       if (b.criar_regra && b.categoria_id) {
         const padrao = String(b.regra_padrao || chave(m.descricao)).trim();
         if (padrao.length >= 3) {
@@ -930,10 +980,21 @@ function instalar(app) {
 
   app.get('/api/financas/movimentos/:id(\\d+)/candidatos', async (req, res) => {
     try {
-      const m = (await all("SELECT id, to_char(data,'YYYY-MM-DD') AS data, valor FROM fin_movimentos WHERE id = $1", [req.params.id]))[0];
+      const m = (await all("SELECT id, to_char(data,'YYYY-MM-DD') AS data, descricao, valor FROM fin_movimentos WHERE id = $1", [req.params.id]))[0];
       if (!m) throw erro(404, 'Movimento não encontrado.');
-      res.json({ candidatos: await candidatos(m) });
+      if (Number(m.valor) > 0) return res.json({ candidatos: [], pessoas: cc.reembolsoDe(m, await cc.abertos()) });
+      res.json({ candidatos: await candidatos(m), pessoas: [] });
     } catch (e) { falha(res, e, 'a reconciliação'); }
+  });
+
+  /* Dividir a conta: a parte do Marco e a de cada pessoa. */
+  app.put('/api/financas/movimentos/:id(\\d+)/partes', async (req, res) => {
+    try { res.json(await cc.dividir(Number(req.params.id), req.body || {})); }
+    catch (e) { falha(res, e, 'a divisão'); }
+  });
+  app.delete('/api/financas/movimentos/:id(\\d+)/partes', async (req, res) => {
+    try { await cc.desfazerDivisao(Number(req.params.id)); res.json({ ok: true }); }
+    catch (e) { falha(res, e, 'a divisão'); }
   });
 
   /* Um movimento sem despesa no Farol: cria-se a despesa a partir dele. */
