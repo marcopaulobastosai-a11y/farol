@@ -82,6 +82,11 @@ CREATE INDEX IF NOT EXISTS fin_mov_exp_idx ON fin_movimentos (expense_id) WHERE 
 -- na pagina do projeto, com as entradas e as saidas.
 ALTER TABLE fin_movimentos ADD COLUMN IF NOT EXISTS project_id INTEGER REFERENCES projects(id) ON DELETE SET NULL;
 CREATE INDEX IF NOT EXISTS fin_mov_proj_idx ON fin_movimentos (project_id) WHERE project_id IS NOT NULL;
+-- Transferencia entre contas proprias: a saida numa conta e a entrada na outra
+-- apontam uma para a outra (par_id dos dois lados). Assim sabe-se a conta de
+-- origem e a de destino, e o dinheiro nao conta duas vezes.
+ALTER TABLE fin_movimentos ADD COLUMN IF NOT EXISTS par_id INTEGER REFERENCES fin_movimentos(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS fin_mov_par_idx ON fin_movimentos (par_id) WHERE par_id IS NOT NULL;
 
 -- Regras: «se a descricao contem X (e o valor esta entre A e B, e a conta e
 -- C) entao categoria Y». Aplicam-se antes da IA e sem perguntar.
