@@ -1193,8 +1193,8 @@ function pjCarregarDetalhe(){
     /* Um programa abre pelos projetos; um projeto abre pelas tarefas. E a aba
        so se corrige quando nao existe no que se abriu. */
     var validas = pjEhPrograma(d.projeto)
-      ? ['projetos', 'tarefas', 'documentos', 'despesas']
-      : ['tarefas', 'documentos', 'despesas'];
+      ? ['projetos', 'tarefas', 'documentos', 'despesas', 'movimentos']
+      : ['tarefas', 'documentos', 'despesas', 'movimentos'];
     if (validas.indexOf(PJ.aba) < 0) PJ.aba = validas[0];
     pjRenderPagina();
   });
@@ -1349,6 +1349,14 @@ function pjNumeros(){
   if (atrasadas) num(String(atrasadas), 'em atraso', 'bad');
   if (d.documentos.length) num(String(d.documentos.length), 'documentos');
   if (d.despesas.length) num(pjEuros(gasto), 'gasto em ' + d.despesas.length);
+  /* O dinheiro do banco posto no projeto: o que saiu e o que entrou. */
+  var movs = d.movimentos || [];
+  if (movs.length){
+    var saiu = movs.filter(function(m){ return m.valor < 0; }).reduce(function(s, m){ return s - m.valor; }, 0);
+    var entrou = movs.filter(function(m){ return m.valor > 0; }).reduce(function(s, m){ return s + m.valor; }, 0);
+    if (saiu) num(pjEuros(saiu), 'saiu do banco');
+    if (entrou) num(pjEuros(entrou), 'entrou no banco');
+  }
   if (pr.target_on && pr.status !== 'concluido'){
     var dias = diasAte(pr.target_on);
     num(dataCurta(pr.target_on), urgencia(dias, 'tarefa').texto || 'data-alvo',
@@ -1388,6 +1396,7 @@ function pjAbas(){
     : [['tarefas', 'Tarefas', d.tarefas.length],
        ['documentos', 'Documentos', d.documentos.length],
        ['despesas', 'Despesas', d.despesas.length]];
+  abas.push(['movimentos', 'Movimentos', (d.movimentos || []).length]);
   abas.forEach(function(x){
     var b = el('button', PJ.aba === x[0] ? 'is-active' : '', x[1] + (x[2] ? ' · ' + x[2] : ''));
     b.type = 'button';
@@ -1409,6 +1418,7 @@ function pjRenderAba(){
   if (pjEhPrograma(PJ.det.projeto) && PJ.aba === 'projetos') return pjAbaProjetos(box);
   if (PJ.aba === 'tarefas') return pjAbaTarefas(box);
   if (PJ.aba === 'documentos') return pjAbaDocumentos(box);
+  if (PJ.aba === 'movimentos') return pjAbaMovimentos(box);
   return pjAbaDespesas(box);
 }
 
@@ -1644,6 +1654,51 @@ function pjAbaDespesas(box){
     corpo.appendChild(m);
     li.appendChild(corpo);
     li.appendChild(el('div', 'pj-r', pjEuros(x.amount)));
+    box.appendChild(li);
+  });
+}
+
+/* Os movimentos do banco postos no projeto, com o que entrou, o que saiu e
+   o saldo. Carregar num abre-o nas Finanças, já filtrado por este projeto. */
+function pjAbaMovimentos(box){
+  var ms = PJ.det.movimentos || [];
+  if (!ms.length){
+    box.appendChild(el('p', 'vazio',
+      'Sem movimentos do banco neste projeto. Põe-se um movimento no projeto nas Finanças › Movimentos (no detalhe, ou em lote).'));
+    return;
+  }
+  var entrou = ms.filter(function(m){ return m.valor > 0; }).reduce(function(s, m){ return s + m.valor; }, 0);
+  var saiu = ms.filter(function(m){ return m.valor < 0; }).reduce(function(s, m){ return s - m.valor; }, 0);
+  var topo = el('div', 'pj-m');
+  topo.style.cssText = 'margin:0 0 10px;font-size:.8125rem;gap:6px 16px;align-items:center';
+  topo.appendChild(el('span', null, 'Entrou ' + pjEuros(entrou)));
+  topo.appendChild(el('span', null, 'Saiu ' + pjEuros(saiu)));
+  topo.appendChild(el('b', null, 'Saldo ' + pjEuros(entrou - saiu)));
+  var ver = el('button', 'btn small', 'Ver nas Finanças');
+  ver.type = 'button';
+  var abrir = function(){
+    if (typeof FN === 'undefined') { show('financas'); return; }
+    FN.aba.financas = 'movimentos'; FN.mov.projeto = String(PJ.aberto); FN.mov.periodo = 'tudo';
+    FN.mov.estado = ''; FN.mov.q = ''; FN.mov.conta = ''; FN.mov.categoria = ''; FN.ambito = 'tudo'; FN.area = '';
+    FN.mov.sel = {}; FN.mov.mostrar = 0;
+    show('financas');
+    if (typeof fnRender === 'function') fnRender('financas');
+  };
+  ver.addEventListener('click', abrir);
+  topo.appendChild(ver);
+  box.appendChild(topo);
+  ms.forEach(function(m){
+    var li = el('div', 'pj-lin');
+    var corpo = el('div', 'pj-corpo-lin');
+    corpo.appendChild(el('span', 'pj-t', m.descricao));
+    var meta = el('div', 'pj-m');
+    [dataCurta(m.data), m.conta, m.categoria].filter(Boolean).forEach(function(s){ meta.appendChild(el('span', null, s)); });
+    corpo.appendChild(meta);
+    li.appendChild(corpo);
+    var v = el('div', 'pj-r', (m.valor > 0 ? '+' : '') + pjEuros(m.valor));
+    v.style.color = m.valor > 0 ? 'var(--good)' : 'var(--ink)';
+    li.appendChild(v);
+    li.addEventListener('click', abrir);
     box.appendChild(li);
   });
 }
