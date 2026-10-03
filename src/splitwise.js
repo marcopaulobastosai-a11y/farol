@@ -326,4 +326,4 @@ function instalar(app, opcoes) {
   });
 }
 
-module.exports = { instalar, lancar, lerGrupos, quemSou, fecharContas, ativo: async () => Boolean(await chave()) };
+module.exports = { instalar, lancar, lerGrupos, quemSou, fecharContas, pedir, ativo: async () => Boolean(await chave()) };
