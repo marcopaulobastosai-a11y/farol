@@ -192,6 +192,20 @@ function fnBemJanela(b){
 function fn_financas_cc(corpo){
   fnCarregar(corpo, apiGestao('/api/financas/cc'), function(d){
     var ps = d.pessoas.filter(function(p){ return p.ativo; });
+    /* Estado (em aberto / saldadas / todas) e de onde vem (Splitwise ou contas
+       divididas no Farol, as pontuais). Por defeito, só as que estão em aberto. */
+    FN.ccEstado = FN.ccEstado || 'aberta';
+    FN.ccTipo = FN.ccTipo || 'todas';
+    var estadoDe = function(p){ return p.estado || (Math.abs(p.saldo) >= 0.01 ? 'aberta' : 'saldada'); };
+    var tipoDe = function(p){ return p.tipo || (p.splitwise_id ? 'splitwise' : 'farol'); };
+    var conta = function(est, tp){ return ps.filter(function(p){ return (est === 'todas' || estadoDe(p) === est) && (tp === 'todas' || tipoDe(p) === tp); }).length; };
+    var segE = h('div', { class: 'fn-seg', role: 'group', 'aria-label': 'Estado' }, [['aberta', 'Em aberto'], ['saldada', 'Saldadas'], ['todas', 'Todas']].map(function(o){
+      return h('button', { type: 'button', class: FN.ccEstado === o[0] ? 'on' : '', onclick: function(){ FN.ccEstado = o[0]; fnGuardar(); fnRender('financas'); } }, o[1] + ' · ' + conta(o[0], FN.ccTipo));
+    }));
+    var segT = h('div', { class: 'fn-seg', role: 'group', 'aria-label': 'De onde' }, [['todas', 'Todas'], ['splitwise', 'Splitwise'], ['farol', 'Pontuais (Farol)']].map(function(o){
+      return h('button', { type: 'button', class: FN.ccTipo === o[0] ? 'on' : '', onclick: function(){ FN.ccTipo = o[0]; fnGuardar(); fnRender('financas'); } }, o[1]);
+    }));
+    var vis = ps.filter(function(p){ return (FN.ccEstado === 'todas' || estadoDe(p) === FN.ccEstado) && (FN.ccTipo === 'todas' || tipoDe(p) === FN.ccTipo); });
     corpo.appendChild(h('div', { class: 'fn-barra' }, [
       h('span', { class: 'fn-nota' }, d.splitwise ? 'Lê o Splitwise sozinho todos os dias às 23:30' + (d.sync_em ? ' · última leitura ' + new Date(d.sync_em).toLocaleString('pt-PT', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '') + '.' : 'O Splitwise não está ligado (Administração › Splitwise). As contas correntes funcionam à mão.'),
       h('span', { class: 'fn-esp' }),
@@ -201,12 +215,18 @@ function fn_financas_cc(corpo){
     corpo.appendChild(h('div', { class: 'fn-kpis' }, [fnKpi('Devem-me', fnEur(d.a_receber), ps.filter(function(p){ return p.saldo > 0.005; }).length + ' pessoas', 'fn-good'),
       fnKpi('Devo eu', fnEur(d.a_pagar), ps.filter(function(p){ return p.saldo < -0.005; }).length + ' pessoas', d.a_pagar ? 'fn-bad' : ''),
       fnKpi('Líquido', fnEur(d.a_receber + d.a_pagar), 'entra no Património como «a receber»')]));
+    corpo.appendChild(h('div', { class: 'fn-barra', style: 'gap:8px;flex-wrap:wrap' }, [segE, segT]));
     var linha = h('div', { class: 'fn-linha', style: 'align-items:flex-start' });
     var tb = h('tbody');
-    ps.sort(function(a, b){ return Math.abs(b.saldo) - Math.abs(a.saldo); }).forEach(function(p){
+    vis.sort(function(a, b){ return Math.abs(b.saldo) - Math.abs(a.saldo) || (b.ultimo || '').localeCompare(a.ultimo || ''); }).forEach(function(p){
       var grupos = (p.por_grupo || []).map(function(g){ return h('span', { class: 'fn-pill', style: 'margin:1px' }, g.nome + ' ' + fnEur(g.saldo, true)); });
+      /* As contas divididas no Farol: de que é o que a pessoa deve. */
+      (p.contas || []).slice(0, 3).forEach(function(c){
+        grupos.push(h('span', { class: 'fn-pill tr', style: 'margin:1px', title: fnData(c.data) + (c.total ? ' · total ' + fnEur(c.total) : '') }, (c.descricao.length > 34 ? c.descricao.slice(0, 33) + '…' : c.descricao) + ' ' + fnEur(c.valor, true)));
+      });
+      if ((p.contas || []).length > 3) grupos.push(h('span', { class: 'fn-muted', style: 'font-size:.75rem;margin-left:4px' }, '+' + (p.contas.length - 3)));
       tb.appendChild(h('tr', { class: 'clic' + (FN.ccAberta === p.id ? ' on' : ''), onclick: function(){ FN.ccAberta = FN.ccAberta === p.id ? null : p.id; fnRender('financas'); } }, [
-        h('td', null, [h('b', { style: 'font-weight:500' }, p.nome), h('small', { style: 'display:block' }, p.splitwise_id ? 'Splitwise' + (p.saldo_tu ? ' + contas no Farol' : '') : 'no Farol')]),
+        h('td', null, [h('b', { style: 'font-weight:500' }, p.nome), h('small', { style: 'display:block' }, p.splitwise_id ? 'Splitwise' + (p.saldo_tu ? ' + contas no Farol' : '') : 'Pontual')]),
         h('td', null, grupos.length ? grupos : h('span', { class: 'fn-muted' }, '—')),
         h('td', { style: 'font-size:.75rem' }, p.ultimo ? fnData(p.ultimo) : '—'),
         h('td', { class: 'r ' + (p.saldo > 0.005 ? 'fn-good' : p.saldo < -0.005 ? 'fn-bad' : '') }, Math.abs(p.saldo) < 0.005 ? 'acertado' : fnEur(p.saldo, true)),
@@ -215,11 +235,12 @@ function fn_financas_cc(corpo){
     });
     var cartao = h('div', { class: 'card largo', style: 'padding:6px 10px' });
     if (!ps.length) cartao.appendChild(fnVazio('Ainda ninguém.', d.splitwise ? 'Carrega em «Ler o Splitwise agora», ou junta uma pessoa à mão.' : 'Junta as pessoas com quem divides dinheiro.'));
-    else cartao.appendChild(h('div', { class: 'fn-scroll' }, [h('table', { class: 'fn-tab', style: 'min-width:600px' }, [h('thead', null, [h('tr', null, [h('th', null, 'Pessoa'), h('th', null, 'Por grupo'), h('th', null, 'Último'), h('th', { class: 'r' }, 'Saldo'), h('th')])]), tb])]));
+    else if (!vis.length) cartao.appendChild(fnVazio(FN.ccEstado === 'aberta' ? 'Nada em aberto.' : 'Ninguém aqui.', 'Muda o filtro acima para ver as outras.'));
+    else cartao.appendChild(h('div', { class: 'fn-scroll' }, [h('table', { class: 'fn-tab', style: 'min-width:600px' }, [h('thead', null, [h('tr', null, [h('th', null, 'Pessoa'), h('th', null, 'Por grupo ou conta'), h('th', null, 'Último'), h('th', { class: 'r' }, 'Saldo'), h('th')])]), tb])]));
     cartao.appendChild(h('p', { class: 'fn-nota', style: 'padding:8px' }, 'Saldo positivo: a pessoa deve-te. Negativo: deves tu. Nas pessoas do Splitwise o saldo é o do Splitwise, mais as contas divididas no Farol e o que lançares aqui à mão.'));
     linha.appendChild(cartao);
     var painel = h('div', { class: 'card fn-painel' });
-    var ab = ps.filter(function(p){ return p.id === FN.ccAberta; })[0];
+    var ab = vis.filter(function(p){ return p.id === FN.ccAberta; })[0];
     if (ab) fnPainelCc(painel, ab); else painel.appendChild(h('p', { class: 'fn-nota' }, 'Escolhe uma pessoa para ver os movimentos e lançar acertos.'));
     linha.appendChild(painel);
     corpo.appendChild(linha);
