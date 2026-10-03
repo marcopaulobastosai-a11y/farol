@@ -124,6 +124,10 @@ var FN_CSS =
   '.fn-movtab .d2{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}' +
   '.fn-movtab td.r{font-size:.875rem;font-weight:500}.fn-movtab .fn-area{font-size:.75rem;white-space:nowrap;text-overflow:ellipsis}' +
   '.fn-movtab .fn-pill{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block;vertical-align:middle}' +
+  '.fn-dq{display:inline-flex;align-items:center;gap:6px;max-width:100%;padding:2px 6px 2px 2px;border-radius:999px;border:1px solid transparent;background:none;font:inherit;font-size:.8125rem;color:var(--ink);cursor:pointer;white-space:nowrap;overflow:hidden}' +
+  '.fn-dq span:last-child{overflow:hidden;text-overflow:ellipsis}.fn-dq .ib-av{width:22px;height:22px;font-size:.625rem;flex:none}' +
+  '.fn-dq:hover{border-color:var(--line);background:var(--ground)}.fn-dq.vazio{color:var(--muted);font-size:.75rem;padding:2px 8px;opacity:.55}' +
+  'tr:hover .fn-dq.vazio{opacity:1}' +
   '@media (max-width:720px){.fn-big{font-size:1.7rem}.fn-tab .d{max-width:200px}.fn-movtab .d{max-width:100%}}';
 
 /* ---------------- utilitários ---------------- */
