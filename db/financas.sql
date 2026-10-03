@@ -188,6 +188,52 @@ CREATE INDEX IF NOT EXISTS fin_partes_mov_idx ON fin_mov_partes (movimento_id);
 ALTER TABLE fin_cc_mov ADD COLUMN IF NOT EXISTS parte_id INTEGER REFERENCES fin_mov_partes(id) ON DELETE CASCADE;
 CREATE INDEX IF NOT EXISTS fin_cc_parte_idx ON fin_cc_mov (parte_id) WHERE parte_id IS NOT NULL;
 
+-- Contas correntes: cada grupo do Splitwise e uma conta corrente com os seus
+-- membros (uma pessoa pode estar em varias). O que nao e de nenhum grupo fica
+-- na conta direta com essa pessoa (pessoa_direta_id). Tambem se criam contas
+-- so do Farol, com quem se quiser.
+CREATE TABLE IF NOT EXISTS fin_cc_contas (
+  id                 SERIAL PRIMARY KEY,
+  nome               TEXT NOT NULL,
+  splitwise_grupo_id BIGINT UNIQUE,
+  pessoa_direta_id   INTEGER UNIQUE REFERENCES fin_cc_pessoas(id) ON DELETE CASCADE,
+  ativo              BOOLEAN NOT NULL DEFAULT TRUE,
+  nota               TEXT,
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS fin_cc_membros (
+  conta_id  INTEGER NOT NULL REFERENCES fin_cc_contas(id) ON DELETE CASCADE,
+  pessoa_id INTEGER NOT NULL REFERENCES fin_cc_pessoas(id) ON DELETE CASCADE,
+  PRIMARY KEY (conta_id, pessoa_id)
+);
+ALTER TABLE fin_cc_mov ADD COLUMN IF NOT EXISTS conta_id INTEGER REFERENCES fin_cc_contas(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS fin_cc_mov_conta_idx ON fin_cc_mov (conta_id) WHERE conta_id IS NOT NULL;
+
+-- Contas partilhadas: um ou mais pagamentos do banco divididos com outros.
+-- Quanto paga o Marco (minha, pode ser zero) e as linhas de cada pessoa, que
+-- sao as partes (fin_mov_partes) com a conta corrente onde ficam. Quando a
+-- conta corrente e do Splitwise, a despesa vai para la (splitwise guarda, por
+-- conta corrente, o id da despesa e se foi o Farol que a criou).
+CREATE TABLE IF NOT EXISTS fin_partilhas (
+  id           SERIAL PRIMARY KEY,
+  movimento_id INTEGER REFERENCES fin_movimentos(id) ON DELETE CASCADE,
+  descricao    TEXT NOT NULL,
+  data         DATE NOT NULL,
+  total        NUMERIC(14,2) NOT NULL,
+  minha        NUMERIC(14,2) NOT NULL DEFAULT 0,
+  iguais       BOOLEAN NOT NULL DEFAULT FALSE,
+  categoria_id INTEGER REFERENCES fin_categorias(id) ON DELETE SET NULL,
+  splitwise    JSONB,
+  nota         TEXT,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS fin_partilhas_mov_idx ON fin_partilhas (movimento_id);
+ALTER TABLE fin_mov_partes ADD COLUMN IF NOT EXISTS partilha_id INTEGER REFERENCES fin_partilhas(id) ON DELETE CASCADE;
+ALTER TABLE fin_mov_partes ADD COLUMN IF NOT EXISTS cc_conta_id INTEGER REFERENCES fin_cc_contas(id) ON DELETE SET NULL;
+-- A linha vai para o Splitwise (na conta corrente dela) ou fica so no Farol.
+ALTER TABLE fin_mov_partes ADD COLUMN IF NOT EXISTS sw BOOLEAN NOT NULL DEFAULT FALSE;
+CREATE INDEX IF NOT EXISTS fin_partes_partilha_idx ON fin_mov_partes (partilha_id) WHERE partilha_id IS NOT NULL;
+
 -- Categorias de partida, genericas, uma vez so. Depois disso a lista e do
 -- Marco: o que ele apagar nao volta.
 DO $$
