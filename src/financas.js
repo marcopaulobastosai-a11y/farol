@@ -50,6 +50,11 @@ async function preparar() {
     await query(fs.readFileSync(path.join(__dirname, '..', 'db', 'financas.sql'), 'utf8'));
     await query('ALTER TABLE fin_movimentos ADD COLUMN IF NOT EXISTS categoria_em TIMESTAMPTZ');
     console.log('[farol] financas: tabelas prontas.');
+    /* O dinheiro que uma pessoa manda nao e uma venda: as sugestoes do modelo
+       para essas entradas saem (ficam para a sugestao de conta dividida). */
+    const velhas = await all(`SELECT id, descricao FROM fin_movimentos WHERE categoria_id IS NULL AND ia_fonte = 'modelo' AND valor > 0 AND valor <= 300`);
+    const limpar = velhas.filter((m) => cc.pagador(m.descricao)).map((m) => m.id);
+    if (limpar.length) await query('UPDATE fin_movimentos SET ia_categoria_id = NULL, ia_confianca = NULL, ia_fonte = NULL WHERE id = ANY($1::int[])', [limpar]);
     cc.arrancar();
   } catch (e) {
     console.error('[farol] financas: as tabelas nao subiram:', e.message);
@@ -278,7 +283,10 @@ async function categorizar(ids, opcoes) {
 
   /* 3. O modelo, para o que sobrou, aos lotes. */
   let nModelo = 0;
-  const paraModelo = resto.filter((m) => !sug[m.id]);
+  /* Pequenas entradas de pessoas (MB Way, transferencias) nao vao ao modelo:
+     sao quase sempre alguem a devolver dinheiro, e isso decide-se com a
+     conta dividida, nao com uma categoria de receita. */
+  const paraModelo = resto.filter((m) => !sug[m.id] && !(Number(m.valor) > 0 && Number(m.valor) <= 300 && cc.pagador(m.descricao)));
   if (CHAVE && paraModelo.length && o.modelo !== false) {
     const lista = B.cats.filter((c) => c.ativo).map((c) => c.id + ': ' + c.grupo + ' › ' + c.nome + ' (' + c.natureza + ')').join('\n');
     for (let i = 0; i < paraModelo.length; i += 40) {
@@ -893,8 +901,15 @@ function instalar(app) {
       if (entradas.length) {
         const ab = await cc.abertos();
         if (ab.length) entradas.forEach((m) => { const r = cc.reembolsoDe(m, ab); if (r.length) m.reembolso = r[0]; });
+        /* Sem nada registado: pode ser a parte de uma conta que o Marco pagou. */
+        const semDono = entradas.filter((m) => !m.reembolso);
+        if (semDono.length) {
+          const sd = await cc.sugerirDivisoes(semDono);
+          semDono.forEach((m) => { if (sd[m.id]) m.divisao = sd[m.id]; });
+        }
+        entradas.forEach((m) => { m.pagador = cc.pagador(m.descricao); });
       }
-      if (q.estado === 'reembolsos') lista = lista.filter((m) => m.reembolso);
+      if (q.estado === 'reembolsos') lista = lista.filter((m) => m.reembolso || m.divisao);
       res.json({ movimentos: lista });
     } catch (e) { falha(res, e, 'os movimentos'); }
   });
@@ -982,9 +997,54 @@ function instalar(app) {
     try {
       const m = (await all("SELECT id, to_char(data,'YYYY-MM-DD') AS data, descricao, valor FROM fin_movimentos WHERE id = $1", [req.params.id]))[0];
       if (!m) throw erro(404, 'Movimento não encontrado.');
-      if (Number(m.valor) > 0) return res.json({ candidatos: [], pessoas: cc.reembolsoDe(m, await cc.abertos()) });
+      if (Number(m.valor) > 0) {
+        /* Uma entrada: quem pode estar a devolver, a conta de que pode ser a
+           parte, e os pagamentos dos dias antes para escolher a mao. */
+        const debitos = (await all(
+          `SELECT m.id, to_char(m.data,'YYYY-MM-DD') AS data, m.descricao, m.valor,
+                  EXISTS (SELECT 1 FROM fin_mov_partes p WHERE p.movimento_id = m.id) AS dividido
+             FROM fin_movimentos m WHERE m.valor < -($2::numeric) AND m.data BETWEEN $1::date - 21 AND $1::date + 1
+            ORDER BY m.data DESC, m.id DESC LIMIT 25`, [m.data, Number(m.valor)])).map((d) => Object.assign(d, { valor: Number(d.valor) }));
+        const sd = await cc.sugerirDivisoes([m]);
+        return res.json({ candidatos: [], pessoas: cc.reembolsoDe(m, await cc.abertos()), pagador: cc.pagador(m.descricao),
+          divisao: sd[m.id] || null, debitos });
+      }
       res.json({ candidatos: await candidatos(m), pessoas: [] });
     } catch (e) { falha(res, e, 'a reconciliação'); }
+  });
+
+  /* Uma ou mais entradas sao a parte de pessoas numa conta que o Marco pagou:
+     divide-se o pagamento (juntando-as as partes que ja la estivessem) e cada
+     entrada liga-se como reembolso. Tudo de uma vez, sem nada registado antes. */
+  app.post('/api/financas/movimentos/:id(\\d+)/devolucao', async (req, res) => {
+    try {
+      const b = req.body || {};
+      const deb = (await all('SELECT id, valor, categoria_id, ia_categoria_id FROM fin_movimentos WHERE id = $1', [b.debito_id]))[0];
+      if (!deb || Number(deb.valor) >= 0) throw erro(400, 'Escolhe o pagamento que foi dividido.');
+      const pedidos = (b.creditos && b.creditos.length ? b.creditos : [{ id: Number(req.params.id) }]);
+      const ids = pedidos.map((x) => Number(x.id)).filter(Boolean);
+      const cs = await all('SELECT id, descricao, valor FROM fin_movimentos WHERE id = ANY($1::int[]) AND valor > 0', [ids]);
+      if (!cs.length) throw erro(400, 'Nenhuma entrada para ligar.');
+      const novos = [];
+      for (const c of cs) {
+        const pedido = pedidos.find((x) => Number(x.id) === c.id) || {};
+        const nome = String(pedido.nome || cc.pagador(c.descricao) || '').trim();
+        if (!nome) throw erro(400, 'Falta o nome de quem mandou «' + c.descricao + '».');
+        novos.push({ credito: c.id, pessoa_id: await cc.resolverPessoa(nome), valor: cent(c.valor) });
+      }
+      const atuais = await all('SELECT pessoa_id, valor, categoria_id FROM fin_mov_partes WHERE movimento_id = $1', [deb.id]);
+      const outros = atuais.filter((p) => p.pessoa_id && !novos.some((n) => n.pessoa_id === p.pessoa_id))
+        .map((p) => ({ pessoa_id: p.pessoa_id, valor: -Number(p.valor) }))
+        .concat(novos.map((n) => ({ pessoa_id: n.pessoa_id, valor: n.valor })));
+      const minhaCat = (atuais.find((p) => !p.pessoa_id) || {}).categoria_id || b.categoria_id || deb.categoria_id || deb.ia_categoria_id || null;
+      const r = await cc.dividir(deb.id, { outros, categoria_id: minhaCat });
+      for (const n of novos) {
+        await cc.ligarMovimento(n.credito, n.pessoa_id);
+        await query(`UPDATE fin_movimentos SET categoria_id = (SELECT id FROM fin_categorias WHERE natureza = 'transferencia' AND nome ILIKE '%acerto%' ORDER BY id LIMIT 1),
+                       categoria_fonte = 'tu', categoria_em = now(), ia_categoria_id = NULL WHERE id = $1`, [n.credito]);
+      }
+      res.json(Object.assign(r, { ligados: novos.length }));
+    } catch (e) { falha(res, e, 'a devolução'); }
   });
 
   /* Dividir a conta: a parte do Marco e a de cada pessoa. */
