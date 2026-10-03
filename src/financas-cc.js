@@ -189,6 +189,19 @@ async function resumo() {
     }
     return x;
   });
+  /* As contas divididas no Farol de cada pessoa: para se ver, ao lado do
+     nome, de que contas e o que deve (o jantar, as viagens de Uber). */
+  const contas = await all(
+    `SELECT c.pessoa_id, to_char(c.data,'YYYY-MM-DD') AS data, c.descricao, c.valor, c.total, pt.movimento_id
+       FROM fin_cc_mov c LEFT JOIN fin_mov_partes pt ON pt.id = c.parte_id
+      WHERE c.origem = 'partilha' AND NOT c.apagado ORDER BY c.data DESC, c.id DESC`);
+  pessoas.forEach((p) => {
+    p.tipo = p.splitwise_id ? 'splitwise' : 'farol';
+    p.contas = contas.filter((c) => c.pessoa_id === p.id).slice(0, 6)
+      .map((c) => ({ data: c.data, descricao: c.descricao, valor: cent(c.valor), total: c.total == null ? null : cent(c.total), movimento_id: c.movimento_id }));
+    /* Em aberto: ha saldo por acertar. Saldada: ja nao deve nem se lhe deve. */
+    p.estado = Math.abs(p.saldo) >= 0.01 ? 'aberta' : 'saldada';
+  });
   const ativos = pessoas.filter((p) => p.ativo);
   return {
     pessoas,
@@ -413,7 +426,7 @@ function pagador(desc) {
 }
 
 /* Uma entrada de uma pessoa que pode ser a parte dela numa conta que o Marco
-   pagou, sem nada registado antes: procura-se um pagamento nos 12 dias antes
+   pagou, sem nada registado antes: procura-se um pagamento nos 12 dias antes (ou ate 10 dias depois, no cartao)
    cujo valor seja um multiplo exato do que entrou (jantar de 38,70 EUR, tres
    pessoas, 12,90 cada), contando quem mais mandou o mesmo valor por esses
    dias. Se o pagamento ja esta dividido com partes iguais, sugere juntar a
@@ -426,7 +439,7 @@ async function sugerirDivisoes(creditos) {
   const de = datas[0], ate = datas[datas.length - 1];
   const debs = await all(
     `SELECT id, to_char(data,'YYYY-MM-DD') AS data, descricao, valor, categoria_id, ia_categoria_id FROM fin_movimentos
-      WHERE valor < 0 AND data BETWEEN $1::date - 12 AND $2::date + 1
+      WHERE valor < 0 AND data BETWEEN $1::date - 12 AND $2::date + 10
         AND conta_id IN (SELECT id FROM fin_contas WHERE pessoal)`, [de, ate]);
   const pts = await all(
     `SELECT p.movimento_id, p.valor, p.pessoa_id, cp.nome FROM fin_mov_partes p LEFT JOIN fin_cc_pessoas cp ON cp.id = p.pessoa_id
@@ -448,7 +461,8 @@ async function sugerirDivisoes(creditos) {
     let melhor = null;
     for (const d of debs) {
       const dd = dias(c.data, d.data);
-      if (dd < -1 || dd > 12) continue;
+      /* O cartao lanca a compra ate uns dias depois da transferencia. */
+      if (dd < -10 || dd > 12) continue;
       const total = cent(-Number(d.valor));
       const partes = pts.filter((p) => p.movimento_id === d.id);
       let conf, k, juntar = false, quem = pagos;
@@ -470,7 +484,7 @@ async function sugerirDivisoes(creditos) {
         if (k < pagos.length + 1) continue;
         conf = k === pagos.length + 1 ? (pagos.length >= 2 ? 0.92 : 0.78) : Math.max(0.5, 0.72 - 0.04 * (k - pagos.length - 1));
       }
-      conf = Math.max(0, conf - 0.02 * Math.max(0, dd));
+      conf = Math.max(0, conf - 0.02 * Math.abs(dd));
       if (!melhor || conf > melhor.confianca) {
         melhor = { movimento_id: d.id, descricao: d.descricao, data: d.data, total, parte: c.valor, pessoas: k, juntar,
           categoria_id: d.categoria_id || d.ia_categoria_id || null, confianca: cent(conf),
@@ -493,12 +507,62 @@ async function abertos() {
       WHERE p.ativo GROUP BY p.id`);
   const partes = await all(
     `SELECT pessoa_id, to_char(data,'YYYY-MM-DD') AS data, descricao, valor FROM fin_cc_mov
-      WHERE origem = 'partilha' AND NOT apagado AND data >= CURRENT_DATE - 240`);
+      WHERE origem = 'partilha' AND NOT apagado AND data >= CURRENT_DATE - 400`);
   return ps.filter((p) => Number(p.aberto) > 0.005).map((p) => ({
     id: p.id, nome: p.nome, aberto: cent(p.aberto),
     nomes: norm(p.nome).split(' ').filter((t) => t.length >= 3 && !NAO_NOMES.has(t)),
     partes: partes.filter((x) => x.pessoa_id === p.id).map((x) => ({ data: x.data, descricao: x.descricao, valor: cent(x.valor) }))
   }));
+}
+
+function somaDias(iso, n) {
+  const d = new Date(iso + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+/* As contas divididas que ainda tem alguem por pagar, cada uma com as pessoas
+   e a parte de cada uma: para ligar uma entrada a uma conta que ja existe.
+   Uma pessoa conta como «por pagar» enquanto o saldo dela fora do Splitwise
+   for positivo. */
+async function contasEmAberto() {
+  const ab = {};
+  (await abertos()).forEach((p) => { ab[p.id] = p.aberto; });
+  const linhas = await all(
+    `SELECT pt.movimento_id, c.pessoa_id, p.nome, to_char(m.data,'YYYY-MM-DD') AS data, c.descricao, c.valor, c.total
+       FROM fin_cc_mov c JOIN fin_mov_partes pt ON pt.id = c.parte_id
+       JOIN fin_movimentos m ON m.id = pt.movimento_id JOIN fin_cc_pessoas p ON p.id = c.pessoa_id
+      WHERE c.origem = 'partilha' AND NOT c.apagado AND m.data >= CURRENT_DATE - 400
+      ORDER BY m.data DESC, pt.movimento_id, p.nome`);
+  const porMov = new Map();
+  linhas.forEach((l) => {
+    if (!porMov.has(l.movimento_id)) porMov.set(l.movimento_id, { movimento_id: l.movimento_id, data: l.data, descricao: l.descricao, total: cent(l.total), pessoas: [] });
+    porMov.get(l.movimento_id).pessoas.push({ pessoa_id: l.pessoa_id, nome: l.nome, valor: cent(l.valor), deve: cent(ab[l.pessoa_id] || 0) });
+  });
+  return Array.from(porMov.values()).filter((c) => c.pessoas.some((p) => p.deve > 0.005)).slice(0, 40);
+}
+
+/* Uma entrada de alguem com quem ainda nao ha conta corrente: cria-se (ou
+   reaproveita-se, se o nome ja existir) e a entrada liga-se a ela.
+   - 'parte': a parte dela numa conta que o Marco pagou fora do Farol (em
+     dinheiro, noutra conta): lanca-se o que devia e a entrada acerta-o.
+   - 'adiantou': emprestou ou adiantou dinheiro; fica o Marco a dever. */
+async function novaComEntrada(movimentoId, b) {
+  const m = (await all("SELECT id, to_char(data,'YYYY-MM-DD') AS data, descricao, valor FROM fin_movimentos WHERE id = $1", [movimentoId]))[0];
+  if (!m) throw erro(404, 'Movimento não encontrado.');
+  if (!(Number(m.valor) > 0)) throw erro(400, 'Só para dinheiro que entrou.');
+  const nome = String((b && b.nome) || pagador(m.descricao) || '').trim().slice(0, 120);
+  if (!nome) throw erro(400, 'Falta o nome.');
+  const tipo = b && b.tipo === 'adiantou' ? 'adiantou' : 'parte';
+  const pessoaId = await resolverPessoa(nome);
+  if (tipo === 'parte') {
+    const desc = String((b && b.descricao) || '').trim().slice(0, 200) || ('Parte de uma conta · ' + m.descricao);
+    await query(`INSERT INTO fin_cc_mov (pessoa_id, data, descricao, valor, origem) VALUES ($1, $2, $3, $4, 'tu')`, [pessoaId, m.data, desc, cent(m.valor)]);
+  }
+  await ligarMovimento(m.id, pessoaId);
+  /* A parte lancada e o acerto dela contam os dois, tambem para quem esta no
+     Splitwise (o Splitwise nunca os viu). */
+  if (tipo === 'parte') await query(`UPDATE fin_cc_mov SET origem = 'reembolso' WHERE movimento_id = $1`, [m.id]);
+  return { pessoa_id: pessoaId, nome, tipo };
 }
 
 /* Quem pode ter feito esta transferencia para devolver uma conta: o nome na
@@ -511,7 +575,9 @@ function reembolsoDe(m, lista) {
   const out = [];
   for (const p of lista) {
     const nomes = p.nomes.filter((t) => desc.indexOf(' ' + t + ' ') >= 0);
-    const igual = p.partes.find((x) => Math.abs(x.valor - v) < 0.006 && x.data <= m.data);
+    /* O cartao de credito lanca a compra uns dias depois: a parte pode ter
+       data posterior a da transferencia com que a pessoa a devolveu. */
+    const igual = p.partes.find((x) => Math.abs(x.valor - v) < 0.006 && x.data <= somaDias(m.data, 10));
     let conf = 0;
     const porque = [];
     if (nomes.length) { conf += nomes.length >= 2 ? 0.62 : 0.3; porque.push(nomes.length >= 2 ? 'o nome está na descrição' : 'um dos nomes está na descrição'); }
@@ -524,4 +590,5 @@ function reembolsoDe(m, lista) {
 }
 
 module.exports = { instalar, arrancar, sincronizar, resumo, saldoTotalEm, ligarMovimento,
-  dividir, desfazerDivisao, categoriaDaMinhaParte, abertos, reembolsoDe, pagador, resolverPessoa, sugerirDivisoes };
+  dividir, desfazerDivisao, categoriaDaMinhaParte, abertos, reembolsoDe, pagador, resolverPessoa, sugerirDivisoes,
+  contasEmAberto, novaComEntrada };
