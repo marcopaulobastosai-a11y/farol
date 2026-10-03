@@ -2186,7 +2186,9 @@ var AE_NAV_CSS =
   '.nav button.is-active.ae-com-sub{background:none}' +
   '@media (max-width: 900px){.nav .ae-nsubs,.nav .ae-nseta{display:none}}';
 
-var AE_NAV_FECHADO = aeLerGuardado('aeNavFechado');
+/* Chave nova a 3 out: o que estava guardado com as sub-areas abertas por
+   omissao nao conta, e todas comecam recolhidas. */
+var AE_NAV_FECHADO = aeLerGuardado('aeNavRecolhido');
 
 function aeNavEstilo(){
   if (document.getElementById('aeNavCss')) return;
@@ -2244,7 +2246,7 @@ function aeNavMontar(){
         seta.classList.toggle('fechado', cx.hidden);
         seta.title = cx.hidden ? 'Mostrar as sub-áreas' : 'Recolher as sub-áreas';
         AE_NAV_FECHADO[a.view] = cx.hidden;
-        aeGuardar('aeNavFechado', AE_NAV_FECHADO);
+        aeGuardar('aeNavRecolhido', AE_NAV_FECHADO);
       });
       b.appendChild(seta);
     }
