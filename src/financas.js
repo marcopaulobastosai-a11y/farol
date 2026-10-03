@@ -1057,18 +1057,64 @@ function instalar(app) {
       if (Number(m.valor) > 0) {
         /* Uma entrada: quem pode estar a devolver, a conta de que pode ser a
            parte, e os pagamentos dos dias antes para escolher a mao. */
-        const debitos = (await all(
-          `SELECT m.id, to_char(m.data,'YYYY-MM-DD') AS data, m.descricao, m.valor,
-                  EXISTS (SELECT 1 FROM fin_mov_partes p WHERE p.movimento_id = m.id) AS dividido
-             FROM fin_movimentos m JOIN fin_contas c ON c.id = m.conta_id AND c.pessoal
-            WHERE m.valor < -($2::numeric) AND m.data BETWEEN $1::date - 21 AND $1::date + 1
-            ORDER BY m.data DESC, m.id DESC LIMIT 25`, [m.data, Number(m.valor)])).map((d) => Object.assign(d, { valor: Number(d.valor) }));
         const sd = await cc.sugerirDivisoes([m]);
+        const r = await cc.resumo();
+        /* As contas correntes em aberto (Splitwise e do Farol), para ligar a
+           entrada a uma que ja existe; e as contas divididas por pagar. */
+        const devedores = r.pessoas.filter((p) => p.ativo && p.saldo > 0.005)
+          .map((p) => ({ pessoa_id: p.id, nome: p.nome, saldo: p.saldo, tipo: p.tipo }));
         return res.json({ candidatos: [], pessoas: cc.reembolsoDe(m, await cc.abertos()), pagador: cc.pagador(m.descricao),
-          divisao: sd[m.id] || null, debitos });
+          divisao: sd[m.id] || null, contas: await cc.contasEmAberto(), devedores,
+          todas: r.pessoas.filter((p) => p.ativo).map((p) => ({ pessoa_id: p.id, nome: p.nome, saldo: p.saldo, tipo: p.tipo })) });
       }
       res.json({ candidatos: await candidatos(m), pessoas: [] });
     } catch (e) { falha(res, e, 'a reconciliação'); }
+  });
+
+  /* Os pagamentos de que uma entrada pode ser a parte: das contas pessoais,
+     por texto e por periodo. Primeiro os que dao conta certa (o valor e um
+     multiplo exato do que entrou: 38,70 = 3 x 12,90), depois por data. */
+  app.get('/api/financas/movimentos/:id(\\d+)/pagamentos', async (req, res) => {
+    try {
+      const m = (await all("SELECT id, to_char(data,'YYYY-MM-DD') AS data, valor FROM fin_movimentos WHERE id = $1", [req.params.id]))[0];
+      if (!m) throw erro(404, 'Movimento não encontrado.');
+      const v = cent(Math.abs(Number(m.valor)));
+      const dias = Math.min(400, Math.max(3, Number(req.query.dias) || 45));
+      const texto = String(req.query.q || '').trim().slice(0, 60);
+      const ps = [m.data, dias];
+      let extra = '';
+      if (texto) { ps.push('%' + texto.replace(/[%_]/g, ' ') + '%'); extra += ' AND (d.descricao ILIKE $' + ps.length + ' OR d.nota ILIKE $' + ps.length + ')'; }
+      const debs = (await all(
+        `SELECT d.id, to_char(d.data,'YYYY-MM-DD') AS data, d.descricao, d.valor, c.nome AS conta,
+                COALESCE(k.nome, ki.nome) AS categoria,
+                EXISTS (SELECT 1 FROM fin_mov_partes p WHERE p.movimento_id = d.id) AS dividido
+           FROM fin_movimentos d JOIN fin_contas c ON c.id = d.conta_id AND c.pessoal
+           LEFT JOIN fin_categorias k ON k.id = d.categoria_id LEFT JOIN fin_categorias ki ON ki.id = d.ia_categoria_id
+          WHERE d.valor < 0 AND d.data BETWEEN $1::date - $2::int AND $1::date + 10` + extra + `
+            AND NOT EXISTS (SELECT 1 FROM fin_cc_mov x WHERE x.movimento_id = d.id)
+          ORDER BY d.data DESC, d.id DESC LIMIT 400`, ps)).map((d) => {
+        const t = cent(-Number(d.valor));
+        const k = v > 0 ? Math.round(t / v) : 0;
+        const vezes = k >= 2 && k <= 12 && Math.abs(t - k * v) <= 0.011 * k ? k : null;
+        const dd = Math.round((new Date(d.data) - new Date(m.data)) / 86400000);
+        return { id: d.id, data: d.data, descricao: d.descricao, valor: -t, conta: d.conta, categoria: d.categoria, dividido: d.dividido, vezes, dias: dd };
+      });
+      const so = req.query.so === 'certos';
+      const lista = debs.filter((d) => !so || d.vezes || d.dividido)
+        .sort((a, b) => (b.vezes ? 1 : 0) - (a.vezes ? 1 : 0) || Math.abs(a.dias) - Math.abs(b.dias) || (a.data < b.data ? 1 : -1))
+        .slice(0, 120);
+      res.json({ pagamentos: lista, total: debs.length, dias });
+    } catch (e) { falha(res, e, 'os pagamentos'); }
+  });
+
+  /* Uma entrada de alguem sem conta corrente: cria-a a partir da entrada. */
+  app.post('/api/financas/movimentos/:id(\\d+)/nova-cc', async (req, res) => {
+    try {
+      const r = await cc.novaComEntrada(Number(req.params.id), req.body || {});
+      await query(`UPDATE fin_movimentos SET categoria_id = (SELECT id FROM fin_categorias WHERE natureza = 'transferencia' AND nome ILIKE '%acerto%' ORDER BY id LIMIT 1),
+                     categoria_fonte = 'tu', categoria_em = now(), ia_categoria_id = NULL WHERE id = $1`, [Number(req.params.id)]);
+      res.json(r);
+    } catch (e) { falha(res, e, 'a conta corrente nova'); }
   });
 
   /* Uma ou mais entradas sao a parte de pessoas numa conta que o Marco pagou:
