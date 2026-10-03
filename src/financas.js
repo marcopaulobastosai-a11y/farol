@@ -787,6 +787,57 @@ async function repartir(debIds, pessoas, opcoes) {
   return { minha: cent(minha), outros: cent(outrosT), pagamentos: feitos.length, pessoas: pessoas.length };
 }
 
+/* As sugestoes de reembolso e de conta dividida para as entradas de uma
+   lista (so contas pessoais: numa empresa, quem manda dinheiro e cliente). */
+async function sugestoesDeEntradas(lista, B) {
+  const out = {};
+  const entradas = lista.filter((m) => m.valor > 0 && !m.cc_pessoa_id && (!m.categoria_id || natureza(m, B) === 'receita') &&
+    B.contaPor[m.conta_id] && B.contaPor[m.conta_id].pessoal);
+  if (!entradas.length) return out;
+  entradas.forEach((m) => { out[m.id] = { pagador: cc.pagador(m.descricao) }; });
+  const ab = await cc.abertos();
+  if (ab.length) entradas.forEach((m) => { const r = cc.reembolsoDe(m, ab); if (r.length) out[m.id].reembolso = r[0]; });
+  /* Sem nada registado: pode ser a parte de uma conta que o Marco pagou. */
+  const semDono = entradas.filter((m) => !out[m.id].reembolso);
+  if (semDono.length) {
+    const sd = await cc.sugerirDivisoes(semDono);
+    semDono.forEach((m) => { if (sd[m.id]) out[m.id].divisao = sd[m.id]; });
+  }
+  return out;
+}
+
+/* O detalhe completo de uns movimentos, pela ordem dos ids. */
+async function detalharMovimentos(ids, B, sug) {
+  if (!ids.length) return [];
+  const rows = await all(
+    `SELECT m.id, m.conta_id, to_char(m.data,'YYYY-MM-DD') AS data, m.descricao, m.valor, m.saldo, m.categoria_id, m.categoria_fonte,
+            m.context_id, m.person_id, m.expense_id, m.ia_categoria_id, m.ia_confianca, m.ia_fonte, m.nota, m.origem,
+            e.description AS despesa, (e.document_id IS NOT NULL) AS despesa_papel, e.splitwise_id::text AS despesa_splitwise,
+            ccm.pessoa_id AS cc_pessoa_id, ccp.nome AS cc_pessoa, ccm.origem AS cc_origem,
+            (SELECT json_agg(json_build_object('id', pt.id, 'valor', pt.valor, 'categoria_id', pt.categoria_id,
+                                               'pessoa_id', pt.pessoa_id, 'pessoa', cp2.nome) ORDER BY pt.id)
+               FROM fin_mov_partes pt LEFT JOIN fin_cc_pessoas cp2 ON cp2.id = pt.pessoa_id
+              WHERE pt.movimento_id = m.id) AS partes
+       FROM fin_movimentos m
+       LEFT JOIN expenses e ON e.id = m.expense_id
+       LEFT JOIN fin_cc_mov ccm ON ccm.movimento_id = m.id
+       LEFT JOIN fin_cc_pessoas ccp ON ccp.id = ccm.pessoa_id
+      WHERE m.id = ANY($1::int[])`, [ids]);
+  const por = {};
+  rows.forEach((m) => {
+    Object.assign(m, {
+      valor: Number(m.valor), saldo: m.saldo == null ? null : Number(m.saldo), ia_confianca: m.ia_confianca == null ? null : Number(m.ia_confianca),
+      cc_ligado: Boolean(m.cc_pessoa_id),
+      partes: m.partes ? m.partes.map((p) => Object.assign(p, { valor: Number(p.valor) })) : null
+    });
+    m.natureza = natureza(m, B);
+    const s = sug && sug[m.id];
+    if (s) { if (s.reembolso) m.reembolso = s.reembolso; if (s.divisao) m.divisao = s.divisao; if (s.pagador !== undefined) m.pagador = s.pagador; }
+    por[m.id] = m;
+  });
+  return ids.map((id) => por[id]).filter(Boolean);
+}
+
 /* ---------------- rotas ---------------- */
 function instalar(app) {
   const f = (q) => ({ ambito: q.ambito || 'tudo', area: q.area ? Number(q.area) : null, conta: q.conta ? String(q.conta).split(',').map(Number).filter(Boolean) : null });
@@ -894,6 +945,9 @@ function instalar(app) {
   });
 
   /* ---- movimentos ---- */
+  /* A lista de movimentos, aos bocados. Primeiro uma leitura leve de todos os
+     que passam os filtros (para os totais, os avisos e o «escolher todos»);
+     depois o detalhe completo so da pagina pedida (desde, limite). */
   app.get('/api/financas/movimentos', async (req, res) => {
     try {
       const B = await base();
@@ -927,45 +981,54 @@ function instalar(app) {
       if (q.estado === 'reembolsos') w.push('m.valor > 0 AND NOT EXISTS (SELECT 1 FROM fin_cc_mov c WHERE c.movimento_id = m.id)');
       if (q.estado === 'repetidos') w.push(`EXISTS (SELECT 1 FROM fin_movimentos y WHERE y.id <> m.id AND y.conta_id = m.conta_id
           AND y.data = m.data AND y.valor = m.valor AND lower(y.descricao) = lower(m.descricao))`);
-      const rows = await all(
-        `SELECT m.id, m.conta_id, to_char(m.data,'YYYY-MM-DD') AS data, m.descricao, m.valor, m.saldo, m.categoria_id, m.categoria_fonte,
-                m.context_id, m.person_id, m.expense_id, m.ia_categoria_id, m.ia_confianca, m.ia_fonte, m.nota, m.origem,
-                e.description AS despesa, (e.document_id IS NOT NULL) AS despesa_papel, e.splitwise_id::text AS despesa_splitwise,
-                ccm.pessoa_id AS cc_pessoa_id, ccp.nome AS cc_pessoa, ccm.origem AS cc_origem,
-                (SELECT json_agg(json_build_object('id', pt.id, 'valor', pt.valor, 'categoria_id', pt.categoria_id,
-                                                   'pessoa_id', pt.pessoa_id, 'pessoa', cp2.nome) ORDER BY pt.id)
-                   FROM fin_mov_partes pt LEFT JOIN fin_cc_pessoas cp2 ON cp2.id = pt.pessoa_id
-                  WHERE pt.movimento_id = m.id) AS partes
-           FROM fin_movimentos m
-           LEFT JOIN expenses e ON e.id = m.expense_id
-           LEFT JOIN fin_cc_mov ccm ON ccm.movimento_id = m.id
-           LEFT JOIN fin_cc_pessoas ccp ON ccp.id = ccm.pessoa_id
+      /* A leitura leve: so o que serve para filtrar, somar e sugerir. */
+      const leves = await all(
+        `SELECT m.id, m.conta_id, m.context_id, to_char(m.data,'YYYY-MM-DD') AS data, m.descricao, m.valor, m.categoria_id,
+                m.ia_categoria_id, m.ia_confianca, (ccm.movimento_id IS NOT NULL) AS cc_ligado, ccm.pessoa_id AS cc_pessoa_id
+           FROM fin_movimentos m LEFT JOIN fin_cc_mov ccm ON ccm.movimento_id = m.id
           ${w.length ? 'WHERE ' + w.join(' AND ') : ''}
-          ORDER BY m.data DESC, m.id DESC LIMIT ${Math.min(3000, Number(q.limite) || 600)}`, v);
+          ORDER BY m.data DESC, m.id DESC LIMIT 20000`, v);
       const fl = f(q);
-      let lista = rows.filter((m) => passa(m, fl, B)).map((m) => Object.assign(m, {
-        valor: Number(m.valor), saldo: m.saldo == null ? null : Number(m.saldo), ia_confianca: m.ia_confianca == null ? null : Number(m.ia_confianca),
-        cc_ligado: Boolean(m.cc_pessoa_id),
-        partes: m.partes ? m.partes.map((p) => Object.assign(p, { valor: Number(p.valor) })) : null
-      })).map((m) => Object.assign(m, { natureza: natureza(m, B) }));
-      /* Entradas que podem ser alguem a devolver uma conta dividida. */
-      /* So nas contas pessoais: numa empresa, quem manda dinheiro e cliente. */
-      const entradas = lista.filter((m) => m.valor > 0 && !m.cc_pessoa_id && (!m.categoria_id || natureza(m, B) === 'receita') &&
-        B.contaPor[m.conta_id] && B.contaPor[m.conta_id].pessoal);
-      if (entradas.length) {
-        const ab = await cc.abertos();
-        if (ab.length) entradas.forEach((m) => { const r = cc.reembolsoDe(m, ab); if (r.length) m.reembolso = r[0]; });
-        /* Sem nada registado: pode ser a parte de uma conta que o Marco pagou. */
-        const semDono = entradas.filter((m) => !m.reembolso);
-        if (semDono.length) {
-          const sd = await cc.sugerirDivisoes(semDono);
-          semDono.forEach((m) => { if (sd[m.id]) m.divisao = sd[m.id]; });
-        }
-        entradas.forEach((m) => { m.pagador = cc.pagador(m.descricao); });
-      }
-      if (q.estado === 'reembolsos') lista = lista.filter((m) => m.reembolso || m.divisao);
-      res.json({ movimentos: lista });
+      let todos = leves.filter((m) => passa(m, fl, B)).map((m) => Object.assign(m, { valor: Number(m.valor) }));
+      /* Entradas que podem ser alguem a devolver uma conta dividida: contam
+         para o aviso de cima, por isso veem-se em todas, nao so na pagina. */
+      const sug = await sugestoesDeEntradas(todos, B);
+      if (q.estado === 'reembolsos') todos = todos.filter((m) => sug[m.id] && (sug[m.id].reembolso || sug[m.id].divisao));
+      const limite = Math.max(1, Math.min(3000, Number(q.limite) || 600));
+      const desde = Math.max(0, Number(q.desde) || 0);
+      const pagina = await detalharMovimentos(todos.slice(desde, desde + limite).map((m) => m.id), B, sug);
+      const comSug = todos.filter((m) => !m.categoria_id && m.ia_categoria_id && !(sug[m.id] && (sug[m.id].reembolso || sug[m.id].divisao)));
+      const entradas = todos.filter((m) => m.valor > 0).reduce((t, m) => t + m.valor, 0);
+      const saidas = todos.filter((m) => m.valor < 0).reduce((t, m) => t - m.valor, 0);
+      res.json({
+        movimentos: pagina, total: todos.length, desde, limite,
+        resumo: {
+          entradas: cent(entradas), saidas: cent(saidas), saldo: cent(entradas - saidas),
+          sugestoes: comSug.map((m) => m.id),
+          confianca: comSug.length ? cent(comSug.reduce((t, m) => t + Number(m.ia_confianca || 0), 0) / comSug.length) : null,
+          reembolsos: Object.keys(sug).filter((k) => sug[k].reembolso || sug[k].divisao).length
+        },
+        /* Para «escolher todos» e para o lote saber quais sao saidas. */
+        todos: todos.map((m) => [m.id, m.valor])
+      });
     } catch (e) { falha(res, e, 'os movimentos'); }
+  });
+
+  /* Um movimento so, com o mesmo detalhe da lista: para atualizar uma linha
+     depois de a gravar, sem voltar a ler tudo. */
+  app.get('/api/financas/movimentos/:id(\\d+)', async (req, res) => {
+    try {
+      const B = await base();
+      const leve = (await all(
+        `SELECT m.id, m.conta_id, to_char(m.data,'YYYY-MM-DD') AS data, m.descricao, m.valor, m.categoria_id,
+                (ccm.movimento_id IS NOT NULL) AS cc_ligado, ccm.pessoa_id AS cc_pessoa_id
+           FROM fin_movimentos m LEFT JOIN fin_cc_mov ccm ON ccm.movimento_id = m.id WHERE m.id = $1`, [req.params.id]))
+        .map((m) => Object.assign(m, { valor: Number(m.valor) }));
+      if (!leve.length) throw erro(404, 'Movimento não encontrado.');
+      const sug = await sugestoesDeEntradas(leve, B);
+      const r = await detalharMovimentos([leve[0].id], B, sug);
+      res.json({ movimento: r[0] });
+    } catch (e) { falha(res, e, 'o movimento'); }
   });
 
   app.post('/api/financas/movimentos', async (req, res) => {
