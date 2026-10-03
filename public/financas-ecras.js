@@ -117,83 +117,156 @@ function fn_financas_movimentos(corpo){
   if (!FN.base.contas.length) { corpo.appendChild(fnSemContas()); return; }
   fnBarraFiltros(corpo, FN.mov.periodo !== 'tudo', [fnBtn('Importar extrato', function(){ fnImportar(); }), fnBtn('+ Movimento', function(){ fnNovoMovimento(); }, 'primary')]);
 
+  /* Os filtros mudam só a lista: a barra fica, a lista recarrega por baixo
+     (sem «A ler…» a tapar o ecrã e sem saltar para o topo). */
+  var zona = h('div', { class: 'fn-movzona' });
+  var mudar = function(){ FN.mov.sel = {}; FN.mov.mostrar = 0; desenharFiltros(); fnMovLista(zona); };
   var f = h('div', { class: 'fn-barra' });
-  f.appendChild(fnFiltroContas());
-  var seg = h('div', { class: 'fn-seg', role: 'group', 'aria-label': 'Estado' });
-  [['','Todos'],['categorizar','Por categorizar'],['sugestoes','Sugestões da IA'],['reconciliar','Por reconciliar'],['semdespesa','Sem despesa'],['reembolsos','Reembolsos'],['divididos','Divididos'],['repetidos','Repetidos']].forEach(function(o){
-    seg.appendChild(h('button', { type: 'button', class: FN.mov.estado === o[0] ? 'on' : '', onclick: function(){ FN.mov.estado = o[0]; FN.mov.sel = {}; fnRender('financas'); } }, o[1]));
-  });
-  f.appendChild(seg);
-  var sc = fnSelCategorias(FN.mov.categoria, 'Todas as categorias'); sc.setAttribute('aria-label', 'Categoria');
-  sc.insertBefore(h('option', { value: 'nenhuma' }, 'Sem categoria'), sc.children[1] || null);
-  if (FN.mov.categoria) sc.value = FN.mov.categoria;
-  sc.addEventListener('change', function(){ FN.mov.categoria = sc.value; fnRender('financas'); });
-  f.appendChild(sc);
-  var sp = h('select', { class: 'fn-sel', 'aria-label': 'Período' });
-  [['mes','O mês'],['m3','3 meses'],['m12','12 meses'],['tudo','Tudo']].forEach(function(o){ sp.appendChild(h('option', { value: o[0] }, o[1])); });
-  sp.value = FN.mov.periodo; sp.addEventListener('change', function(){ FN.mov.periodo = sp.value; fnRender('financas'); });
-  f.appendChild(sp);
-  var qi = h('input', { class: 'fn-sel', type: 'search', placeholder: 'Procurar descrição ou valor', value: FN.mov.q, 'aria-label': 'Procurar', style: 'flex:1 1 180px' });
-  qi.addEventListener('change', function(){ FN.mov.q = qi.value.trim(); fnRender('financas'); });
-  f.appendChild(qi);
+  var desenharFiltros = function(){
+    clear(f);
+    f.appendChild(fnFiltroContas(mudar));
+    var seg = h('div', { class: 'fn-seg', role: 'group', 'aria-label': 'Estado' });
+    [['','Todos'],['categorizar','Por categorizar'],['sugestoes','Sugestões da IA'],['reconciliar','Por reconciliar'],['semdespesa','Sem despesa'],['reembolsos','Reembolsos'],['divididos','Divididos'],['repetidos','Repetidos']].forEach(function(o){
+      seg.appendChild(h('button', { type: 'button', class: FN.mov.estado === o[0] ? 'on' : '', onclick: function(){ FN.mov.estado = o[0]; mudar(); } }, o[1]));
+    });
+    f.appendChild(seg);
+    var sc = fnSelCategorias(FN.mov.categoria, 'Todas as categorias'); sc.setAttribute('aria-label', 'Categoria');
+    sc.insertBefore(h('option', { value: 'nenhuma' }, 'Sem categoria'), sc.children[1] || null);
+    if (FN.mov.categoria) sc.value = FN.mov.categoria;
+    sc.addEventListener('change', function(){ FN.mov.categoria = sc.value; mudar(); });
+    f.appendChild(sc);
+    var sp = h('select', { class: 'fn-sel', 'aria-label': 'Período' });
+    [['mes','O mês'],['m3','3 meses'],['m12','12 meses'],['tudo','Tudo']].forEach(function(o){ sp.appendChild(h('option', { value: o[0] }, o[1])); });
+    /* O período «tudo» esconde o mês na barra de cima: aí redesenha-se tudo. */
+    sp.value = FN.mov.periodo; sp.addEventListener('change', function(){ var antes = FN.mov.periodo; FN.mov.periodo = sp.value; FN.mov.sel = {}; FN.mov.mostrar = 0;
+      if ((antes === 'tudo') !== (sp.value === 'tudo')) fnRender('financas'); else mudar(); });
+    f.appendChild(sp);
+    var qi = h('input', { class: 'fn-sel', type: 'search', placeholder: 'Procurar descrição ou valor', value: FN.mov.q, 'aria-label': 'Procurar', style: 'flex:1 1 180px' });
+    var tmr = null;
+    qi.addEventListener('input', function(){ clearTimeout(tmr); tmr = setTimeout(function(){ if (FN.mov.q !== qi.value.trim()) { FN.mov.q = qi.value.trim(); FN.mov.sel = {}; FN.mov.mostrar = 0; fnMovLista(zona); } }, 350); });
+    f.appendChild(qi);
+  };
+  desenharFiltros();
   corpo.appendChild(f);
+  corpo.appendChild(zona);
+  fnMovLista(zona);
+}
 
+/* A lista de movimentos. Guarda-se por filtro (FN.cache, que se limpa
+   quando algo muda); entretanto mostra-se a última lista com estes filtros,
+   esbatida, e troca-se quando chegar a nova. As linhas desenham-se aos
+   bocados: 200 de cada vez. */
+function fnMovQs(){
   var per = fnPeriodoMov();
-  var qs = fnQs({ estado: FN.mov.estado, conta: FN.mov.conta, categoria: FN.mov.categoria, q: FN.mov.q, de: per.de, ate: per.ate, ambito: FN.ambito, area: FN.area, limite: 1500 });
-  fnCarregar(corpo, apiGestao('/api/financas/movimentos?' + qs), function(d){
-    var ms = d.movimentos;
-    var comSug = ms.filter(function(m){ return !m.categoria_id && m.ia_categoria_id && !m.reembolso && !m.divisao; });
-    if (comSug.length){
-      corpo.appendChild(h('div', { class: 'fn-banner' }, [h('span', { class: 'fn-pill ai' }, '✦ IA'),
-        h('div', { class: 'g' }, [h('b', null, comSug.length + (comSug.length === 1 ? ' movimento tem' : ' movimentos têm') + ' categoria sugerida'),
-          h('span', { class: 'fn-muted' }, ' · confiança média ' + Math.round(comSug.reduce(function(s, m){ return s + (m.ia_confianca || 0); }, 0) / comSug.length * 100) + '%. Vêm das tuas regras, do histórico e do Gemini.')]),
-        fnBtn('Aceitar ' + (comSug.length === 1 ? 'a sugestão' : 'as ' + comSug.length), function(){
-          fnApi('/api/financas/movimentos/lote', 'POST', { ids: comSug.map(function(m){ return m.id; }), aceitar: true })
-            .then(function(r){ fnAviso(r.feitos + ' categorizados.'); fnMudou(); }, fnErro);
-        }, 'primary small')]));
-    }
-    var reemb = ms.filter(function(m){ return m.reembolso || m.divisao; });
-    if (reemb.length && FN.mov.estado !== 'reembolsos'){
-      corpo.appendChild(h('div', { class: 'fn-banner' }, [h('span', { class: 'fn-pill ai' }, '✦ Reembolsos'),
-        h('div', { class: 'g' }, [h('b', null, reemb.length + (reemb.length === 1 ? ' entrada parece' : ' entradas parecem') + ' alguém a devolver a parte de uma conta'),
-          h('span', { class: 'fn-muted' }, ' · pelo nome de quem mandou e por um pagamento teu, dos dias antes, que é múltiplo exato do valor.')]),
-        fnBtn('Ver', function(){ FN.mov.estado = 'reembolsos'; FN.mov.sel = {}; fnRender('financas'); }, 'small')]));
-    }
-    var linha = h('div', { class: 'fn-linha', style: 'align-items:flex-start' });
-    var cartao = h('div', { class: 'card largo', style: 'padding:6px 10px' });
-    var selN = Object.keys(FN.mov.sel).filter(function(k){ return FN.mov.sel[k]; });
-    if (selN.length) cartao.appendChild(fnBarraLote(selN, ms));
-    if (!ms.length) cartao.appendChild(fnVazio('Nenhum movimento com estes filtros.', FN.mov.estado ? 'Experimenta «Todos» ou outro período.' : null));
-    else {
-      var tb = h('tbody');
-      ms.forEach(function(m){ tb.appendChild(fnLinhaMov(m)); });
-      var tot = ms.reduce(function(s, m){ return s + m.valor; }, 0);
-      cartao.appendChild(h('div', { class: 'fn-scroll' }, [h('table', { class: 'fn-tab', style: 'min-width:820px' }, [
-        h('thead', null, [h('tr', null, [h('th', { style: 'width:26px' }, [h('input', { type: 'checkbox', 'aria-label': 'Escolher todos', checked: selN.length === ms.length,
-          onchange: function(e){ FN.mov.sel = {}; if (e.target.checked) ms.forEach(function(m){ FN.mov.sel[m.id] = true; }); fnRender('financas'); } })]),
-          h('th', null, 'Data'), h('th', null, 'Descrição'), h('th', null, 'Categoria'), h('th', null, 'Área'), h('th', null, 'Ligado a'), h('th', { class: 'r' }, 'Valor')])]),
-        tb])]));
-      cartao.appendChild(h('p', { class: 'fn-nota', style: 'padding:8px' }, ms.length + ' movimentos · entradas ' + fnEur(ms.filter(function(m){ return m.valor > 0; }).reduce(function(s, m){ return s + m.valor; }, 0)) +
-        ' · saídas ' + fnEur(ms.filter(function(m){ return m.valor < 0; }).reduce(function(s, m){ return s - m.valor; }, 0)) + ' · saldo ' + fnEur(tot, true)));
-    }
-    linha.appendChild(cartao);
-    var painel = h('div', { class: 'card fn-painel' });
-    var aberto = ms.filter(function(m){ return m.id === FN.mov.aberto; })[0];
-    if (aberto) fnPainelMov(painel, aberto);
-    else painel.appendChild(h('p', { class: 'fn-nota' }, 'Escolhe um movimento para o categorizar, ligar a uma despesa do Farol (com o papel) ou a uma conta corrente.'));
-    linha.appendChild(painel);
-    corpo.appendChild(linha);
+  return fnQs({ estado: FN.mov.estado, conta: FN.mov.conta, categoria: FN.mov.categoria, q: FN.mov.q, de: per.de, ate: per.ate, ambito: FN.ambito, area: FN.area, limite: 1500 });
+}
+function fnMovLista(zona){
+  var qs = fnMovQs();
+  var chave = 'mov:' + qs;
+  FN.movPedido = qs;
+  var pronto = FN.cache[chave];
+  if (pronto) { fnMovDesenhar(zona, pronto); return; }
+  var velho = FN.movUlt && FN.movUlt.qs === qs ? FN.movUlt.d : null;
+  if (velho) fnMovDesenhar(zona, velho);
+  if (zona.firstChild) zona.classList.add('fn-aler');
+  else zona.appendChild(h('p', { class: 'fn-nota' }, 'A ler…'));
+  fnLer(chave, '/api/financas/movimentos?' + qs).then(function(d){
+    if (FN.movPedido !== qs || !zona.isConnected) return;
+    FN.movUlt = { qs: qs, d: d };
+    zona.classList.remove('fn-aler');
+    fnMovDesenhar(zona, d);
+  }, function(e){
+    if (FN.movPedido !== qs) return;
+    zona.classList.remove('fn-aler'); clear(zona);
+    zona.appendChild(fnVazio('Não foi possível ler.', e.message, [fnBtn('Tentar outra vez', fnMudou)]));
   });
+}
+function fnMovDesenhar(zona, d){
+  clear(zona);
+  var ms = d.movimentos;
+  var comSug = ms.filter(function(m){ return !m.categoria_id && m.ia_categoria_id && !m.reembolso && !m.divisao; });
+  if (comSug.length){
+    zona.appendChild(h('div', { class: 'fn-banner' }, [h('span', { class: 'fn-pill ai' }, '✦ IA'),
+      h('div', { class: 'g' }, [h('b', null, comSug.length + (comSug.length === 1 ? ' movimento tem' : ' movimentos têm') + ' categoria sugerida'),
+        h('span', { class: 'fn-muted' }, ' · confiança média ' + Math.round(comSug.reduce(function(s, m){ return s + (m.ia_confianca || 0); }, 0) / comSug.length * 100) + '%. Vêm das tuas regras, do histórico e do Gemini.')]),
+      fnBtn('Aceitar ' + (comSug.length === 1 ? 'a sugestão' : 'as ' + comSug.length), function(){
+        fnApi('/api/financas/movimentos/lote', 'POST', { ids: comSug.map(function(m){ return m.id; }), aceitar: true })
+          .then(function(r){ fnAviso(r.feitos + ' categorizados.'); fnMudou(); }, fnErro);
+      }, 'primary small')]));
+  }
+  var reemb = ms.filter(function(m){ return m.reembolso || m.divisao; });
+  if (reemb.length && FN.mov.estado !== 'reembolsos'){
+    zona.appendChild(h('div', { class: 'fn-banner' }, [h('span', { class: 'fn-pill ai' }, '✦ Reembolsos'),
+      h('div', { class: 'g' }, [h('b', null, reemb.length + (reemb.length === 1 ? ' entrada parece' : ' entradas parecem') + ' alguém a devolver a parte de uma conta'),
+        h('span', { class: 'fn-muted' }, ' · pelo nome de quem mandou e por um pagamento teu, dos dias antes, que é múltiplo exato do valor.')]),
+      fnBtn('Ver', function(){ FN.mov.estado = 'reembolsos'; FN.mov.sel = {}; FN.mov.mostrar = 0; fnRender('financas'); }, 'small')]));
+  }
+  var cartao = h('div', { class: 'card', style: 'padding:6px 10px' });
+  zona.appendChild(cartao);
+  if (!ms.length) { cartao.appendChild(fnVazio('Nenhum movimento com estes filtros.', FN.mov.estado ? 'Experimenta «Todos» ou outro período.' : null)); return; }
+  /* A barra do lote redesenha-se sozinha quando se marca uma linha. */
+  var lote = h('div');
+  cartao.appendChild(lote);
+  var todos = h('input', { type: 'checkbox', 'aria-label': 'Escolher todos' });
+  var desenharLote = function(){
+    clear(lote);
+    var selN = Object.keys(FN.mov.sel).filter(function(k){ return FN.mov.sel[k]; });
+    todos.checked = selN.length > 0 && selN.length === ms.length;
+    if (selN.length) lote.appendChild(fnBarraLote(selN, ms, function(){ FN.mov.sel = {}; Array.prototype.forEach.call(tb.querySelectorAll('input[type=checkbox]'), function(c){ c.checked = false; }); desenharLote(); }));
+  };
+  todos.addEventListener('change', function(){
+    FN.mov.sel = {}; if (todos.checked) ms.forEach(function(m){ FN.mov.sel[m.id] = true; });
+    Array.prototype.forEach.call(tb.querySelectorAll('input[type=checkbox]'), function(c){ c.checked = todos.checked; });
+    desenharLote();
+  });
+  var tb = h('tbody');
+  var mostrados = 0;
+  var maisZona = h('div', { class: 'fn-acoes', style: 'justify-content:center;padding:8px' });
+  var mais = function(n){
+    var ate = Math.min(ms.length, mostrados + n);
+    var frag = document.createDocumentFragment();
+    for (var i = mostrados; i < ate; i++) frag.appendChild(fnLinhaMov(ms[i], desenharLote));
+    tb.appendChild(frag);
+    mostrados = ate; FN.mov.mostrar = mostrados;
+    clear(maisZona);
+    if (mostrados < ms.length) {
+      maisZona.appendChild(h('span', { class: 'fn-nota' }, 'A mostrar ' + mostrados + ' de ' + ms.length + '.'));
+      maisZona.appendChild(fnBtn('Mostrar mais ' + Math.min(300, ms.length - mostrados), function(){ mais(300); }, 'small'));
+      maisZona.appendChild(fnBtn('Mostrar todos', function(){ mais(ms.length); }, 'small'));
+    }
+  };
+  cartao.appendChild(h('div', { class: 'fn-scroll' }, [h('table', { class: 'fn-tab fn-movtab' }, [
+    h('colgroup', null, [h('col', { style: 'width:30px' }), h('col', { style: 'width:62px' }), h('col'), h('col', { style: 'width:118px' }), h('col', { style: 'width:250px' }), h('col', { style: 'width:130px' }), h('col', { style: 'width:170px' })]),
+    h('thead', null, [h('tr', null, [h('th', null, [todos]), h('th', null, 'Data'), h('th', null, 'Descrição'), h('th', { class: 'r' }, 'Valor'), h('th', null, 'Categoria'), h('th', null, 'Área'), h('th', null, 'Ligado a')])]),
+    tb])]));
+  cartao.appendChild(maisZona);
+  mais(Math.max(200, FN.mov.mostrar || 0));
+  desenharLote();
+  var tot = ms.reduce(function(s, m){ return s + m.valor; }, 0);
+  cartao.appendChild(h('p', { class: 'fn-nota', style: 'padding:8px' }, ms.length + ' movimentos · entradas ' + fnEur(ms.filter(function(m){ return m.valor > 0; }).reduce(function(s, m){ return s + m.valor; }, 0)) +
+    ' · saídas ' + fnEur(ms.filter(function(m){ return m.valor < 0; }).reduce(function(s, m){ return s - m.valor; }, 0)) + ' · saldo ' + fnEur(tot, true) + (ms.length >= 1500 ? ' · só os 1500 mais recentes: afina os filtros para ver o resto' : '')));
+}
+
+/* O detalhe de um movimento abre numa janela por cima da lista. */
+function fnMovJanela(m){
+  var corpo = h('div', { class: 'fn-movdet' });
+  var j = fnJanela((m.valor > 0 ? 'Entrada' : 'Saída') + ' · ' + fnData(m.data), [corpo], []);
+  var ovs = document.querySelectorAll('.fn-ov');
+  var mod = ovs.length ? ovs[ovs.length - 1].querySelector('.fn-mod') : null;
+  if (mod) mod.classList.add('largo');
+  FN.movJanela = j;
+  fnPainelMov(corpo, m, true);
+  return j;
 }
 
 /* O filtro das contas: todas, uma, ou várias. Um botão como os outros
    filtros, que abre a lista com a data do último extrato de cada conta. */
-function fnFiltroContas(){
+function fnFiltroContas(depois){
   var contas = FN.base.contas.filter(function(c){ return c.ativo; });
   var sel = String(FN.mov.conta || '').split(',').filter(Boolean);
   var rot = !sel.length ? 'Todas as contas' : sel.length === 1 ? ((fnConta(Number(sel[0])) || {}).nome || '1 conta') : sel.length + ' contas';
   var caixa = h('div', { class: 'fn-contas-pop', style: 'display:none;position:absolute;z-index:30;top:calc(100% + 4px);left:0;min-width:280px;max-height:360px;overflow:auto;background:var(--surface);border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.12);padding:6px' });
-  var aplicar = function(lista){ FN.mov.conta = lista.join(','); FN.mov.sel = {}; fnRender('financas'); };
+  var aplicar = function(lista){ FN.mov.conta = lista.join(','); FN.mov.sel = {}; document.removeEventListener('click', fora); if (depois) depois(); else fnRender('financas'); };
   caixa.appendChild(h('label', { class: 'fn-check', style: 'padding:6px 8px;font-weight:600' }, [
     h('input', { type: 'checkbox', checked: !sel.length, onchange: function(){ aplicar([]); } }), 'Todas as contas']));
   contas.forEach(function(c){
@@ -238,9 +311,9 @@ function fnCatNaLinha(m, conteudo){
   return wrap;
 }
 
-function fnLinhaMov(m){
+function fnLinhaMov(m, aoMarcar){
   var cat;
-  if (m.categoria_id) cat = h('span', { class: 'fn-pill' + (m.natureza === 'transferencia' || m.natureza === 'financiamento' || m.natureza === 'acerto' ? ' tr' : m.natureza === 'receita' ? ' good' : '') }, fnCatNome(m.categoria_id));
+  if (m.categoria_id) cat = h('span', { class: 'fn-pill' + (m.natureza === 'transferencia' || m.natureza === 'financiamento' || m.natureza === 'acerto' ? ' tr' : m.natureza === 'receita' ? ' good' : ''), title: fnCatNome(m.categoria_id) }, fnCatNome(m.categoria_id, true));
   else if (m.ia_categoria_id) cat = h('div', { class: 'fn-acoes' }, [h('span', { class: 'fn-pill ai', title: 'Sugestão: ' + ({ historico: 'histórico', modelo: 'Gemini', transferencia: 'transferência entre contas' }[m.ia_fonte] || m.ia_fonte) },
       '✦ ' + fnCatNome(m.ia_categoria_id, true) + ' · ' + Math.round((m.ia_confianca || 0) * 100) + '%'),
     h('button', { type: 'button', class: 'btn small', onclick: function(e){ e.stopPropagation();
@@ -260,14 +333,15 @@ function fnLinhaMov(m){
     h('button', { type: 'button', class: 'btn small', onclick: function(e){ e.stopPropagation(); fnAceitarDivisao(m.id, m.divisao); } }, 'Sim')]));
   if (!lig.length && m.valor < 0 && m.natureza === 'despesa') lig.push(h('span', { class: 'fn-muted', style: 'font-size:.75rem' }, '—'));
   var conta = fnConta(m.conta_id);
-  var tr = h('tr', { class: 'clic' + (FN.mov.aberto === m.id ? ' on' : ''), onclick: function(){ FN.mov.aberto = FN.mov.aberto === m.id ? null : m.id; fnRender('financas'); } }, [
-    h('td', { onclick: function(e){ e.stopPropagation(); } }, [h('input', { type: 'checkbox', 'aria-label': 'Escolher', checked: !!FN.mov.sel[m.id], onchange: function(e){ FN.mov.sel[m.id] = e.target.checked; fnRender('financas'); } })]),
-    h('td', { class: 'fn-n', style: 'font-size:.75rem' }, fnData(m.data)),
-    h('td', null, [h('span', { class: 'd', title: m.descricao }, m.descricao), h('small', null, (conta ? conta.nome : '') + (m.categoria_fonte === 'regra' ? ' · regra' : ''))]),
+  var ctx = fnCtx(m.context_id || (conta && conta.context_id));
+  var tr = h('tr', { class: 'clic', onclick: function(){ fnMovJanela(m); } }, [
+    h('td', { onclick: function(e){ e.stopPropagation(); } }, [h('input', { type: 'checkbox', 'aria-label': 'Escolher', checked: !!FN.mov.sel[m.id], onchange: function(e){ FN.mov.sel[m.id] = e.target.checked; if (aoMarcar) aoMarcar(); else fnRender('financas'); } })]),
+    h('td', { class: 'fn-n', style: 'font-size:.75rem;white-space:nowrap' }, fnData(m.data)),
+    h('td', { style: 'min-width:0' }, [h('span', { class: 'd', title: m.descricao }, m.descricao), h('small', { class: 'd2' }, (conta ? conta.nome : '') + (m.categoria_fonte === 'regra' ? ' · regra' : ''))]),
+    h('td', { class: 'r ' + (m.valor > 0 ? 'fn-good' : '') }, [fnEur(m.valor, true), fnMinhaParte(m)]),
     h('td', null, [cat]),
-    h('td', { style: 'font-size:.75rem' }, fnCtxNome(m.context_id || (conta && conta.context_id)) || h('span', { class: 'fn-muted' }, '—')),
-    h('td', null, lig),
-    h('td', { class: 'r ' + (m.valor > 0 ? 'fn-good' : '') }, [fnEur(m.valor, true), fnMinhaParte(m)])
+    h('td', { class: 'fn-area', title: fnCtxNome(ctx && ctx.id) }, ctx ? ctx.name : h('span', { class: 'fn-muted' }, '—')),
+    h('td', null, lig)
   ]);
   return tr;
 }
@@ -279,7 +353,7 @@ function fnMinhaParte(m){
   return h('small', { style: 'display:block', class: 'fn-muted' }, 'tua parte ' + fnEur(minha));
 }
 
-function fnBarraLote(ids, ms){
+function fnBarraLote(ids, ms, limpar){
   var sc = fnSelCategorias('', 'Categoria…');
   var debs = (ms || []).filter(function(m){ return FN.mov.sel[m.id] && m.valor < 0; });
   var sa = fnSelAreas('', 'Área…');
@@ -297,18 +371,19 @@ function fnBarraLote(ids, ms){
       fnJanela('Apagar ' + ids.length + ' movimentos?', [h('p', null, 'Saem do Farol. Se voltares a importar o mesmo extrato, voltam a entrar.')], [{ txt: 'Apagar', pri: true, fn: function(){
         return fnApi('/api/financas/movimentos/lote', 'POST', { ids: ids, apagar: true }).then(function(r){ FN.mov.sel = {}; fnAviso(r.feitos + ' apagados.'); fnMudou(); }, fnErro); } }]);
     }, 'small'),
-    fnBtn('Limpar', function(){ FN.mov.sel = {}; fnRender('financas'); }, 'small')
+    fnBtn('Limpar', function(){ if (limpar) limpar(); else { FN.mov.sel = {}; fnRender('financas'); } }, 'small')
   ]);
 }
 
 /* O painel do movimento: categoria, área, conta corrente, e a reconciliação
    com as despesas do Farol. */
-function fnPainelMov(p, m){
+function fnPainelMov(p, m, emJanela){
   var conta = fnConta(m.conta_id);
-  p.appendChild(h('div', { class: 'fn-acoes', style: 'justify-content:space-between' }, [h('h3', { style: 'font-size:1.05rem' }, 'Movimento'), h('button', { type: 'button', class: 'btn small', onclick: function(){ FN.mov.aberto = null; fnRender('financas'); } }, 'Fechar')]));
+  if (!emJanela) p.appendChild(h('div', { class: 'fn-acoes', style: 'justify-content:space-between' }, [h('h3', { style: 'font-size:1.05rem' }, 'Movimento'), h('button', { type: 'button', class: 'btn small', onclick: function(){ FN.mov.aberto = null; fnRender('financas'); } }, 'Fechar')]));
   p.appendChild(h('div', { class: 'fn-caixa', style: 'background:var(--surface-2)' }, [
     h('div', { class: 'fn-acoes', style: 'justify-content:space-between' }, [h('b', null, m.descricao), h('b', { class: 'fn-n ' + (m.valor > 0 ? 'fn-good' : '') }, fnEur(m.valor, true))]),
-    h('small', { class: 'fn-muted' }, fnData(m.data) + ' · ' + (conta ? conta.nome : '') + (m.saldo != null ? ' · saldo ' + fnEur(m.saldo) : ''))]));
+    h('small', { class: 'fn-muted' }, fnData(m.data) + ' · ' + (conta ? conta.nome : '') + (m.saldo != null ? ' · saldo ' + fnEur(m.saldo) : '') + (m.categoria_fonte ? ' · categoria: ' + ({ regra: 'regra', tu: 'escolhida por ti', 'tu-corrigiu': 'corrigida por ti', 'ia-aceite': 'sugestão aceite' }[m.categoria_fonte] || m.categoria_fonte) : '')),
+    m.nota ? h('small', null, 'Nota: ' + m.nota) : null]));
 
   var sc = fnSelCategorias(m.categoria_id || m.ia_categoria_id);
   var sa = fnSelAreas(m.context_id);
