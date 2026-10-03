@@ -12,7 +12,7 @@
  * estao carregados, o tfAbrir das Tarefas e o fiAbrir da ficha.
  */
 
-var AV = { aberto: null };
+var AV = { aberto: null, folha: null, casa: null, depois: null, tfFechar: null };
 
 /* A janela veste-se com o que ja existe (.ar-dlg, das Areas): o mesmo desenho
    da correccao de um documento. Daqui so vem o que falta. */
@@ -183,11 +183,145 @@ var AV_PRIOS = [['alta', 'Alta'], ['media', 'Média'], ['normal', 'Nenhuma'], ['
 var AV_DOCS_ID = [['', '— sem documento —'], ['cc', 'Cartão de Cidadão'],
   ['tr', 'Título de residência']];
 
+/* ------------------------------------------------------------------ *
+ * O detalhe de uma tarefa (3 out)
+ *
+ * Esta janela tinha um formulario proprio - titulo, prazo, estado, de quem,
+ * prioridade, area, notas - e mais nada. Quem via a tarefa no Hoje nao via os
+ * passos, nem as subtarefas, nem o email, nem os comentarios: para isso tinha
+ * de ir as Tarefas e abri-la outra vez. Eram dois detalhes da mesma coisa, e
+ * um deles ficava sempre para tras.
+ *
+ * Agora e um so. A folha pede emprestado o painel das Tarefas - o proprio no,
+ * nao uma copia - e po-lo aqui dentro; ao fechar devolve-o. E exactamente o
+ * mesmo detalhe, com tudo o que lhe for acrescentado de futuro.
+ * ------------------------------------------------------------------ */
+
+var AV_FOLHA_CSS = [
+  '.av-folha{position:fixed;inset:0;z-index:55;display:flex;justify-content:flex-end}',
+  '.av-folha-fundo{position:absolute;inset:0;background:rgba(15,23,32,.28)}',
+  '.av-folha-cx{position:relative;width:min(27rem,100vw);height:100%;background:var(--surface);',
+  'border-left:1px solid var(--line);box-shadow:-20px 0 60px -30px rgba(0,0,0,.45);',
+  'display:flex;flex-direction:column;animation:avEntra .18s ease}',
+  '.av-folha-mio{flex:1;min-height:0;overflow:auto;padding:14px 16px}',
+  '.av-folha-rod{border-top:1px solid var(--line);padding:10px 16px;display:flex;gap:.5rem;align-items:center}',
+  /* O painel vem de uma coluna que cola e tem altura propria: aqui quem rola e
+     a folha, por isso ele volta a ser um bloco normal e sem moldura. */
+  '.av-folha .tf-det{position:static;max-height:none;overflow:visible;width:auto;',
+  'border:none;background:none;box-shadow:none;border-radius:0;padding:0;z-index:auto}',
+  /* Nas Tarefas a cruz so aparece em ecras estreitos, porque o painel vive la
+     sempre. Aqui e a saida da folha: aparece sempre. */
+  '.av-folha .tf-fechar{display:inline-flex}',
+  '@keyframes avEntra{from{transform:translateX(16px);opacity:.4}to{transform:none;opacity:1}}',
+  '@media (max-width:520px){.av-folha-cx{width:100vw}}'
+].join('');
+
+function avFolhaEstilo(){
+  if (document.getElementById('avFolhaCss')) return;
+  var s = document.createElement('style');
+  s.id = 'avFolhaCss';
+  s.textContent = AV_FOLHA_CSS;
+  document.head.appendChild(s);
+}
+
+/* O painel, esteja onde estiver: os ecras das areas tambem o pedem emprestado,
+   e quando estao a segura-lo o getElementById nao chega. */
+function avPainel(){
+  if (typeof aeNo === 'function'){ try { return aeNo('det', 'tfDet'); } catch (e) {} }
+  return document.getElementById('tfDet');
+}
+
+function avFecharFolha(){
+  if (!AV.folha) return;
+  var folha = AV.folha, casa = AV.casa, depois = AV.depois, antigo = AV.tfFechar;
+  AV.folha = null; AV.casa = null; AV.depois = null; AV.tfFechar = null;
+  /* Repor o tfFecharDetalhe antes de o chamar, senao chama-se a si proprio. */
+  if (antigo) tfFecharDetalhe = antigo;
+  var no = avPainel();
+  if (no && casa){
+    if (depois && depois.parentNode === casa) casa.insertBefore(no, depois);
+    else casa.appendChild(no);
+    no.hidden = true;
+  }
+  folha.remove();
+  if (typeof tfFecharPop === 'function') tfFecharPop();
+  /* Vindo da cruz do painel, o detalhe ja fechou e o TF.aberta esta vazio.
+     Vindo do fundo ou do Escape, falta fecha-lo. */
+  if (antigo && window.TF && TF.aberta) antigo();
+  document.removeEventListener('keydown', avFolhaEscape, true);
+}
+
+function avFolhaEscape(e){
+  if (e.key !== 'Escape' || !AV.folha) return;
+  /* Primeiro Escape arruma o calendario ou o menu que esteja aberto por cima;
+     so o seguinte e que fecha a folha. */
+  if (document.querySelector('.tf-pop, .tf-menu')) return;
+  e.stopPropagation();
+  avFecharFolha();
+}
+
+/* O detalhe das Tarefas, aqui dentro. Devolve false quando as Tarefas ainda
+   nao estao carregadas - ai serve o formulario antigo. */
+function avFolhaTarefa(t){
+  if (typeof tfMontar !== 'function' || typeof tfAbrir !== 'function') return false;
+  if (!document.getElementById('tf')) return false;
+  tfMontar();
+  if (typeof aeDevolver === 'function'){ try { aeDevolver('det'); } catch (e) {} }
+  var no = avPainel();
+  if (!no || !no.parentNode) return false;
+
+  avFolhaEstilo();
+  avFechar();
+  avFecharFolha();
+
+  var folha = el('div', 'av-folha');
+  var fundo = el('div', 'av-folha-fundo');
+  fundo.addEventListener('click', avFecharFolha);
+  folha.appendChild(fundo);
+  var cx = el('div', 'av-folha-cx');
+  var mio = el('div', 'av-folha-mio');
+  cx.appendChild(mio);
+  var rod = el('div', 'av-folha-rod');
+  var bIr = el('button', 'btn', 'Abrir na lista');
+  bIr.type = 'button';
+  bIr.addEventListener('click', function(){ var id = t.id; avFecharFolha(); avIrLista(id); });
+  rod.appendChild(bIr);
+  cx.appendChild(rod);
+  folha.appendChild(cx);
+  document.body.appendChild(folha);
+
+  AV.folha = folha;
+  AV.casa = no.parentNode;
+  AV.depois = no.nextSibling;
+  mio.appendChild(no);
+
+  /* A cruz do painel fecha o detalhe; aqui tem de fechar tambem a folha. Em
+     vez de se mexer no botao, que renasce a cada desenho, veste-se o
+     tfFecharDetalhe - e despe-se ao sair. */
+  AV.tfFechar = typeof tfFecharDetalhe === 'function' ? tfFecharDetalhe : null;
+  if (AV.tfFechar){
+    tfFecharDetalhe = function(){
+      var f = AV.tfFechar;
+      if (f) f.apply(null, arguments);
+      avFecharFolha();
+    };
+  }
+  document.addEventListener('keydown', avFolhaEscape, true);
+
+  TF.aberta = t.id;
+  tfAbrir(t.id);
+  return true;
+}
+
 function avTarefa(a){
-  var t = null;
-  ((window.G && G.tasks) || []).forEach(function(x){ if (x.id === a.id) t = x; });
+  var t = typeof tfPorId === 'function' ? tfPorId(a.id) : null;
+  if (!t) ((window.G && G.tasks) || []).forEach(function(x){ if (x.id === a.id) t = x; });
   /* Sem a lista de tarefas carregada nao ha nada honesto para mostrar aqui. */
   if (!t){ show('tarefas'); return; }
+
+  /* O detalhe e o das Tarefas. So se as Tarefas nao estiverem de pe e que se
+     desenha aqui o formulario curto. */
+  if (avFolhaTarefa(t)) return;
 
   var s = avShell(t.title, 'Tarefa' + (a.detail ? ' · ' + a.detail : ''), a);
   var iTit = avCampo(s.grelha, 'Título', avTexto(t.title), true);
@@ -291,6 +425,7 @@ avEstilo();
 
 function avAbrir(a){
   if (!a || !a.origem) return;
+  avFecharFolha();
   if (a.origem === 'tarefa') return avTarefa(a);
   if (a.origem === 'documento') return avDocumento(a);
   if (a.origem === 'pessoa') return avPessoa(a);
