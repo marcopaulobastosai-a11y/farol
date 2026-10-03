@@ -290,9 +290,9 @@ function fnMovDesenhar(zona, d, qs){
     var b2 = fnBtn('Mostrar todos', function(){ pedir(falta, b2); }, 'small');
     maisZona.appendChild(b1); maisZona.appendChild(b2);
   };
-  cartao.appendChild(h('div', { class: 'fn-scroll' }, [h('table', { class: 'fn-tab fn-movtab', style: 'min-width:1130px' }, [
-    h('colgroup', null, [h('col', { style: 'width:30px' }), h('col', { style: 'width:62px' }), h('col', { style: 'width:140px' }), h('col'), h('col', { style: 'width:118px' }), h('col', { style: 'width:240px' }), h('col', { style: 'width:120px' }), h('col', { style: 'width:140px' }), h('col', { style: 'width:160px' })]),
-    h('thead', null, [h('tr', null, [h('th', null, [todos]), h('th', null, 'Data'), h('th', null, 'Conta'), h('th', null, 'Descrição'), h('th', { class: 'r' }, 'Valor'), h('th', null, 'Categoria'), h('th', null, 'Área'), h('th', null, 'De quem'), h('th', null, 'Ligado a')])]),
+  cartao.appendChild(h('div', { class: 'fn-scroll' }, [h('table', { class: 'fn-tab fn-movtab', style: 'min-width:1230px' }, [
+    h('colgroup', null, [h('col', { style: 'width:30px' }), h('col', { style: 'width:62px' }), h('col', { style: 'width:140px' }), h('col'), h('col', { style: 'width:118px' }), h('col', { style: 'width:104px' }), h('col', { style: 'width:240px' }), h('col', { style: 'width:120px' }), h('col', { style: 'width:140px' }), h('col', { style: 'width:160px' })]),
+    h('thead', null, [h('tr', null, [h('th', null, [todos]), h('th', null, 'Data'), h('th', null, 'Conta'), h('th', null, 'Descrição'), h('th', { class: 'r' }, 'Valor'), h('th', { class: 'r' }, 'Saldo'), h('th', null, 'Categoria'), h('th', null, 'Área'), h('th', null, 'De quem'), h('th', null, 'Ligado a')])]),
     tb])]));
   cartao.appendChild(maisZona);
   acrescentar(ms);
@@ -341,11 +341,22 @@ function fnPainelPar(p, m){
       h('div', { class: 'fn-acoes' }, [fnBtn('Desligar', function(){ fnApi('/api/financas/movimentos/' + m.id + '/par', 'DELETE').then(function(){ fnMudou(); }, fnErro); }, 'small')])]));
     return;
   }
+  /* A conta do outro lado, quando o movimento de lá não está no Farol (o
+     cartão cujo extrato ainda não veio, o cartão da Sofia, as poupanças). */
+  var outras = (FN.base.contas || []).filter(function(c){ return c.id !== m.conta_id; });
+  var sd = h('select', { class: 'fn-sel' }, [h('option', { value: '' }, '— não é uma transferência entre contas —')].concat(outras.map(function(c){ return h('option', { value: c.id }, c.nome + (c.ativo ? '' : ' (só para identificar)')); })));
+  if (m.para_conta_id) sd.value = String(m.para_conta_id);
+  p.appendChild(h('div', { class: 'fn-caixa' + (m.para_conta_id ? ' melhor' : '') }, [
+    fnCampo(m.valor < 0 ? 'Foi para a conta' : 'Veio da conta', sd),
+    h('small', { class: 'fn-muted' }, 'Para quando o outro lado não está no Farol. Liga-se sozinho ao movimento de lá quando esse extrato entrar (e, para ficar automático, põe um identificador na conta: Património › Contas).'),
+    h('div', { class: 'fn-acoes' }, [fnBtn('Guardar a conta', function(){
+      fnApi('/api/financas/movimentos/' + m.id, 'PATCH', { para_conta_id: sd.value ? Number(sd.value) : null }).then(function(){ fnAviso('Guardado.'); fnMovAtualizar(m.id); }, fnErro);
+    }, 'small')])]));
   var cx = h('div', { class: 'fn-lista' }, [h('p', { class: 'fn-nota' }, 'A procurar o outro lado…')]);
   p.appendChild(cx);
   apiGestao('/api/financas/movimentos/' + m.id + '/pares').then(function(r){
     clear(cx);
-    if (!r.pares.length){ if (t.parentNode) t.parentNode.removeChild(t); if (cx.parentNode) cx.parentNode.removeChild(cx); return; }
+    if (!r.pares.length){ if (cx.parentNode) cx.parentNode.removeChild(cx); return; }
     r.pares.slice(0, 4).forEach(function(o, i){
       cx.appendChild(h('div', { class: 'fn-caixa' + (i === 0 ? ' melhor' : ''), style: 'margin-bottom:6px' }, [
         h('div', { class: 'fn-acoes', style: 'justify-content:space-between' }, [h('b', null, (m.valor < 0 ? 'Para ' : 'De ') + o.conta), h('span', { class: 'fn-pill ai' }, '✦ ' + Math.round(o.confianca * 100) + '%')]),
@@ -468,12 +479,19 @@ function fnLinhaMov(m, aoMarcar){
     h('button', { type: 'button', class: 'btn small', onclick: function(e){ e.stopPropagation();
       fnApi('/api/financas/movimentos/' + m.id, 'PATCH', { categoria_id: m.ia_categoria_id, aceite: true }).then(function(){ fnMovAtualizar(m.id); }, fnErro); } }, 'Aceitar')]);
   else cat = h('span', { class: 'fn-pill warn' }, 'por categorizar');
+  /* Repartido por várias categorias (parte combustível, parte Via Verde). */
+  var minhas = (m.partes || []).filter(function(x){ return !x.pessoa_id && x.categoria_id; });
+  if (minhas.length > 1) cat = h('span', { class: 'fn-pill', title: minhas.map(function(x){ return fnCatNome(x.categoria_id) + ' ' + fnEur(Math.abs(x.valor)); }).join(' · ') },
+    minhas.map(function(x){ return fnCatNome(x.categoria_id, true); }).join(' + '));
   cat = fnCatNaLinha(m, cat.classList.contains('fn-acoes') ? Array.prototype.slice.call(cat.childNodes) : [cat]);
   var lig = [];
   if (m.expense_id) lig.push(h('span', { class: 'fn-pill good', title: m.despesa || '' }, (m.despesa_papel ? 'papel · ' : 'despesa · ') + (m.despesa || '').slice(0, 24)));
   if (m.par_id) {
     var pc = fnConta(m.par_conta_id);
     lig.push(h('span', { class: 'fn-pill tr', title: 'Transferência entre contas' + (m.par_data ? ' · ' + fnData(m.par_data) : '') }, (m.valor < 0 ? '→ para ' : '← de ') + (pc ? pc.nome : 'outra conta')));
+  } else if (m.para_conta_id) {
+    var dc = fnConta(m.para_conta_id);
+    lig.push(h('span', { class: 'fn-pill tr', title: 'Transferência entre contas · o outro lado ainda não está no Farol' }, (m.valor < 0 ? '→ para ' : '← de ') + (dc ? dc.nome : 'outra conta')));
   }
   if (m.project_id) lig.push(h('span', { class: 'fn-pill', title: 'Projeto: ' + (m.projeto || '') }, 'projeto · ' + (m.projeto || fnProjetoNome(m.project_id))));
   if (m.cc_pessoa) lig.push(h('span', { class: 'fn-pill tr' }, (m.cc_origem === 'reembolso' ? 'reembolso · ' : 'c/c · ') + m.cc_pessoa));
@@ -487,56 +505,79 @@ function fnLinhaMov(m, aoMarcar){
     h('button', { type: 'button', class: 'btn small', onclick: function(e){ e.stopPropagation(); fnAceitarDivisao(m.id, m.divisao); } }, 'Sim')]));
   if (!lig.length && m.valor < 0 && m.natureza === 'despesa') lig.push(h('span', { class: 'fn-muted', style: 'font-size:.75rem' }, '—'));
   var conta = fnConta(m.conta_id);
+  /* A área: a do movimento, ou (esbatida) a da conta, que é a que vale
+     quando o movimento não tem uma sua. */
   var ctx = fnCtx(m.context_id || (conta && conta.context_id));
-  var tr = h('tr', { class: 'clic', 'data-id': m.id, onclick: function(){ fnMovJanela(m); } }, [
+  var daConta = !m.context_id && ctx;
+  var tr = h('tr', { class: 'clic' + (FN.tocados && FN.tocados[m.id] ? ' fn-tocada' : ''), 'data-id': m.id, onclick: function(){ fnMovJanela(m); } }, [
     h('td', { onclick: function(e){ e.stopPropagation(); } }, [h('input', { type: 'checkbox', 'aria-label': 'Escolher', checked: !!FN.mov.sel[m.id], onchange: function(e){ FN.mov.sel[m.id] = e.target.checked; if (aoMarcar) aoMarcar(); else fnRender('financas'); } })]),
     h('td', { class: 'fn-n', style: 'font-size:.75rem;white-space:nowrap' }, fnData(m.data)),
     h('td', { title: conta ? conta.nome : '', style: 'font-size:.75rem;line-height:1.25' }, conta ? conta.nome : h('span', { class: 'fn-muted' }, '—')),
     h('td', { style: 'min-width:0' }, [h('span', { class: 'd', title: m.descricao }, m.descricao), m.categoria_fonte === 'regra' ? h('small', { class: 'd2' }, 'categoria por regra') : null]),
     h('td', { class: 'r ' + (m.valor > 0 ? 'fn-good' : '') }, [fnEur(m.valor, true), fnMinhaParte(m)]),
+    h('td', { class: 'r fn-saldo' + (m.saldo_calculado ? ' calc' : ''), title: m.saldo == null ? '' : m.saldo_calculado ? 'Saldo calculado a partir dos saldos conhecidos da conta' : 'Saldo do extrato' }, m.saldo == null ? '—' : fnEur(m.saldo)),
     h('td', null, [cat]),
-    h('td', { class: 'fn-area', title: fnCtxNome(ctx && ctx.id) }, ctx ? ctx.name : h('span', { class: 'fn-muted' }, '—')),
-    h('td', { class: 'fn-dequem', onclick: function(e){ e.stopPropagation(); fnEscolherPessoa([m.id], m.person_id); } }, fnDeQuem(m)),
+    h('td', { class: 'fn-area' + (daConta ? ' da-conta' : ''), title: ctx ? fnCtxNome(ctx.id) + (daConta ? ' · da conta ' + (conta ? conta.nome : '') + ' (o movimento não tem área própria)' : '') : '' }, ctx ? ctx.name : h('span', { class: 'fn-muted' }, '—')),
+    h('td', { class: 'fn-dequem', onclick: function(e){ e.stopPropagation(); fnEscolherPessoa([m.id], fnIdsPessoas(m)); } }, fnDeQuem(m)),
     h('td', null, lig)
   ]);
   return tr;
 }
 
-/* De quem e o movimento: a pessoa do agregado, com a cara dela, ou um sinal
-   discreto para a escolher. Carrega-se e abre a janela das pessoas. */
+/* De quem e o movimento: uma ou varias pessoas do agregado, com a cara de
+   cada uma, ou um sinal discreto para as escolher. */
+function fnIdsPessoas(m){ return (m.person_ids && m.person_ids.length ? m.person_ids : (m.person_id ? [m.person_id] : [])).map(Number); }
 function fnDeQuem(m){
-  if (!m.person_id) return h('button', { type: 'button', class: 'fn-dq vazio', title: 'De quem é este movimento?' }, '+ pessoa');
-  var p = fnPessoas().filter(function(x){ return x.id === Number(m.person_id); })[0] || { name: m.pessoa_nome || '?' };
-  return h('button', { type: 'button', class: 'fn-dq', title: 'Mudar de quem é' }, [fnAvatar(p), h('span', null, p.name)]);
+  var ids = fnIdsPessoas(m);
+  if (!ids.length) return h('button', { type: 'button', class: 'fn-dq vazio', title: 'De quem é este movimento?' }, '+ pessoa');
+  var ps = ids.map(function(id, i){ return fnPessoas().filter(function(x){ return x.id === id; })[0] || { name: (m.pessoas_nomes && m.pessoas_nomes[i]) || m.pessoa_nome || '?' }; });
+  var nomes = ps.map(function(p){ return p.name; });
+  return h('button', { type: 'button', class: 'fn-dq', title: nomes.join(', ') + ' · mudar' },
+    [h('span', { class: 'fn-dq-avs' }, ps.slice(0, 3).map(fnAvatar)), h('span', null, ps.length === 1 ? nomes[0] : ps.length === 2 ? nomes.map(function(n){ return n.split(' ')[0]; }).join(' e ') : nomes[0].split(' ')[0] + ' +' + (ps.length - 1))]);
 }
 function fnAvatar(p){
   if (typeof ibAvatar === 'function') return ibAvatar(p);
   return h('span', { class: 'ib-av', style: 'background:' + (p.color || 'var(--accent)') }, p.initials || String(p.name || '?').slice(0, 1));
 }
-/* A mesma janela da catalogacao dos documentos: as pessoas do agregado num
-   relance, um clique e fica gravado (num movimento ou em varios). */
-function fnEscolherPessoa(ids, atual){
+/* As caras das pessoas para escolher uma ou varias (carregar liga e desliga). */
+function fnEscolhaPessoas(atuais, aoMudar){
+  if (typeof ibEstilo === 'function') ibEstilo();
+  var marc = {};
+  (atuais || []).forEach(function(id){ marc[Number(id)] = true; });
+  var caixa = h('div', { class: 'ib-pessoas' });
+  fnPessoas().forEach(function(p){
+    var b = h('button', { type: 'button', class: 'ib-pessoa' + (marc[p.id] ? ' on' : ''), 'aria-pressed': marc[p.id] ? 'true' : 'false', onclick: function(){
+      marc[p.id] = !marc[p.id]; b.classList.toggle('on', marc[p.id]); b.setAttribute('aria-pressed', marc[p.id] ? 'true' : 'false'); if (aoMudar) aoMudar();
+    } }, [fnAvatar(p), h('span', null, p.name)]);
+    caixa.appendChild(b);
+  });
+  caixa.valor = function(){ return fnPessoas().filter(function(p){ return marc[p.id]; }).map(function(p){ return p.id; }); };
+  caixa.limpar = function(){ marc = {}; [].forEach.call(caixa.children, function(b){ b.classList.remove('on'); b.setAttribute('aria-pressed', 'false'); }); };
+  return caixa;
+}
+/* A mesma janela da catalogacao dos documentos, agora com varias pessoas:
+   carrega-se em quem for e grava-se (num movimento ou em varios). */
+function fnEscolherPessoa(ids, atuais){
   if (typeof ibEstilo === 'function') ibEstilo();
   var dlg = h('dialog', { class: 'ib-dlg' });
   var fechar = function(){ try { dlg.close(); } catch (e) {} if (dlg.parentNode) dlg.parentNode.removeChild(dlg); };
-  var gravar = function(pid){
-    var q = ids.length === 1 ? fnApi('/api/financas/movimentos/' + ids[0], 'PATCH', { person_id: pid })
-      : fnApi('/api/financas/movimentos/lote', 'POST', { ids: ids, person_id: pid });
+  var gravar = function(pids){
+    var q = ids.length === 1 ? fnApi('/api/financas/movimentos/' + ids[0], 'PATCH', { person_ids: pids })
+      : fnApi('/api/financas/movimentos/lote', 'POST', { ids: ids, person_ids: pids });
     q.then(function(){
       fechar();
       if (ids.length === 1) fnMovAtualizar(ids[0]);
-      else { FN.mov.sel = {}; fnAviso(ids.length + (pid ? ' movimentos de ' + fnPessoaNome(pid) + '.' : ' movimentos sem pessoa.')); fnMudou(); }
+      else { FN.mov.sel = {}; fnAviso(ids.length + (pids.length ? ' movimentos de ' + pids.map(fnPessoaNome).join(', ') + '.' : ' movimentos sem pessoa.')); fnMudou(); }
     }, fnErro);
   };
-  var lista = h('div', { class: 'ib-pessoas' }, fnPessoas().map(function(p){
-    return h('button', { type: 'button', class: 'ib-pessoa' + (Number(atual) === p.id ? ' on' : ''), onclick: function(){ gravar(p.id); } }, [fnAvatar(p), h('span', null, p.name)]);
-  }));
+  var escolha = fnEscolhaPessoas(atuais);
   dlg.appendChild(h('div', { class: 'ib-dlgc' }, [
     h('h3', null, ids.length === 1 ? 'De quem é este movimento?' : 'De quem são estes ' + ids.length + ' movimentos?'),
-    h('p', null, 'Aparece na ficha da pessoa, no cartão «Movimentos do banco».'),
-    lista,
-    h('div', { class: 'ib-dlga' }, [h('button', { type: 'button', class: 'btn', onclick: function(){ gravar(null); } }, 'Ninguém'),
-      h('button', { type: 'button', class: 'btn', onclick: fechar }, 'Fechar')])]));
+    h('p', null, 'Escolhe uma ou mais pessoas. Aparece na ficha de cada uma, no cartão «Movimentos do banco».'),
+    escolha,
+    h('div', { class: 'ib-dlga' }, [h('button', { type: 'button', class: 'btn', onclick: function(){ gravar([]); } }, 'Ninguém'),
+      h('button', { type: 'button', class: 'btn', onclick: fechar }, 'Fechar'),
+      h('button', { type: 'button', class: 'btn primary', onclick: function(){ gravar(escolha.valor()); } }, 'Guardar')])]));
   dlg.addEventListener('cancel', function(){ setTimeout(fechar, 0); });
   dlg.addEventListener('click', function(e){ if (e.target === dlg) fechar(); });
   document.body.appendChild(dlg);
@@ -545,7 +586,7 @@ function fnEscolherPessoa(ids, atual){
 
 /* Num movimento dividido, a parte que e mesmo do Marco. */
 function fnMinhaParte(m){
-  if (!m.partes || !m.partes.length) return null;
+  if (!m.partes || !m.partes.some(function(p){ return p.pessoa_id; })) return null;
   var minha = m.partes.filter(function(p){ return !p.pessoa_id; }).reduce(function(s, p){ return s + p.valor; }, 0);
   return h('small', { style: 'display:block', class: 'fn-muted' }, 'tua parte ' + fnEur(minha));
 }
@@ -588,9 +629,12 @@ function fnPainelMov(p, m, emJanela){
     m.nota ? h('small', null, 'Nota: ' + m.nota) : null]));
 
   var sc = fnSelCategorias(m.categoria_id || m.ia_categoria_id);
-  var sa = fnSelAreas(m.context_id);
+  /* Sem área própria, vale a da conta: diz-se qual é. */
+  var ctxConta = conta && conta.context_id ? fnCtx(conta.context_id) : null;
+  var sa = fnSelAreas(m.context_id, ctxConta ? '— a da conta: ' + ctxConta.name + ' —' : '— sem área —');
   var spj = fnSelProjetos(m.project_id);
-  var spe = fnSelPessoas(m.person_id);
+  var spe = fnEscolhaPessoas(fnIdsPessoas(m));
+  spe.style.gridTemplateColumns = 'repeat(auto-fill,minmax(150px,1fr))';
   var sp = h('select', { class: 'fn-sel' }, [h('option', { value: '' }, '— nenhuma —')]);
   var nota = h('input', { class: 'fn-in', value: m.nota || '', placeholder: 'Nota' });
   var regra = h('input', { type: 'checkbox' });
@@ -599,18 +643,29 @@ function fnPainelMov(p, m, emJanela){
     c.pessoas.filter(function(x){ return x.ativo; }).forEach(function(x){ sp.appendChild(h('option', { value: x.id }, x.nome)); });
     if (m.cc_pessoa_id) sp.value = String(m.cc_pessoa_id);
   }, function(){});
-  p.appendChild(h('div', { class: 'fn-campos' }, [fnCampo('Categoria' + (!m.categoria_id && m.ia_categoria_id ? ' (sugerida)' : ''), sc), fnCampo('Área', sa)]));
-  p.appendChild(h('div', { class: 'fn-campos' }, [fnCampo('Projeto', spj), fnCampo('De quem é (agregado)', spe)]));
+  var minhas = (m.partes || []).filter(function(x){ return !x.pessoa_id && x.categoria_id; });
+  var catCampo = fnCampo('Categoria' + (!m.categoria_id && m.ia_categoria_id ? ' (sugerida)' : '') + (minhas.length > 1 ? ' (a maior parte)' : ''), sc);
+  p.appendChild(h('div', { class: 'fn-campos' }, [catCampo, fnCampo('Área', sa)]));
+  if (m.valor !== 0) p.appendChild(h('div', { class: 'fn-acoes', style: 'margin-top:-4px' }, [
+    minhas.length > 1 ? h('small', { class: 'fn-muted' }, 'Repartido: ' + minhas.map(function(x){ return fnCatNome(x.categoria_id, true) + ' ' + fnEur(Math.abs(x.valor)); }).join(' · ')) : null,
+    fnBtn(minhas.length > 1 ? 'Alterar as categorias…' : 'Repartir por categorias…', function(){ fnCategoriasJanela(m); }, 'small')]));
+  p.appendChild(fnCampo('Projeto', spj));
+  p.appendChild(h('div', { class: 'fn-campo' }, [h('span', null, 'De quem é (agregado) · uma ou mais pessoas'), spe]));
   p.appendChild(fnCampo('Conta corrente de', sp));
   p.appendChild(fnCampo('Nota', nota));
   p.appendChild(h('label', { class: 'fn-check' }, [regra, 'Criar regra: quando a descrição tiver']));
   p.appendChild(padrao);
   p.appendChild(h('div', { class: 'fn-acoes' }, [fnBtn('Guardar', function(){
     var corpo = { categoria_id: sc.value ? Number(sc.value) : null, context_id: sa.value ? Number(sa.value) : null, nota: nota.value,
-      project_id: spj.value ? Number(spj.value) : null, person_id: spe.value ? Number(spe.value) : null,
+      project_id: spj.value ? Number(spj.value) : null, person_ids: spe.valor(),
       cc_pessoa_id: sp.value ? Number(sp.value) : null, aceite: !m.categoria_id && m.ia_categoria_id && String(m.ia_categoria_id) === sc.value };
     if (regra.checked) { corpo.criar_regra = true; corpo.regra_padrao = padrao.value; }
-    fnApi('/api/financas/movimentos/' + m.id, 'PATCH', corpo).then(function(){ fnAviso('Guardado.'); if (corpo.criar_regra) fnMudou(); else fnMovAtualizar(m.id); }, fnErro);
+    var mudouCat = corpo.categoria_id && corpo.categoria_id !== m.categoria_id && !corpo.aceite;
+    fnApi('/api/financas/movimentos/' + m.id, 'PATCH', corpo).then(function(){
+      fnAviso('Guardado.');
+      var depois = corpo.criar_regra ? fnMudou() : fnMovAtualizar(m.id);
+      if (mudouCat) Promise.resolve(depois).then(function(){ fnSemelhantes(m, corpo.categoria_id); });
+    }, fnErro);
   }, 'primary small'), fnBtn('Apagar movimento', function(){
     fnJanela('Apagar este movimento?', [h('p', null, m.descricao + ' · ' + fnEur(m.valor))], [{ txt: 'Apagar', pri: true, fn: function(){
       return fnApi('/api/financas/movimentos/' + m.id, 'DELETE').then(function(){ FN.mov.aberto = null; fnMudou(); }, fnErro); } }]);
@@ -646,6 +701,82 @@ function fnPainelMov(p, m, emJanela){
     cx.appendChild(h('p', { class: 'fn-nota', style: 'margin-top:6px' }, 'Ligar não cria nada novo: o movimento do banco passa a ser a prova de que a despesa foi paga, e a despesa deixa de contar duas vezes.'));
   }, function(e){ clear(cx); cx.appendChild(h('p', { class: 'fn-nota' }, e.message)); });
 }
+/* Um movimento em várias categorias (parte combustível, parte Via Verde). */
+function fnCategoriasJanela(m){
+  var outros = (m.partes || []).filter(function(x){ return x.pessoa_id; }).reduce(function(t, x){ return t + Math.abs(x.valor); }, 0);
+  var total = Math.round((Math.abs(m.valor) - outros) * 100) / 100;
+  var num = function(v){ var n = Number(String(v || '').replace(/\s/g, '').replace(',', '.')); return isFinite(n) ? Math.round(n * 100) / 100 : 0; };
+  var txt = function(v){ return v.toFixed(2).replace('.', ','); };
+  var nat = m.valor < 0 ? 'despesa' : 'receita';
+  var linhas = h('div');
+  var resumo = h('p', { class: 'fn-nota' });
+  function rows(){ return [].slice.call(linhas.querySelectorAll('.fn-ct-l')); }
+  function atualizar(){
+    var soma = rows().reduce(function(t, r){ return t + num(r.querySelector('input').value); }, 0);
+    var falta = Math.round((total - soma) * 100) / 100;
+    resumo.textContent = (outros ? 'A tua parte: ' : 'Total: ') + fnEur(total) + ' · repartido ' + fnEur(soma) + (Math.abs(falta) >= 0.01 ? (falta > 0 ? ' · faltam ' + fnEur(falta) : ' · passa ' + fnEur(-falta)) : ' · certo.');
+    resumo.style.color = Math.abs(falta) >= 0.01 ? 'var(--bad)' : '';
+  }
+  function linha(cat, valor){
+    var sc = fnSelCategorias(cat || '', '— categoria —', nat);
+    var vi = h('input', { class: 'fn-in', inputmode: 'decimal', value: valor != null ? txt(valor) : '', placeholder: '0,00', style: 'max-width:110px' });
+    vi.addEventListener('input', atualizar);
+    var row = h('div', { class: 'fn-acoes fn-ct-l', style: 'margin-bottom:6px;flex-wrap:nowrap' }, [sc, vi,
+      h('button', { type: 'button', class: 'btn small', 'aria-label': 'Tirar', onclick: function(){ row.parentNode.removeChild(row); atualizar(); } }, '×')]);
+    linhas.appendChild(row);
+  }
+  var minhas = (m.partes || []).filter(function(x){ return !x.pessoa_id && x.categoria_id; });
+  if (minhas.length > 1) minhas.forEach(function(x){ linha(x.categoria_id, Math.abs(x.valor)); });
+  else { linha(m.categoria_id || m.ia_categoria_id, null); linha('', null); }
+  fnJanela('Repartir por categorias', [
+    h('p', { class: 'fn-nota' }, m.descricao + ' · ' + fnData(m.data) + ' · ' + fnEur(Math.abs(m.valor)) + (outros ? ' (a parte dos outros, ' + fnEur(outros) + ', fica de fora)' : '') + '.'),
+    linhas,
+    h('div', { class: 'fn-acoes' }, [fnBtn('+ Categoria', function(){ linha('', null); atualizar(); }, 'small'),
+      fnBtn('A última fica com o resto', function(){ var rs = rows(); if (!rs.length) return; var antes = rs.slice(0, -1).reduce(function(t, r){ return t + num(r.querySelector('input').value); }, 0);
+        rs[rs.length - 1].querySelector('input').value = txt(Math.max(0, Math.round((total - antes) * 100) / 100)); atualizar(); }, 'small')]),
+    resumo,
+    h('p', { class: 'fn-nota' }, 'Cada parte conta na sua categoria (nos resumos, na análise e nos orçamentos). Com uma só categoria, o movimento volta a ser normal.')
+  ], [{ txt: 'Guardar', pri: true, fn: function(){
+    var partes = rows().map(function(r){ return { categoria_id: r.querySelector('select').value ? Number(r.querySelector('select').value) : null, valor: num(r.querySelector('input').value) }; }).filter(function(x){ return x.valor > 0 || x.categoria_id; });
+    if (partes.some(function(x){ return !x.categoria_id || !(x.valor > 0); })) { fnAviso('Cada parte precisa de categoria e valor.'); return false; }
+    return fnApi('/api/financas/movimentos/' + m.id + '/categorias', 'PUT', { partes: partes }).then(function(r){
+      fnAviso(r.partes > 1 ? 'Repartido por ' + r.partes + ' categorias.' : 'Uma só categoria.'); fnMovAtualizar(m.id);
+    }, fnErro);
+  } }]);
+  atualizar();
+}
+
+/* Depois de corrigir a categoria: há outros movimentos com o mesmo texto?
+   Pergunta-se se vão também (e se fica uma regra para os próximos). */
+function fnSemelhantes(m, catId){
+  apiGestao('/api/financas/movimentos/' + m.id + '/semelhantes').then(function(r){
+    var ms = (r.movimentos || []).filter(function(x){ return x.categoria_id !== catId; });
+    if (!ms.length) return;
+    var marc = {};
+    ms.forEach(function(x){ marc[x.id] = true; });
+    var regra = h('input', { type: 'checkbox', checked: true });
+    var porCat = {};
+    ms.forEach(function(x){ var k = x.categoria_id ? fnCatNome(x.categoria_id, true) : 'sem categoria'; porCat[k] = (porCat[k] || 0) + 1; });
+    var lista = h('div', { class: 'fn-lista', style: 'max-height:45vh;overflow:auto' }, ms.map(function(x){
+      return h('label', { class: 'fn-check', style: 'padding:4px 0' }, [h('input', { type: 'checkbox', checked: true, onchange: function(e){ marc[x.id] = e.target.checked; } }),
+        h('span', { style: 'flex:1;min-width:0' }, [fnData(x.data) + ' · ' + x.descricao, h('small', { class: 'fn-muted', style: 'display:block' }, ((fnConta(x.conta_id) || {}).nome || '') + ' · ' + (x.categoria_id ? fnCatNome(x.categoria_id) : 'sem categoria'))]),
+        h('span', { class: 'fn-n' }, fnEur(x.valor, true))]);
+    }));
+    fnJanela('Mudar também os outros?', [
+      h('p', null, 'Há ' + ms.length + (ms.length === 1 ? ' movimento' : ' movimentos') + ' com o mesmo texto («' + r.chave + '») noutra categoria (' + Object.keys(porCat).map(function(k){ return porCat[k] + ' em ' + k; }).join(', ') + '). Passam para «' + fnCatNome(catId) + '»?'),
+      lista,
+      h('label', { class: 'fn-check' }, [regra, 'E os próximos com este texto também (cria uma regra)'])
+    ], [{ txt: 'Mudar os escolhidos', pri: true, fn: function(){
+      var ids = Object.keys(marc).filter(function(k){ return marc[k]; }).map(Number);
+      if (!ids.length) return true;
+      return fnApi('/api/financas/movimentos/lote', 'POST', { ids: ids, categoria_id: catId }).then(function(x){
+        var q = regra.checked ? fnApi('/api/financas/regras', 'POST', { padrao: r.chave, categoria_id: catId }).catch(function(){}) : Promise.resolve();
+        return q.then(function(){ fnAviso(x.feitos + ' movimentos mudados' + (regra.checked ? ' e regra criada.' : '.')); fnMudou(); });
+      }, fnErro);
+    } }]);
+  }, function(){});
+}
+
 /* Conta partilhada: pagaste por todos e os outros devolvem a parte deles. */
 function fnPainelDivisao(p, m){
   p.appendChild(h('div', { class: 'mono', style: 'margin-top:6px' }, 'Conta partilhada'));
