@@ -9,14 +9,21 @@
  * empresa, os pais - tem lancamentos a mao. E um movimento do banco pode ir
  * para a conta corrente de alguem (uma transferencia que acerta contas).
  *
+ * As contas pequenas (um jantar pago pelo Marco e dividido) nao passam pelo
+ * Splitwise: o movimento divide-se no Farol, a parte de cada um fica na conta
+ * corrente dele (origem 'partilha') e a transferencia com que devolve liga-se
+ * como reembolso (origem 'reembolso'). Estas contam sempre, tambem para quem
+ * esta no Splitwise, porque o Splitwise nunca as viu.
+ *
  * valor com sinal, do lado do Marco: positivo, a pessoa deve-lhe; negativo,
  * deve ele.
  */
-const { query } = require('./db');
+const { query, pool } = require('./db');
 const splitwise = require('./splitwise');
 
 const all = async (sql, params) => (await query(sql, params)).rows;
 const cent = (v) => Math.round(Number(v || 0) * 100) / 100;
+function erro(codigo, msg) { const e = new Error(msg); e.status = codigo; return e; }
 const nomeDe = (u) => [u && u.first_name, u && u.last_name].filter(Boolean).join(' ').trim() || (u && u.email) || ('#' + (u && u.id));
 
 async function lerSetting(k) {
@@ -159,7 +166,8 @@ async function resumo() {
             COALESCE(SUM(m.valor) FILTER (WHERE NOT m.apagado), 0) AS saldo,
             COALESCE(SUM(m.valor) FILTER (WHERE NOT m.apagado AND m.origem = 'splitwise'), 0) AS saldo_sw_lido,
             COALESCE(SUM(m.valor) FILTER (WHERE NOT m.apagado AND m.origem <> 'splitwise'), 0) AS saldo_fora,
-            COALESCE(SUM(m.valor) FILTER (WHERE NOT m.apagado AND m.origem = 'tu'), 0) AS saldo_tu,
+            COALESCE(SUM(m.valor) FILTER (WHERE NOT m.apagado AND m.origem IN ('tu', 'partilha', 'reembolso')), 0) AS saldo_tu,
+            COALESCE(SUM(m.valor) FILTER (WHERE NOT m.apagado AND m.origem IN ('partilha', 'reembolso')), 0) AS saldo_partilhas,
             to_char(MAX(m.data) FILTER (WHERE NOT m.apagado), 'YYYY-MM-DD') AS ultimo,
             COUNT(m.id) FILTER (WHERE NOT m.apagado) AS n
        FROM fin_cc_pessoas p LEFT JOIN fin_cc_mov m ON m.pessoa_id = p.id
@@ -167,14 +175,16 @@ async function resumo() {
   const pessoas = ps.map((p) => {
     const x = Object.assign({}, p, {
       saldo: cent(p.saldo), saldo_fora: cent(p.saldo_fora), saldo_sw_lido: cent(p.saldo_sw_lido),
-      saldo_splitwise: p.saldo_splitwise == null ? null : cent(p.saldo_splitwise), n: Number(p.n), saldo_tu: cent(p.saldo_tu)
+      saldo_splitwise: p.saldo_splitwise == null ? null : cent(p.saldo_splitwise), n: Number(p.n), saldo_tu: cent(p.saldo_tu),
+      saldo_partilhas: cent(p.saldo_partilhas)
     });
     /* O Splitwise e a referencia: se o que se leu despesa a despesa nao bate
        com o saldo que ele da, diz-se - e conta o dele. */
     if (x.splitwise_id && x.saldo_splitwise != null) {
       x.diferenca = cent(x.saldo_splitwise - x.saldo_sw_lido);
       /* Os acertos por transferencia registam-se no Splitwise; ligados tambem
-         aqui contariam duas vezes. So os lancamentos a mao se somam. */
+         aqui contariam duas vezes. So se somam os lancamentos a mao e as
+         contas divididas no Farol (com os reembolsos delas). */
       x.saldo = cent(x.saldo_splitwise + cent(p.saldo_tu));
     }
     return x;
@@ -193,7 +203,8 @@ async function resumo() {
 async function saldoTotalEm(dataIso) {
   const r = (await all(
     `SELECT COALESCE(SUM(m.valor), 0) AS s FROM fin_cc_mov m JOIN fin_cc_pessoas p ON p.id = m.pessoa_id
-      WHERE NOT m.apagado AND p.ativo AND m.data <= $1`, [dataIso]))[0];
+      WHERE NOT m.apagado AND p.ativo AND m.data <= $1
+        AND NOT (p.splitwise_id IS NOT NULL AND m.origem = 'banco')`, [dataIso]))[0];
   return cent(r.s);
 }
 
@@ -208,8 +219,10 @@ function instalar(app, falha) {
       const p = (await all('SELECT id, nome, person_id, splitwise_id::text AS splitwise_id, saldo_splitwise, por_grupo, nota FROM fin_cc_pessoas WHERE id = $1', [req.params.id]))[0];
       if (!p) return res.status(404).json({ error: 'Pessoa não encontrada.' });
       const movs = await all(
-        `SELECT id, to_char(data,'YYYY-MM-DD') AS data, descricao, valor, origem, grupo, total, pagamento, movimento_id
-           FROM fin_cc_mov WHERE pessoa_id = $1 AND NOT apagado ORDER BY data DESC, id DESC LIMIT 1000`, [p.id]);
+        `SELECT c.id, to_char(c.data,'YYYY-MM-DD') AS data, c.descricao, c.valor, c.origem, c.grupo, c.total, c.pagamento,
+                COALESCE(c.movimento_id, pt.movimento_id) AS movimento_id
+           FROM fin_cc_mov c LEFT JOIN fin_mov_partes pt ON pt.id = c.parte_id
+          WHERE c.pessoa_id = $1 AND NOT c.apagado ORDER BY c.data DESC, c.id DESC LIMIT 1000`, [p.id]);
       res.json({ pessoa: p, movimentos: movs.map((m) => Object.assign({}, m, { valor: cent(m.valor), total: m.total == null ? null : cent(m.total) })) });
     } catch (e) { falha(res, e, 'cc pessoa'); }
   });
@@ -253,8 +266,10 @@ function instalar(app, falha) {
 
   app.delete('/api/financas/cc/mov/:id(\\d+)', async (req, res) => {
     try {
-      const r = await all("DELETE FROM fin_cc_mov WHERE id = $1 AND origem <> 'splitwise' RETURNING id", [req.params.id]);
-      if (!r.length) return res.status(409).json({ error: 'Os lançamentos do Splitwise apagam-se lá.' });
+      const x = (await all('SELECT origem FROM fin_cc_mov WHERE id = $1', [req.params.id]))[0];
+      if (x && x.origem === 'splitwise') return res.status(409).json({ error: 'Os lançamentos do Splitwise apagam-se lá.' });
+      if (x && x.origem === 'partilha') return res.status(409).json({ error: 'Vem de uma conta dividida: altera-a ou desfá-la no movimento do banco.' });
+      await query('DELETE FROM fin_cc_mov WHERE id = $1', [req.params.id]);
       res.json({ ok: true });
     } catch (e) { falha(res, e, 'cc apagar'); }
   });
@@ -269,17 +284,145 @@ function instalar(app, falha) {
 }
 
 /* Um movimento do banco que acerta contas com alguem: o que sai do Marco para
-   a pessoa aumenta o que ela lhe deve; o que entra diminui. */
+   a pessoa aumenta o que ela lhe deve; o que entra diminui. Uma entrada de
+   quem tem contas divididas por pagar e um reembolso: conta mesmo para quem
+   esta no Splitwise (o Splitwise nao sabe destas contas). */
 async function ligarMovimento(movimentoId, pessoaId) {
   if (!pessoaId) { await query('DELETE FROM fin_cc_mov WHERE movimento_id = $1', [movimentoId]); return; }
   const m = (await all('SELECT id, data, descricao, valor FROM fin_movimentos WHERE id = $1', [movimentoId]))[0];
   if (!m) return;
+  let origem = 'banco';
+  if (Number(m.valor) > 0) {
+    const ab = (await all(
+      `SELECT COALESCE(SUM(valor), 0) AS s FROM fin_cc_mov
+        WHERE pessoa_id = $1 AND NOT apagado AND origem IN ('partilha', 'reembolso') AND movimento_id IS DISTINCT FROM $2`,
+      [pessoaId, movimentoId]))[0];
+    if (Number(ab.s) > 0.005) origem = 'reembolso';
+  }
   await query(
     `INSERT INTO fin_cc_mov (pessoa_id, data, descricao, valor, origem, movimento_id)
-     VALUES ($1, $2, $3, $4, 'banco', $5)
+     VALUES ($1, $2, $3, $4, $5, $6)
      ON CONFLICT (movimento_id) WHERE movimento_id IS NOT NULL
-     DO UPDATE SET pessoa_id = EXCLUDED.pessoa_id, data = EXCLUDED.data, descricao = EXCLUDED.descricao, valor = EXCLUDED.valor`,
-    [pessoaId, m.data, m.descricao, cent(-Number(m.valor)), m.id]);
+     DO UPDATE SET pessoa_id = EXCLUDED.pessoa_id, data = EXCLUDED.data, descricao = EXCLUDED.descricao,
+       valor = EXCLUDED.valor, origem = EXCLUDED.origem`,
+    [pessoaId, m.data, m.descricao, cent(-Number(m.valor)), origem, m.id]);
 }
 
-module.exports = { instalar, arrancar, sincronizar, resumo, saldoTotalEm, ligarMovimento };
+/* ---------------- contas divididas ---------------- */
+/* Divide um movimento que saiu da conta: a parte do Marco (categoria) e a de
+   cada pessoa, que fica a dever-lha. Refazer substitui a divisao anterior. */
+async function dividir(movimentoId, b) {
+  const m = (await all("SELECT id, to_char(data,'YYYY-MM-DD') AS data, descricao, valor FROM fin_movimentos WHERE id = $1", [movimentoId]))[0];
+  if (!m) throw erro(404, 'Movimento não encontrado.');
+  const total = cent(-Number(m.valor));
+  if (!(total > 0)) throw erro(400, 'Só se divide um movimento que saiu da conta.');
+  const lidos = (b.outros || []).map((o) => ({
+    pessoa_id: o.pessoa_id ? Number(o.pessoa_id) : null,
+    nome: String(o.nome || '').trim().slice(0, 120),
+    valor: cent(String(o.valor == null ? '' : o.valor).replace(/\s/g, '').replace(',', '.'))
+  })).filter((o) => o.valor > 0 && (o.pessoa_id || o.nome));
+  if (!lidos.length) throw erro(400, 'Falta com quem dividir e quanto.');
+  if (cent(lidos.reduce((t, o) => t + o.valor, 0)) > total + 0.005) throw erro(400, 'A parte dos outros passa o valor do movimento.');
+  /* Cada nome e uma pessoa da conta corrente: a que ja existe com esse nome,
+     ou uma nova. */
+  for (const o of lidos) {
+    if (o.pessoa_id) continue;
+    const ex = (await all('SELECT id, ativo FROM fin_cc_pessoas WHERE lower(nome) = lower($1) ORDER BY ativo DESC, id LIMIT 1', [o.nome]))[0];
+    if (ex) { o.pessoa_id = ex.id; if (!ex.ativo) await query('UPDATE fin_cc_pessoas SET ativo = TRUE WHERE id = $1', [ex.id]); }
+    else o.pessoa_id = (await all('INSERT INTO fin_cc_pessoas (nome) VALUES ($1) RETURNING id', [o.nome]))[0].id;
+  }
+  const porPessoa = {};
+  lidos.forEach((o) => { porPessoa[o.pessoa_id] = cent((porPessoa[o.pessoa_id] || 0) + o.valor); });
+  const soma = cent(Object.values(porPessoa).reduce((s, v) => s + v, 0));
+  if (soma > total + 0.005) throw erro(400, 'A parte dos outros passa o valor do movimento.');
+  const minha = cent(total - soma);
+  const descricao = String(b.descricao || '').trim().slice(0, 200) || m.descricao;
+  const acertos = (await all("SELECT id FROM fin_categorias WHERE natureza = 'transferencia' AND nome ILIKE '%acerto%' ORDER BY id LIMIT 1"))[0];
+  const categoria = minha > 0.005 ? (b.categoria_id ? Number(b.categoria_id) : null) : (acertos ? acertos.id : null);
+
+  const cli = await pool.connect();
+  try {
+    await cli.query('BEGIN');
+    await cli.query('DELETE FROM fin_mov_partes WHERE movimento_id = $1', [m.id]);
+    /* Um movimento dividido deixa de ser, ele proprio, um acerto com alguem. */
+    await cli.query('DELETE FROM fin_cc_mov WHERE movimento_id = $1', [m.id]);
+    if (minha > 0.005) {
+      await cli.query('INSERT INTO fin_mov_partes (movimento_id, valor, categoria_id) VALUES ($1, $2, $3)', [m.id, -minha, categoria]);
+    }
+    for (const pid of Object.keys(porPessoa)) {
+      const pt = (await cli.query('INSERT INTO fin_mov_partes (movimento_id, valor, pessoa_id) VALUES ($1, $2, $3) RETURNING id',
+        [m.id, -porPessoa[pid], Number(pid)])).rows[0];
+      await cli.query(
+        `INSERT INTO fin_cc_mov (pessoa_id, data, descricao, valor, origem, total, parte_id)
+         VALUES ($1, $2, $3, $4, 'partilha', $5, $6)`, [Number(pid), m.data, descricao, porPessoa[pid], total, pt.id]);
+    }
+    if (categoria) {
+      await cli.query(`UPDATE fin_movimentos SET categoria_id = $1, categoria_fonte = 'tu', categoria_em = now() WHERE id = $2`, [categoria, m.id]);
+    }
+    await cli.query('COMMIT');
+  } catch (e) {
+    await cli.query('ROLLBACK').catch(() => {});
+    throw e;
+  } finally { cli.release(); }
+  return { minha, outros: soma, pessoas: Object.keys(porPessoa).length };
+}
+
+async function desfazerDivisao(movimentoId) {
+  await query('DELETE FROM fin_mov_partes WHERE movimento_id = $1', [movimentoId]);
+}
+
+/* Muda a categoria da parte do Marco quando a do movimento muda. */
+async function categoriaDaMinhaParte(movimentoId, categoriaId) {
+  await query('UPDATE fin_mov_partes SET categoria_id = $1 WHERE movimento_id = $2 AND pessoa_id IS NULL', [categoriaId || null, movimentoId]);
+}
+
+/* ---------------- reembolsos ---------------- */
+function norm(s) {
+  return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+    .replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+const NAO_NOMES = new Set(['de', 'da', 'do', 'das', 'dos', 'e', 'mb', 'way', 'trf', 'transf', 'transferencia', 'sr', 'sra']);
+
+/* Quem deve dinheiro fora do Splitwise, e as partes que lhe cabem: le-se uma
+   vez por pedido e serve para todas as entradas. */
+async function abertos() {
+  const ps = await all(
+    `SELECT p.id, p.nome,
+            COALESCE(SUM(m.valor) FILTER (WHERE m.origem IN ('partilha', 'reembolso', 'tu')
+                                           OR (m.origem = 'banco' AND p.splitwise_id IS NULL)), 0) AS aberto
+       FROM fin_cc_pessoas p JOIN fin_cc_mov m ON m.pessoa_id = p.id AND NOT m.apagado
+      WHERE p.ativo GROUP BY p.id`);
+  const partes = await all(
+    `SELECT pessoa_id, to_char(data,'YYYY-MM-DD') AS data, descricao, valor FROM fin_cc_mov
+      WHERE origem = 'partilha' AND NOT apagado AND data >= CURRENT_DATE - 240`);
+  return ps.filter((p) => Number(p.aberto) > 0.005).map((p) => ({
+    id: p.id, nome: p.nome, aberto: cent(p.aberto),
+    nomes: norm(p.nome).split(' ').filter((t) => t.length >= 3 && !NAO_NOMES.has(t)),
+    partes: partes.filter((x) => x.pessoa_id === p.id).map((x) => ({ data: x.data, descricao: x.descricao, valor: cent(x.valor) }))
+  }));
+}
+
+/* Quem pode ter feito esta transferencia para devolver uma conta: o nome na
+   descricao (o MB Way e as transferencias trazem-no) e o valor igual ao de
+   uma parte por pagar. */
+function reembolsoDe(m, lista) {
+  const v = cent(m.valor);
+  if (!(v > 0)) return [];
+  const desc = ' ' + norm(m.descricao) + ' ';
+  const out = [];
+  for (const p of lista) {
+    const nomes = p.nomes.filter((t) => desc.indexOf(' ' + t + ' ') >= 0);
+    const igual = p.partes.find((x) => Math.abs(x.valor - v) < 0.006 && x.data <= m.data);
+    let conf = 0;
+    const porque = [];
+    if (nomes.length) { conf += nomes.length >= 2 ? 0.62 : 0.45; porque.push('o nome está na descrição'); }
+    if (igual) { conf += 0.35; porque.push('o valor é o da parte de «' + igual.descricao + '»'); }
+    if (v > p.aberto + 0.005) { if (!nomes.length) continue; conf -= 0.15; porque.push('é mais do que deve (' + p.aberto.toFixed(2).replace('.', ',') + ' €)'); }
+    if (conf < 0.35) continue;
+    out.push({ pessoa_id: p.id, nome: p.nome, aberto: p.aberto, confianca: Math.min(0.98, cent(conf)), motivo: porque.join(' e ') });
+  }
+  return out.sort((a, b) => b.confianca - a.confianca).slice(0, 3);
+}
+
+module.exports = { instalar, arrancar, sincronizar, resumo, saldoTotalEm, ligarMovimento,
+  dividir, desfazerDivisao, categoriaDaMinhaParte, abertos, reembolsoDe };
