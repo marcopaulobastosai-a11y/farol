@@ -420,7 +420,9 @@ async function desfazerDivisao(movimentoId) {
 
 /* Muda a categoria da parte do Marco quando a do movimento muda. */
 async function categoriaDaMinhaParte(movimentoId, categoriaId) {
-  await query('UPDATE fin_mov_partes SET categoria_id = $1 WHERE movimento_id = $2 AND pessoa_id IS NULL', [categoriaId || null, movimentoId]);
+  /* Repartido por varias categorias, cada parte fica com a sua. */
+  await query(`UPDATE fin_mov_partes SET categoria_id = $1 WHERE movimento_id = $2 AND pessoa_id IS NULL
+                 AND (SELECT COUNT(*) FROM fin_mov_partes x WHERE x.movimento_id = $2 AND x.pessoa_id IS NULL) = 1`, [categoriaId || null, movimentoId]);
 }
 
 /* ---------------- reembolsos ---------------- */
@@ -715,7 +717,7 @@ async function garantirCabecalhos() {
             m.data, -m.valor, 0,
             (SELECT p3.categoria_id FROM fin_mov_partes p3 WHERE p3.movimento_id = m.id AND p3.pessoa_id IS NULL ORDER BY p3.id LIMIT 1)
        FROM fin_movimentos m
-      WHERE EXISTS (SELECT 1 FROM fin_mov_partes p WHERE p.movimento_id = m.id AND p.partilha_id IS NULL)
+      WHERE EXISTS (SELECT 1 FROM fin_mov_partes p WHERE p.movimento_id = m.id AND p.partilha_id IS NULL AND p.pessoa_id IS NOT NULL)
         AND NOT EXISTS (SELECT 1 FROM fin_partilhas f WHERE f.movimento_id = m.id)`);
   await query(
     `UPDATE fin_mov_partes p SET partilha_id = f.id FROM fin_partilhas f
