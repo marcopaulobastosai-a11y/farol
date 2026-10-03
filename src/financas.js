@@ -56,6 +56,7 @@ async function preparar() {
     const limpar = velhas.filter((m) => cc.pagador(m.descricao)).map((m) => m.id);
     if (limpar.length) await query('UPDATE fin_movimentos SET ia_categoria_id = NULL, ia_confianca = NULL, ia_fonte = NULL WHERE id = ANY($1::int[])', [limpar]);
     cc.arrancar();
+    setTimeout(() => { base().then(ligarIdentificadores).catch((e) => console.error('[farol] financas identificadores:', e.message)); }, 8000);
   } catch (e) {
     console.error('[farol] financas: as tabelas nao subiram:', e.message);
   }
@@ -75,7 +76,7 @@ function chave(s) {
 /* ---------------- dados de base ---------------- */
 async function base() {
   const [contas, cats, ctx] = await Promise.all([
-    all('SELECT id, nome, tipo, instituicao, context_id, pessoal, saldo_inicial, saldo_inicial_em, ativo, sort, nota, (mapa IS NOT NULL) AS tem_mapa FROM fin_contas ORDER BY ativo DESC, sort, nome'),
+    all('SELECT id, nome, tipo, instituicao, context_id, pessoal, saldo_inicial, saldo_inicial_em, ativo, sort, nota, identificadores, (mapa IS NOT NULL) AS tem_mapa FROM fin_contas ORDER BY ativo DESC, sort, nome'),
     all('SELECT id, grupo, nome, natureza, fixa, context_id, ativo, sort FROM fin_categorias ORDER BY sort, grupo, nome'),
     all('SELECT id, name, parent_id FROM contexts')
   ]);
@@ -814,7 +815,8 @@ async function detalharMovimentos(ids, B, sug) {
             m.context_id, m.person_id, m.expense_id, m.ia_categoria_id, m.ia_confianca, m.ia_fonte, m.nota, m.origem,
             m.project_id, pj.name AS projeto,
             m.par_id, pm.conta_id AS par_conta_id, to_char(pm.data,'YYYY-MM-DD') AS par_data,
-            pe.name AS pessoa_nome,
+            pe.name AS pessoa_nome, m.person_ids, m.para_conta_id,
+            (SELECT json_agg(px.name ORDER BY array_position(m.person_ids, px.id)) FROM people px WHERE px.id = ANY(m.person_ids)) AS pessoas_nomes,
             e.description AS despesa, (e.document_id IS NOT NULL) AS despesa_papel, e.splitwise_id::text AS despesa_splitwise,
             ccm.pessoa_id AS cc_pessoa_id, ccp.nome AS cc_pessoa, ccm.origem AS cc_origem,
             (SELECT json_agg(json_build_object('id', pt.id, 'valor', pt.valor, 'categoria_id', pt.categoria_id,
@@ -842,7 +844,30 @@ async function detalharMovimentos(ids, B, sug) {
     if (s) { if (s.reembolso) m.reembolso = s.reembolso; if (s.divisao) m.divisao = s.divisao; if (s.pagador !== undefined) m.pagador = s.pagador; }
     por[m.id] = m;
   });
+  await saldosDosMovimentos(rows, B);
   return ids.map((id) => por[id]).filter(Boolean);
+}
+
+/* O saldo da conta depois de cada movimento. O do extrato, quando veio;
+   senao, o do fim do dia (pelas ancoras da conta) menos o que entrou e saiu
+   depois dele nesse dia (pela ordem em que os movimentos entraram). */
+async function saldosDosMovimentos(rows, B) {
+  const contas = [...new Set(rows.filter((m) => m.saldo == null).map((m) => m.conta_id))];
+  for (const cid of contas) {
+    const conta = B.contaPor[cid];
+    if (!conta) continue;
+    const A = await ancoras(cid, conta);
+    const doDia = {};
+    (await all("SELECT id, to_char(data,'YYYY-MM-DD') AS data, valor FROM fin_movimentos WHERE conta_id = $1", [cid]))
+      .forEach((x) => { (doDia[x.data] = doDia[x.data] || []).push({ id: x.id, valor: Number(x.valor) }); });
+    const fim = {};
+    rows.filter((m) => m.conta_id === cid && m.saldo == null).forEach((m) => {
+      if (fim[m.data] === undefined) fim[m.data] = saldoEm(A, m.data);
+      const depois = (doDia[m.data] || []).filter((x) => x.id > m.id).reduce((t, x) => t + x.valor, 0);
+      m.saldo = cent(fim[m.data] - depois);
+      m.saldo_calculado = true;
+    });
+  }
 }
 
 /* ---------------- transferencias entre contas ---------------- */
@@ -910,11 +935,55 @@ async function ligarPar(B, saidaId, entradaId) {
   await query('UPDATE fin_movimentos SET par_id = NULL WHERE par_id = ANY($1::int[])', [[s.id, e.id]]);
   await query('UPDATE fin_movimentos SET par_id = $1 WHERE id = $2', [e.id, s.id]);
   await query('UPDATE fin_movimentos SET par_id = $1 WHERE id = $2', [s.id, e.id]);
+  await query('UPDATE fin_movimentos SET para_conta_id = NULL WHERE id = ANY($1::int[])', [[s.id, e.id]]);
   if (cat) {
     await query(`UPDATE fin_movimentos SET categoria_id = $1, categoria_fonte = 'par', categoria_em = now(), ia_categoria_id = NULL
                   WHERE id = ANY($2::int[]) AND categoria_id IS NULL`, [cat.id, [s.id, e.id]]);
   }
   return { saida: s.id, entrada: e.id };
+}
+
+/* Os identificadores das contas: o texto que, num movimento de outra conta,
+   diz que o dinheiro foi (ou veio) desta conta. Se o outro lado ja esta no
+   Farol (o mesmo valor ao contrario, perto da data), ligam-se os dois; senao
+   fica a conta de destino. Quando o mesmo texto serve varias contas (as duas
+   poupancas das meninas, com a mesma descricao e o mesmo valor), os
+   movimentos iguais do mesmo dia repartem-se por elas, uma a uma. */
+async function ligarIdentificadores(B) {
+  const contas = B.contas.filter((c) => String(c.identificadores || '').trim());
+  if (!contas.length) return { ligados: 0, destino: 0 };
+  const porTexto = {};
+  contas.forEach((c) => String(c.identificadores).split(/\n|;/).map((x) => x.trim()).filter((x) => x.length >= 4)
+    .forEach((t) => { (porTexto[t.toLowerCase()] = porTexto[t.toLowerCase()] || []).push(c); }));
+  let ligados = 0, destino = 0;
+  for (const t of Object.keys(porTexto)) {
+    const alvo = porTexto[t].sort((a, b) => a.id - b.id);
+    const ms = await all(
+      `SELECT id, conta_id, to_char(data,'YYYY-MM-DD') AS data, descricao, valor, para_conta_id FROM fin_movimentos
+        WHERE par_id IS NULL AND position($1 in lower(descricao)) > 0 AND NOT (conta_id = ANY($2::int[]))
+        ORDER BY data, id`, [t, alvo.map((c) => c.id)]);
+    const grupos = {};
+    ms.forEach((m) => { const k = m.conta_id + '|' + m.data + '|' + Number(m.valor); (grupos[k] = grupos[k] || []).push(m); });
+    for (const g of Object.values(grupos)) {
+      for (let i = 0; i < g.length; i++) {
+        const m = g[i];
+        const c = alvo[i % alvo.length];
+        /* O outro lado, se ja la esta. */
+        const outro = (await all(
+          `SELECT id FROM fin_movimentos WHERE conta_id = $1 AND par_id IS NULL AND abs(valor + $2) < 0.006
+              AND data BETWEEN $3::date - 3 AND $3::date + 6 ORDER BY abs(data - $3::date), id LIMIT 1`, [c.id, Number(m.valor), m.data]))[0];
+        if (outro) {
+          if (Number(m.valor) < 0) await ligarPar(B, m.id, outro.id); else await ligarPar(B, outro.id, m.id);
+          ligados++;
+        } else if (m.para_conta_id !== c.id) {
+          await query('UPDATE fin_movimentos SET para_conta_id = $1 WHERE id = $2', [c.id, m.id]);
+          destino++;
+        }
+      }
+    }
+  }
+  if (ligados || destino) console.log('[farol] financas: identificadores das contas -', ligados, 'ligados,', destino, 'com a conta de destino');
+  return { ligados, destino };
 }
 
 /* ---------------- rotas ---------------- */
@@ -947,17 +1016,18 @@ function instalar(app) {
   });
 
   /* ---- contas ---- */
-  const CAMPOS_CONTA = ['nome', 'tipo', 'instituicao', 'context_id', 'pessoal', 'saldo_inicial', 'saldo_inicial_em', 'ativo', 'sort', 'nota'];
+  const CAMPOS_CONTA = ['nome', 'tipo', 'instituicao', 'context_id', 'pessoal', 'saldo_inicial', 'saldo_inicial_em', 'ativo', 'sort', 'nota', 'identificadores'];
   app.post('/api/financas/contas', async (req, res) => {
     try {
       const b = req.body || {};
       if (!String(b.nome || '').trim()) throw erro(400, 'Falta o nome da conta.');
       const r = (await all(
-        `INSERT INTO fin_contas (nome, tipo, instituicao, context_id, pessoal, saldo_inicial, saldo_inicial_em, nota)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
+        `INSERT INTO fin_contas (nome, tipo, instituicao, context_id, pessoal, saldo_inicial, saldo_inicial_em, nota, identificadores, ativo)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id`,
         [b.nome.trim(), b.tipo || 'ordem', b.instituicao || null, b.context_id || null, b.pessoal !== false,
-          cent(b.saldo_inicial || 0), b.saldo_inicial_em || null, b.nota || null]))[0];
-      res.json({ id: r.id });
+          cent(b.saldo_inicial || 0), b.saldo_inicial_em || null, b.nota || null, b.identificadores || null, b.ativo !== false]))[0];
+      const lig = b.identificadores ? await ligarIdentificadores(await base()) : null;
+      res.json({ id: r.id, identificados: lig });
     } catch (e) { falha(res, e, 'a conta'); }
   });
   app.patch('/api/financas/contas/:id(\\d+)', async (req, res) => {
@@ -966,7 +1036,8 @@ function instalar(app) {
       CAMPOS_CONTA.forEach((k) => { if (b[k] !== undefined) { vals.push(b[k] === '' ? null : b[k]); sets.push(k + ' = $' + vals.length); } });
       if (b.mapa === null) sets.push('mapa = NULL');
       if (sets.length) { vals.push(req.params.id); await query('UPDATE fin_contas SET ' + sets.join(', ') + ' WHERE id = $' + vals.length, vals); }
-      res.json({ ok: true });
+      const lig = b.identificadores !== undefined ? await ligarIdentificadores(await base()) : null;
+      res.json({ ok: true, identificados: lig });
     } catch (e) { falha(res, e, 'a conta'); }
   });
   app.delete('/api/financas/contas/:id(\\d+)', async (req, res) => {
@@ -1019,7 +1090,8 @@ function instalar(app) {
       const datas = linhas.map((l) => l.data).sort();
       res.json({ lidos: linhas.length, novos: r.ids.length, repetidos: r.repetidos, de: datas[0], ate: datas[datas.length - 1], tipo });
       /* Categorizar depois de responder: o modelo pode demorar. */
-      if (r.ids.length) categorizar(r.ids).catch((e) => console.error('[farol] financas categorizar:', e.message));
+      if (r.ids.length) categorizar(r.ids).catch((e) => console.error('[farol] financas categorizar:', e.message))
+        .then(async () => ligarIdentificadores(await base())).catch((e) => console.error('[farol] financas identificadores:', e.message));
     } catch (e) { falha(res, e, 'o extrato'); }
   });
 
@@ -1043,7 +1115,7 @@ function instalar(app) {
       if (q.categoria === 'nenhuma') w.push('m.categoria_id IS NULL');
       else if (q.categoria) add('m.categoria_id = ?', Number(q.categoria));
       if (q.projeto) add('m.project_id = ?', Number(q.projeto));
-      if (q.pessoa) add('m.person_id = ?', Number(q.pessoa));
+      if (q.pessoa) add('? = ANY(m.person_ids)', Number(q.pessoa));
       if (q.q) {
         /* Procura no descritivo e, se o texto parecer um valor, no montante. */
         const num = String(q.q).replace(/\s/g, '').replace(',', '.');
@@ -1140,7 +1212,13 @@ function instalar(app) {
         set('categoria_fonte', !cat ? null : (b.aceite ? 'ia-aceite' : (m.ia_categoria_id && m.ia_categoria_id !== Number(cat) ? 'tu-corrigiu' : 'tu')));
         sets.push('categoria_em = now()');
       }
-      ['context_id', 'person_id', 'nota', 'expense_id', 'data', 'descricao', 'project_id'].forEach((k) => { if (b[k] !== undefined) set(k, b[k] === '' ? null : b[k]); });
+      ['context_id', 'nota', 'expense_id', 'data', 'descricao', 'project_id', 'para_conta_id'].forEach((k) => { if (b[k] !== undefined) set(k, b[k] === '' ? null : b[k]); });
+      /* De quem: uma ou varias pessoas (person_id fica com a primeira). */
+      if (b.person_ids !== undefined || b.person_id !== undefined) {
+        const ps = b.person_ids !== undefined ? [...new Set((b.person_ids || []).map(Number).filter(Boolean))] : (b.person_id ? [Number(b.person_id)] : []);
+        set('person_ids', ps.length ? ps : null);
+        set('person_id', ps[0] || null);
+      }
       if (sets.length) { vals.push(m.id); await query('UPDATE fin_movimentos SET ' + sets.join(', ') + ' WHERE id = $' + vals.length, vals); }
       if (b.categoria_id !== undefined) await cc.categoriaDaMinhaParte(m.id, b.categoria_id || null);
       if (b.cc_pessoa_id !== undefined) {
@@ -1181,7 +1259,11 @@ function instalar(app) {
       if (b.categoria_id !== undefined) { vals.push(b.categoria_id || null); sets.push('categoria_id = $' + vals.length, "categoria_fonte = 'tu'", 'categoria_em = now()'); }
       if (b.context_id !== undefined) { vals.push(b.context_id || null); sets.push('context_id = $' + vals.length); }
       if (b.project_id !== undefined) { vals.push(b.project_id || null); sets.push('project_id = $' + vals.length); }
-      if (b.person_id !== undefined) { vals.push(b.person_id || null); sets.push('person_id = $' + vals.length); }
+      if (b.person_ids !== undefined || b.person_id !== undefined) {
+        const ps = b.person_ids !== undefined ? [...new Set((b.person_ids || []).map(Number).filter(Boolean))] : (b.person_id ? [Number(b.person_id)] : []);
+        vals.push(ps.length ? ps : null); sets.push('person_ids = $' + vals.length);
+        vals.push(ps[0] || null); sets.push('person_id = $' + vals.length);
+      }
       if (!sets.length) return res.json({ feitos: 0 });
       const r = await all('UPDATE fin_movimentos SET ' + sets.join(', ') + ' WHERE id = ANY($1::int[]) RETURNING id', vals);
       res.json({ feitos: r.length });
@@ -1191,6 +1273,59 @@ function instalar(app) {
   app.delete('/api/financas/movimentos/:id(\\d+)', async (req, res) => {
     try { await query('DELETE FROM fin_movimentos WHERE id = $1', [req.params.id]); res.json({ ok: true }); }
     catch (e) { falha(res, e, 'o movimento'); }
+  });
+
+  /* Os movimentos com o mesmo texto (o mesmo comerciante, tirando numeros e
+     palavras de banco): para, ao corrigir a categoria de um, perguntar se
+     os outros vao tambem. */
+  app.get('/api/financas/movimentos/:id(\\d+)/semelhantes', async (req, res) => {
+    try {
+      const m = (await all('SELECT id, descricao, conta_id, valor FROM fin_movimentos WHERE id = $1', [req.params.id]))[0];
+      if (!m) throw erro(404, 'Movimento não encontrado.');
+      /* O texto inteiro, so sem os numeros (que mudam de compra para compra). */
+      const k = norm(m.descricao);
+      if (!k || k.length < 3) return res.json({ chave: k, movimentos: [] });
+      const todos = await all(
+        `SELECT m.id, to_char(m.data,'YYYY-MM-DD') AS data, m.descricao, m.valor, m.categoria_id, m.conta_id FROM fin_movimentos m
+          WHERE m.id <> $1 AND m.par_id IS NULL AND sign(m.valor) = sign($2::numeric)
+            AND NOT EXISTS (SELECT 1 FROM fin_mov_partes p WHERE p.movimento_id = m.id)
+          ORDER BY m.data DESC`, [m.id, Number(m.valor)]);
+      res.json({ chave: k, movimentos: todos.filter((x) => norm(x.descricao) === k).map((x) => Object.assign(x, { valor: Number(x.valor) })) });
+    } catch (e) { falha(res, e, 'os movimentos'); }
+  });
+
+  /* Um movimento em varias categorias (parte combustivel, parte Via Verde):
+     a parte do Marco reparte-se. Com uma so, volta a ser um movimento normal. */
+  app.put('/api/financas/movimentos/:id(\\d+)/categorias', async (req, res) => {
+    try {
+      const m = (await all('SELECT id, valor FROM fin_movimentos WHERE id = $1', [req.params.id]))[0];
+      if (!m) throw erro(404, 'Movimento não encontrado.');
+      const sinal = Number(m.valor) < 0 ? -1 : 1;
+      const atuais = await all('SELECT id, valor, pessoa_id, partilha_id FROM fin_mov_partes WHERE movimento_id = $1', [m.id]);
+      const outros = cent(atuais.filter((p) => p.pessoa_id).reduce((t, p) => t + Math.abs(Number(p.valor)), 0));
+      const minha = cent(Math.abs(Number(m.valor)) - outros);
+      const partes = ((req.body || {}).partes || []).map((p) => ({ categoria_id: p.categoria_id ? Number(p.categoria_id) : null,
+        valor: cent(String(p.valor == null ? '' : p.valor).replace(/\s/g, '').replace(',', '.')) })).filter((p) => p.valor > 0);
+      if (!partes.length) throw erro(400, 'Faltam as partes.');
+      if (partes.some((p) => !p.categoria_id)) throw erro(400, 'Cada parte precisa de categoria.');
+      const soma = cent(partes.reduce((t, p) => t + p.valor, 0));
+      if (Math.abs(soma - minha) > 0.005) throw erro(400, 'As partes somam ' + soma.toFixed(2).replace('.', ',') + ' € e ' + (outros ? 'a tua parte' : 'o movimento') + ' é ' + minha.toFixed(2).replace('.', ',') + ' €.');
+      const pid = (atuais.find((p) => p.partilha_id) || {}).partilha_id || null;
+      await query('DELETE FROM fin_mov_partes WHERE movimento_id = $1 AND pessoa_id IS NULL', [m.id]);
+      /* Uma so categoria e ninguem mais: nao e preciso partes. */
+      if (!(partes.length === 1 && !outros)) {
+        for (const p of partes) {
+          await query('INSERT INTO fin_mov_partes (movimento_id, valor, categoria_id, partilha_id) VALUES ($1, $2, $3, $4)', [m.id, sinal * p.valor, p.categoria_id, pid]);
+        }
+      }
+      const maior = partes.slice().sort((a, b) => b.valor - a.valor)[0];
+      await query(`UPDATE fin_movimentos SET categoria_id = $1, categoria_fonte = 'tu', categoria_em = now() WHERE id = $2`, [maior.categoria_id, m.id]);
+      res.json({ ok: true, partes: partes.length });
+    } catch (e) { falha(res, e, 'as categorias'); }
+  });
+
+  app.post('/api/financas/contas/identificar', async (req, res) => {
+    try { res.json(await ligarIdentificadores(await base())); } catch (e) { falha(res, e, 'as contas'); }
   });
 
   /* Transferencias entre contas: os pares sugeridos, ligar e desligar. */
