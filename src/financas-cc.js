@@ -323,14 +323,8 @@ async function dividir(movimentoId, b) {
   })).filter((o) => o.valor > 0 && (o.pessoa_id || o.nome));
   if (!lidos.length) throw erro(400, 'Falta com quem dividir e quanto.');
   if (cent(lidos.reduce((t, o) => t + o.valor, 0)) > total + 0.005) throw erro(400, 'A parte dos outros passa o valor do movimento.');
-  /* Cada nome e uma pessoa da conta corrente: a que ja existe com esse nome,
-     ou uma nova. */
-  for (const o of lidos) {
-    if (o.pessoa_id) continue;
-    const ex = (await all('SELECT id, ativo FROM fin_cc_pessoas WHERE lower(nome) = lower($1) ORDER BY ativo DESC, id LIMIT 1', [o.nome]))[0];
-    if (ex) { o.pessoa_id = ex.id; if (!ex.ativo) await query('UPDATE fin_cc_pessoas SET ativo = TRUE WHERE id = $1', [ex.id]); }
-    else o.pessoa_id = (await all('INSERT INTO fin_cc_pessoas (nome) VALUES ($1) RETURNING id', [o.nome]))[0].id;
-  }
+  /* Cada nome e uma pessoa da conta corrente: a que ja existe, ou uma nova. */
+  for (const o of lidos) { if (!o.pessoa_id) o.pessoa_id = await resolverPessoa(o.nome); }
   const porPessoa = {};
   lidos.forEach((o) => { porPessoa[o.pessoa_id] = cent((porPessoa[o.pessoa_id] || 0) + o.valor); });
   const soma = cent(Object.values(porPessoa).reduce((s, v) => s + v, 0));
@@ -367,6 +361,19 @@ async function dividir(movimentoId, b) {
   return { minha, outros: soma, pessoas: Object.keys(porPessoa).length };
 }
 
+/* A pessoa da conta corrente com este nome: o mesmo nome, ou um nome que
+   contem o outro («PAULA CRISTINA» do banco e «Paula Cristina Silva» do
+   Splitwise sao a mesma). Se nao ha, cria-se. */
+async function resolverPessoa(nome) {
+  const ex = (await all('SELECT id, ativo FROM fin_cc_pessoas WHERE lower(nome) = lower($1) ORDER BY ativo DESC, id LIMIT 1', [nome]))[0];
+  if (ex) { if (!ex.ativo) await query('UPDATE fin_cc_pessoas SET ativo = TRUE WHERE id = $1', [ex.id]); return ex.id; }
+  if (nomesDe(nome).length >= 2) {
+    const ps = (await all('SELECT id, nome, ativo FROM fin_cc_pessoas ORDER BY ativo DESC, id')).filter((p) => mesmaPessoa(p.nome, nome));
+    if (ps.length === 1) { if (!ps[0].ativo) await query('UPDATE fin_cc_pessoas SET ativo = TRUE WHERE id = $1', [ps[0].id]); return ps[0].id; }
+  }
+  return (await all('INSERT INTO fin_cc_pessoas (nome) VALUES ($1) RETURNING id', [nome]))[0].id;
+}
+
 async function desfazerDivisao(movimentoId) {
   await query('DELETE FROM fin_mov_partes WHERE movimento_id = $1', [movimentoId]);
 }
@@ -382,6 +389,96 @@ function norm(s) {
     .replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
 }
 const NAO_NOMES = new Set(['de', 'da', 'do', 'das', 'dos', 'e', 'mb', 'way', 'trf', 'transf', 'transferencia', 'sr', 'sra']);
+const nomesDe = (s) => norm(s).split(' ').filter((t) => t.length >= 3 && !NAO_NOMES.has(t));
+
+function mesmaPessoa(a, b) {
+  if (norm(a) === norm(b)) return true;
+  const x = nomesDe(a), y = nomesDe(b);
+  return (x.length >= 2 && x.every((t) => y.indexOf(t) >= 0)) || (y.length >= 2 && y.every((t) => x.indexOf(t) >= 0));
+}
+
+/* Quem mandou o dinheiro, quando o banco o diz: «IPS/R3162839641-PAULA
+   CRISTINA» (transferencia imediata), «MB WAY DE ...», «TRF ... DE ...».
+   Empresas e o Estado nao sao pessoas a quem se divide um jantar. */
+function pagador(desc) {
+  const s = String(desc || '').trim();
+  const m = s.match(/^IPS\/R?\d*[-\s]+(.+)$/i) ||
+    s.match(/\bMB ?WAY\b.*?\b(?:DE|DO|DA)\s+(.+)$/i) ||
+    s.match(/\b(?:TRF|TRANSF|TRANSFERENCIA|TRANSFER\u00caNCIA)\b\.?\s*(?:IMEDIATA\s+|SEPA\+?\s+|RECEBIDA\s+)*(?:DE|DO|DA)\s+(.+)$/i);
+  if (!m) return null;
+  const n = m[1].replace(/\d{4,}.*$/, '').replace(/[^A-Za-z\u00C0-\u00FF?' .-]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (n.replace(/[^A-Za-z\u00C0-\u00FF]/g, '').length < 3) return null;
+  if (/\b(LDA|S\.?A|UNIPESSOAL|BANCO|SGPS|CRL|ACE|SEGUROS?|SEGURANCA|AUTORIDADE|TRIBUTARIA|ESTADO|MUNICIPIO|CAMARA|SA)\b/i.test(n)) return null;
+  return n.toLowerCase().replace(/(^|[\s'-])([a-z\u00e0-\u00ff])/g, (x, a, b) => a + b.toUpperCase());
+}
+
+/* Uma entrada de uma pessoa que pode ser a parte dela numa conta que o Marco
+   pagou, sem nada registado antes: procura-se um pagamento nos 12 dias antes
+   cujo valor seja um multiplo exato do que entrou (jantar de 38,70 EUR, tres
+   pessoas, 12,90 cada), contando quem mais mandou o mesmo valor por esses
+   dias. Se o pagamento ja esta dividido com partes iguais, sugere juntar a
+   pessoa. */
+async function sugerirDivisoes(creditos) {
+  const cs = creditos.map((c) => Object.assign({}, c, { valor: cent(c.valor), quem: pagador(c.descricao) })).filter((c) => c.quem && c.valor > 0);
+  const out = {};
+  if (!cs.length) return out;
+  const datas = cs.map((c) => c.data).sort();
+  const de = datas[0], ate = datas[datas.length - 1];
+  const debs = await all(
+    `SELECT id, to_char(data,'YYYY-MM-DD') AS data, descricao, valor, categoria_id, ia_categoria_id FROM fin_movimentos
+      WHERE valor < 0 AND data BETWEEN $1::date - 12 AND $2::date + 1`, [de, ate]);
+  const pts = await all(
+    `SELECT p.movimento_id, p.valor, p.pessoa_id, cp.nome FROM fin_mov_partes p LEFT JOIN fin_cc_pessoas cp ON cp.id = p.pessoa_id
+      WHERE p.movimento_id = ANY($1::int[])`, [debs.map((d) => d.id)]);
+  const vizinhos = (await all(
+    `SELECT id, to_char(data,'YYYY-MM-DD') AS data, descricao, valor FROM fin_movimentos m
+      WHERE valor > 0 AND data BETWEEN $1::date - 12 AND $2::date + 14
+        AND NOT EXISTS (SELECT 1 FROM fin_cc_mov c WHERE c.movimento_id = m.id)`, [de, ate]))
+    .map((c) => Object.assign(c, { valor: cent(c.valor), quem: pagador(c.descricao) })).filter((c) => c.quem);
+  const dias = (a, b) => Math.round((new Date(a) - new Date(b)) / 86400000);
+  for (const c of cs) {
+    /* Quem mais mandou o mesmo valor por esses dias (uma pessoa conta uma vez). */
+    const grupo = {};
+    vizinhos.filter((x) => Math.abs(x.valor - c.valor) < 0.006 && Math.abs(dias(x.data, c.data)) <= 7)
+      .forEach((x) => { const k = norm(x.quem); if (!grupo[k] || x.id === c.id) grupo[k] = x; });
+    grupo[norm(c.quem)] = c;
+    const pagos = Object.values(grupo);
+    let melhor = null;
+    for (const d of debs) {
+      const dd = dias(c.data, d.data);
+      if (dd < -1 || dd > 12) continue;
+      const total = cent(-Number(d.valor));
+      const partes = pts.filter((p) => p.movimento_id === d.id);
+      let conf, k, juntar = false, quem = pagos;
+      if (partes.length) {
+        /* Ja dividido: so se as partes dos outros sao deste valor e a do
+           Marco ainda chega para mais esta. */
+        const outros = partes.filter((p) => p.pessoa_id);
+        const minha = cent(-partes.filter((p) => !p.pessoa_id).reduce((s, p) => s + Number(p.valor), 0));
+        if (!outros.length || !outros.every((p) => Math.abs(-Number(p.valor) - c.valor) < 0.006)) continue;
+        quem = pagos.filter((x) => !outros.some((p) => mesmaPessoa(p.nome, x.quem)));
+        if (!quem.some((x) => x.id === c.id)) continue;
+        /* A parte do Marco tem de continuar a chegar para a dele. */
+        if (minha - c.valor * quem.length < c.valor - 0.005) continue;
+        k = outros.length + quem.length + 1; juntar = true; conf = 0.85;
+      } else {
+        if (total <= c.valor + 0.005) continue;
+        k = Math.round(total / c.valor);
+        if (k < 2 || k > 12 || Math.abs(total - k * c.valor) > 0.011 * k) continue;
+        if (k < pagos.length + 1) continue;
+        conf = k === pagos.length + 1 ? (pagos.length >= 2 ? 0.92 : 0.78) : Math.max(0.5, 0.72 - 0.04 * (k - pagos.length - 1));
+      }
+      conf = Math.max(0, conf - 0.02 * Math.max(0, dd));
+      if (!melhor || conf > melhor.confianca) {
+        melhor = { movimento_id: d.id, descricao: d.descricao, data: d.data, total, parte: c.valor, pessoas: k, juntar,
+          categoria_id: d.categoria_id || d.ia_categoria_id || null, confianca: cent(conf),
+          pagos: quem.map((x) => ({ id: x.id, nome: x.quem, data: x.data })) };
+      }
+    }
+    if (melhor && melhor.confianca >= 0.5) out[c.id] = melhor;
+  }
+  return out;
+}
 
 /* Quem deve dinheiro fora do Splitwise, e as partes que lhe cabem: le-se uma
    vez por pedido e serve para todas as entradas. */
@@ -415,7 +512,7 @@ function reembolsoDe(m, lista) {
     const igual = p.partes.find((x) => Math.abs(x.valor - v) < 0.006 && x.data <= m.data);
     let conf = 0;
     const porque = [];
-    if (nomes.length) { conf += nomes.length >= 2 ? 0.62 : 0.45; porque.push('o nome está na descrição'); }
+    if (nomes.length) { conf += nomes.length >= 2 ? 0.62 : 0.3; porque.push(nomes.length >= 2 ? 'o nome está na descrição' : 'um dos nomes está na descrição'); }
     if (igual) { conf += 0.35; porque.push('o valor é o da parte de «' + igual.descricao + '»'); }
     if (v > p.aberto + 0.005) { if (!nomes.length) continue; conf -= 0.15; porque.push('é mais do que deve (' + p.aberto.toFixed(2).replace('.', ',') + ' €)'); }
     if (conf < 0.35) continue;
@@ -425,4 +522,4 @@ function reembolsoDe(m, lista) {
 }
 
 module.exports = { instalar, arrancar, sincronizar, resumo, saldoTotalEm, ligarMovimento,
-  dividir, desfazerDivisao, categoriaDaMinhaParte, abertos, reembolsoDe };
+  dividir, desfazerDivisao, categoriaDaMinhaParte, abertos, reembolsoDe, pagador, resolverPessoa, sugerirDivisoes };
