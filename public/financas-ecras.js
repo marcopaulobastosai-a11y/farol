@@ -290,9 +290,9 @@ function fnMovDesenhar(zona, d, qs){
     var b2 = fnBtn('Mostrar todos', function(){ pedir(falta, b2); }, 'small');
     maisZona.appendChild(b1); maisZona.appendChild(b2);
   };
-  cartao.appendChild(h('div', { class: 'fn-scroll' }, [h('table', { class: 'fn-tab fn-movtab', style: 'min-width:990px' }, [
-    h('colgroup', null, [h('col', { style: 'width:30px' }), h('col', { style: 'width:62px' }), h('col', { style: 'width:140px' }), h('col'), h('col', { style: 'width:118px' }), h('col', { style: 'width:240px' }), h('col', { style: 'width:120px' }), h('col', { style: 'width:160px' })]),
-    h('thead', null, [h('tr', null, [h('th', null, [todos]), h('th', null, 'Data'), h('th', null, 'Conta'), h('th', null, 'Descrição'), h('th', { class: 'r' }, 'Valor'), h('th', null, 'Categoria'), h('th', null, 'Área'), h('th', null, 'Ligado a')])]),
+  cartao.appendChild(h('div', { class: 'fn-scroll' }, [h('table', { class: 'fn-tab fn-movtab', style: 'min-width:1100px' }, [
+    h('colgroup', null, [h('col', { style: 'width:30px' }), h('col', { style: 'width:62px' }), h('col', { style: 'width:140px' }), h('col'), h('col', { style: 'width:118px' }), h('col', { style: 'width:240px' }), h('col', { style: 'width:120px' }), h('col', { style: 'width:110px' }), h('col', { style: 'width:160px' })]),
+    h('thead', null, [h('tr', null, [h('th', null, [todos]), h('th', null, 'Data'), h('th', null, 'Conta'), h('th', null, 'Descrição'), h('th', { class: 'r' }, 'Valor'), h('th', null, 'Categoria'), h('th', null, 'Área'), h('th', null, 'De quem'), h('th', null, 'Ligado a')])]),
     tb])]));
   cartao.appendChild(maisZona);
   acrescentar(ms);
@@ -475,7 +475,6 @@ function fnLinhaMov(m, aoMarcar){
     var pc = fnConta(m.par_conta_id);
     lig.push(h('span', { class: 'fn-pill tr', title: 'Transferência entre contas' + (m.par_data ? ' · ' + fnData(m.par_data) : '') }, (m.valor < 0 ? '→ para ' : '← de ') + (pc ? pc.nome : 'outra conta')));
   }
-  if (m.person_id) lig.push(h('span', { class: 'fn-pill', title: 'Pessoa do agregado' }, 'de ' + (m.pessoa_nome || fnPessoaNome(m.person_id))));
   if (m.project_id) lig.push(h('span', { class: 'fn-pill', title: 'Projeto: ' + (m.projeto || '') }, 'projeto · ' + (m.projeto || fnProjetoNome(m.project_id))));
   if (m.cc_pessoa) lig.push(h('span', { class: 'fn-pill tr' }, (m.cc_origem === 'reembolso' ? 'reembolso · ' : 'c/c · ') + m.cc_pessoa));
   var outros = (m.partes || []).filter(function(p){ return p.pessoa_id; });
@@ -497,6 +496,7 @@ function fnLinhaMov(m, aoMarcar){
     h('td', { class: 'r ' + (m.valor > 0 ? 'fn-good' : '') }, [fnEur(m.valor, true), fnMinhaParte(m)]),
     h('td', null, [cat]),
     h('td', { class: 'fn-area', title: fnCtxNome(ctx && ctx.id) }, ctx ? ctx.name : h('span', { class: 'fn-muted' }, '—')),
+    h('td', { class: 'fn-area', title: m.person_id ? 'Pessoa do agregado' : '' }, m.person_id ? (m.pessoa_nome || fnPessoaNome(m.person_id)) : h('span', { class: 'fn-muted' }, '—')),
     h('td', null, lig)
   ]);
   return tr;
