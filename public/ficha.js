@@ -331,6 +331,7 @@ function fiDesenhar() {
   fiDocumentos(dir, d.documentos);
   fiProjetos(dir, d.projetos);
   fiDespesas(dir, d.despesas);
+  fiMovimentos(dir, p);
   fiCaixa(dir, d.caixa);
 }
 
@@ -646,6 +647,57 @@ function fiDespesas(pai, despesas) {
     tr.appendChild(td);
     tr.appendChild(el('td', 'n', fiEuros(x.amount)));
     tb.appendChild(tr);
+  });
+}
+
+/* Os movimentos do banco associados a esta pessoa (nas Finanças, no campo
+   «De quem é»). Lê-se à parte, para a ficha não esperar pelas Finanças. */
+function fiMovimentos(pai, p) {
+  var c = fiCartao(pai, 'Movimentos do banco', '');
+  var ler = el('p', 'fi-vazio', 'A ler…');
+  c.appendChild(ler);
+  apiGestao('/api/financas/movimentos?pessoa=' + p.id + '&desde=0&limite=40').then(function (r) {
+    if (ler.parentNode) ler.parentNode.removeChild(ler);
+    var ms = r.movimentos || [];
+    if (!ms.length) {
+      fiVazio(c, 'Nenhum movimento associado. Nas Finanças › Movimentos, abre um movimento e escolhe «De quem é», ou associa vários de uma vez.');
+      return;
+    }
+    var rs = r.resumo || {};
+    var cab = c.cabecalho && c.cabecalho.querySelector('.mono');
+    var n = String(r.total || ms.length);
+    if (cab) cab.textContent = n; else if (c.cabecalho) c.cabecalho.insertBefore(el('span', 'mono', n), c.cabecalho.lastChild);
+    c.appendChild(el('p', 'fi-sl', [rs.saidas ? 'Saiu ' + fiEuros(rs.saidas) : '', rs.entradas ? 'entrou ' + fiEuros(rs.entradas) : '']
+      .filter(Boolean).join('  ' + String.fromCharCode(183) + '  ')));
+    var tb = fiTabela(c, ['Dia', 'Movimento', 'Valor']);
+    ms.forEach(function (m) {
+      var tr = el('tr');
+      tr.appendChild(el('td', 'n', fiData(m.data)));
+      var td = el('td', null, m.descricao);
+      var conta = (typeof fnConta === 'function' && fnConta(m.conta_id)) || null;
+      var cat = (typeof fnCatNome === 'function' && (m.categoria_id || m.ia_categoria_id)) ? fnCatNome(m.categoria_id || m.ia_categoria_id, true) : '';
+      var linha = [conta ? conta.nome : '', cat].filter(Boolean).join('  ' + String.fromCharCode(183) + '  ');
+      if (linha) td.appendChild(el('span', 'fi-sl', linha));
+      tr.appendChild(td);
+      tr.appendChild(el('td', 'n', (m.valor > 0 ? '+' : '') + fiEuros(m.valor)));
+      tb.appendChild(tr);
+    });
+    if (typeof FN !== 'undefined') {
+      var ver = el('button', 'btn small', (r.total > ms.length ? 'Ver os ' + r.total + ' nas Finanças' : 'Ver nas Finanças'));
+      ver.type = 'button';
+      ver.style.marginTop = '8px';
+      ver.onclick = function () {
+        FN.aba.financas = 'movimentos'; FN.mov.pessoa = String(p.id); FN.mov.projeto = ''; FN.mov.periodo = 'tudo';
+        FN.mov.estado = ''; FN.mov.q = ''; FN.mov.conta = ''; FN.mov.categoria = ''; FN.ambito = 'tudo'; FN.area = '';
+        FN.mov.sel = {}; FN.mov.mostrar = 0;
+        show('financas');
+        if (typeof fnRender === 'function') fnRender('financas');
+      };
+      c.appendChild(ver);
+    }
+  }, function () {
+    if (ler.parentNode) ler.parentNode.removeChild(ler);
+    fiVazio(c, 'As Finanças não responderam.');
   });
 }
 
