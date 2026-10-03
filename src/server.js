@@ -826,6 +826,10 @@ require('./splitwise').instalar(app, {
   ehAdmin: (req) => { if (!auth.ativa()) return true; const x = auth.sessao(req); return Boolean(x && acessos.ehAdmin(x.email)); }
 });
 
+/* Financas e Patrimonio: contas, movimentos, orcamentos, contas correntes. */
+const financas = require('./financas');
+financas.instalar(app);
+
 /* O calendario Google de cada pessoa da casa, na Agenda do Farol. */
 const google = require('./google');
 google.instalar(app);
@@ -845,6 +849,7 @@ app.get('*', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'i
     console.log('[farol] base de dados pronta.');
     /* Os calendarios ligados relem-se sozinhos, a partir de agora. */
     await google.arrancar();
+    await financas.preparar();
   } catch (err) {
     console.error('[farol] arranque sem base de dados:', err.message);
   }
