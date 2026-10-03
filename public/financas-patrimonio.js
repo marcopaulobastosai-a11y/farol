@@ -53,7 +53,7 @@ function fn_patrimonio_visao(corpo){
     var comSaldo = d.cc.pessoas.filter(function(p){ return p.ativo && Math.abs(p.saldo) >= 0.01; }).sort(function(a, b){ return b.saldo - a.saldo; });
     if (!comSaldo.length) lr.appendChild(h('p', { class: 'fn-nota' }, 'Ninguém te deve nada, nem tu a ninguém.'));
     comSaldo.forEach(function(p){ lr.appendChild(h('div', { class: 'fn-li' }, [h('div', { class: 'g' }, [p.nome, h('small', null, p.splitwise_id ? 'Splitwise' : 'à mão')]), h('span', { class: 'fn-n ' + (p.saldo > 0 ? 'fn-good' : 'fn-bad') }, fnEur(p.saldo, true))])); });
-    dir.appendChild(fnCard('A receber e a pagar', h('button', { type: 'button', class: 'btn small', onclick: function(){ FN.aba.financas = 'cc'; fnGuardar(); show('financas'); } }, 'Contas correntes'), [lr]));
+    dir.appendChild(fnCard('A receber e a pagar', h('button', { type: 'button', class: 'btn small', onclick: function(){ FN.aba.financas = 'pessoas'; fnGuardar(); show('financas'); fnRender('financas'); } }, 'Pessoas'), [lr]));
     var lb = h('div', { class: 'fn-lista' });
     if (!d.bens.length) lb.appendChild(h('p', { class: 'fn-nota' }, 'Sem bens nem dívidas registados.'));
     d.bens.forEach(function(b){ lb.appendChild(fnLinhaBem(b)); });
@@ -189,107 +189,431 @@ function fnBemJanela(b){
 }
 
 /* ======================= CONTAS CORRENTES ======================= */
+/* Uma conta corrente e um grupo do Splitwise (com os membros dele) ou a
+   conta direta com uma pessoa (o que nao e de grupo nenhum, ou quem nao esta
+   no Splitwise). Tambem se criam contas so do Farol com quem se quiser. */
+function fnTipoCc(c){
+  if (c.grupo) return 'Grupo do Splitwise';
+  if (c.direta) return c.tipo === 'splitwise' ? 'Splitwise · sem grupo' : 'Só no Farol';
+  return 'Conta do Farol';
+}
+function fnSegFiltro(chave, opcoes, conta){
+  return h('div', { class: 'fn-seg', role: 'group' }, opcoes.map(function(o){
+    return h('button', { type: 'button', class: FN[chave] === o[0] ? 'on' : '', onclick: function(){ FN[chave] = o[0]; fnGuardar(); fnRender('financas'); } },
+      o[1] + (conta ? ' · ' + conta(o[0]) : ''));
+  }));
+}
+function fnCcBarra(corpo, d, extra){
+  corpo.appendChild(h('div', { class: 'fn-barra' }, [
+    h('span', { class: 'fn-nota' }, d.splitwise ? 'Lê o Splitwise sozinho todos os dias às 23:30' + (d.sync_em ? ' · última leitura ' + new Date(d.sync_em).toLocaleString('pt-PT', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '') + '.' : 'O Splitwise não está ligado (Administração › Splitwise). As contas funcionam à mão.'),
+    h('span', { class: 'fn-esp' }),
+    d.splitwise ? fnBtn('Ler o Splitwise agora', function(e){ var b = e && e.target; if (b) b.disabled = true;
+      fnApi('/api/financas/cc/sincronizar', 'POST', {}).then(function(r){ fnAviso(r.lidas + ' despesas lidas.'); FN.cache = {}; fnRender('financas'); }, function(x){ if (b) b.disabled = false; fnErro(x); }); }) : null
+  ].concat(extra || [])));
+}
+function fnCcKpis(corpo, d){
+  var ps = d.pessoas.filter(function(p){ return p.ativo; });
+  corpo.appendChild(h('div', { class: 'fn-kpis' }, [fnKpi('Devem-me', fnEur(d.a_receber), ps.filter(function(p){ return p.saldo > 0.005; }).length + ' pessoas', 'fn-good'),
+    fnKpi('Devo eu', fnEur(d.a_pagar), ps.filter(function(p){ return p.saldo < -0.005; }).length + ' pessoas', d.a_pagar ? 'fn-bad' : ''),
+    fnKpi('Líquido', fnEur(d.a_receber + d.a_pagar), 'entra no Património como «a receber»')]));
+}
+
 function fn_financas_cc(corpo){
   fnCarregar(corpo, apiGestao('/api/financas/cc'), function(d){
-    var ps = d.pessoas.filter(function(p){ return p.ativo; });
-    /* Estado (em aberto / saldadas / todas) e de onde vem (Splitwise ou contas
-       divididas no Farol, as pontuais). Por defeito, só as que estão em aberto. */
     FN.ccEstado = FN.ccEstado || 'aberta';
     FN.ccTipo = FN.ccTipo || 'todas';
-    var estadoDe = function(p){ return p.estado || (Math.abs(p.saldo) >= 0.01 ? 'aberta' : 'saldada'); };
-    var tipoDe = function(p){ return p.tipo || (p.splitwise_id ? 'splitwise' : 'farol'); };
-    var conta = function(est, tp){ return ps.filter(function(p){ return (est === 'todas' || estadoDe(p) === est) && (tp === 'todas' || tipoDe(p) === tp); }).length; };
-    var segE = h('div', { class: 'fn-seg', role: 'group', 'aria-label': 'Estado' }, [['aberta', 'Em aberto'], ['saldada', 'Saldadas'], ['todas', 'Todas']].map(function(o){
-      return h('button', { type: 'button', class: FN.ccEstado === o[0] ? 'on' : '', onclick: function(){ FN.ccEstado = o[0]; fnGuardar(); fnRender('financas'); } }, o[1] + ' · ' + conta(o[0], FN.ccTipo));
-    }));
-    var segT = h('div', { class: 'fn-seg', role: 'group', 'aria-label': 'De onde' }, [['todas', 'Todas'], ['splitwise', 'Splitwise'], ['farol', 'Pontuais (Farol)']].map(function(o){
-      return h('button', { type: 'button', class: FN.ccTipo === o[0] ? 'on' : '', onclick: function(){ FN.ccTipo = o[0]; fnGuardar(); fnRender('financas'); } }, o[1]);
-    }));
-    var vis = ps.filter(function(p){ return (FN.ccEstado === 'todas' || estadoDe(p) === FN.ccEstado) && (FN.ccTipo === 'todas' || tipoDe(p) === FN.ccTipo); });
-    corpo.appendChild(h('div', { class: 'fn-barra' }, [
-      h('span', { class: 'fn-nota' }, d.splitwise ? 'Lê o Splitwise sozinho todos os dias às 23:30' + (d.sync_em ? ' · última leitura ' + new Date(d.sync_em).toLocaleString('pt-PT', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '') + '.' : 'O Splitwise não está ligado (Administração › Splitwise). As contas correntes funcionam à mão.'),
-      h('span', { class: 'fn-esp' }),
-      d.splitwise ? fnBtn('Ler o Splitwise agora', function(e){ var b = e && e.target; if (b) b.disabled = true;
-        fnApi('/api/financas/cc/sincronizar', 'POST', {}).then(function(r){ fnAviso(r.lidas + ' despesas lidas.'); FN.cache = {}; fnRender('financas'); }, function(x){ if (b) b.disabled = false; fnErro(x); }); }) : null,
-      fnBtn('+ Pessoa', function(){ fnPessoaCcJanela(); }, 'primary')]));
-    corpo.appendChild(h('div', { class: 'fn-kpis' }, [fnKpi('Devem-me', fnEur(d.a_receber), ps.filter(function(p){ return p.saldo > 0.005; }).length + ' pessoas', 'fn-good'),
-      fnKpi('Devo eu', fnEur(d.a_pagar), ps.filter(function(p){ return p.saldo < -0.005; }).length + ' pessoas', d.a_pagar ? 'fn-bad' : ''),
-      fnKpi('Líquido', fnEur(d.a_receber + d.a_pagar), 'entra no Património como «a receber»')]));
-    corpo.appendChild(h('div', { class: 'fn-barra', style: 'gap:8px;flex-wrap:wrap' }, [segE, segT]));
+    var cs = (d.contas || []).filter(function(c){ return c.ativo; });
+    var passa = function(c, est, tp){ return (est === 'todas' || c.estado === est) && (tp === 'todas' || c.tipo === tp); };
+    fnCcBarra(corpo, d, [fnBtn('+ Conta corrente', function(){ fnContaCcJanela(null, d); }, 'primary')]);
+    fnCcKpis(corpo, d);
+    corpo.appendChild(h('div', { class: 'fn-barra', style: 'gap:8px;flex-wrap:wrap' }, [
+      fnSegFiltro('ccEstado', [['aberta', 'Em aberto'], ['saldada', 'Saldadas'], ['todas', 'Todas']], function(k){ return cs.filter(function(c){ return passa(c, k, FN.ccTipo); }).length; }),
+      fnSegFiltro('ccTipo', [['todas', 'Todas'], ['splitwise', 'Splitwise'], ['farol', 'Só no Farol']])]));
+    var vis = cs.filter(function(c){ return passa(c, FN.ccEstado, FN.ccTipo); })
+      .sort(function(a, b){ return Math.abs(b.saldo) - Math.abs(a.saldo) || (b.ultimo || '').localeCompare(a.ultimo || ''); });
     var linha = h('div', { class: 'fn-linha', style: 'align-items:flex-start' });
+    var cartao = h('div', { class: 'card largo', style: 'padding:6px 10px' });
     var tb = h('tbody');
-    vis.sort(function(a, b){ return Math.abs(b.saldo) - Math.abs(a.saldo) || (b.ultimo || '').localeCompare(a.ultimo || ''); }).forEach(function(p){
-      var grupos = (p.por_grupo || []).map(function(g){ return h('span', { class: 'fn-pill', style: 'margin:1px' }, g.nome + ' ' + fnEur(g.saldo, true)); });
-      /* As contas divididas no Farol: de que é o que a pessoa deve. */
-      (p.contas || []).slice(0, 3).forEach(function(c){
-        grupos.push(h('span', { class: 'fn-pill tr', style: 'margin:1px', title: fnData(c.data) + (c.total ? ' · total ' + fnEur(c.total) : '') }, (c.descricao.length > 34 ? c.descricao.slice(0, 33) + '…' : c.descricao) + ' ' + fnEur(c.valor, true)));
-      });
-      if ((p.contas || []).length > 3) grupos.push(h('span', { class: 'fn-muted', style: 'font-size:.75rem;margin-left:4px' }, '+' + (p.contas.length - 3)));
-      tb.appendChild(h('tr', { class: 'clic' + (FN.ccAberta === p.id ? ' on' : ''), onclick: function(){ FN.ccAberta = FN.ccAberta === p.id ? null : p.id; fnRender('financas'); } }, [
-        h('td', null, [h('b', { style: 'font-weight:500' }, p.nome), h('small', { style: 'display:block' }, p.splitwise_id ? 'Splitwise' + (p.saldo_tu ? ' + contas no Farol' : '') : 'Pontual')]),
-        h('td', null, grupos.length ? grupos : h('span', { class: 'fn-muted' }, '—')),
-        h('td', { style: 'font-size:.75rem' }, p.ultimo ? fnData(p.ultimo) : '—'),
-        h('td', { class: 'r ' + (p.saldo > 0.005 ? 'fn-good' : p.saldo < -0.005 ? 'fn-bad' : '') }, Math.abs(p.saldo) < 0.005 ? 'acertado' : fnEur(p.saldo, true)),
-        h('td', null, p.diferenca && Math.abs(p.diferenca) >= 0.01 ? h('span', { class: 'fn-pill warn', title: 'O saldo do Splitwise é a referência.' }, 'dif. ' + fnEur(p.diferenca, true)) : null)
+    vis.forEach(function(c){
+      var ms = c.membros.filter(function(m){ return Math.abs(m.saldo) >= 0.01 || c.membros.length <= 4; });
+      tb.appendChild(h('tr', { class: 'clic' + (FN.ccConta === c.id ? ' on' : ''), onclick: function(){ FN.ccConta = FN.ccConta === c.id ? null : c.id; fnRender('financas'); } }, [
+        h('td', null, [h('b', { style: 'font-weight:500' }, c.nome), h('small', { style: 'display:block' }, fnTipoCc(c))]),
+        h('td', null, ms.length ? ms.slice(0, 6).map(function(m){
+          return h('span', { class: 'fn-pill' + (m.saldo > 0.005 ? ' good' : m.saldo < -0.005 ? ' bad' : ''), style: 'margin:1px' }, m.nome.split(' ')[0] + (Math.abs(m.saldo) >= 0.01 ? ' ' + fnEur(m.saldo, true) : ''));
+        }).concat(c.membros.length > 6 ? [h('span', { class: 'fn-muted', style: 'font-size:.75rem' }, ' +' + (c.membros.length - 6))] : []) : h('span', { class: 'fn-muted' }, '—')),
+        h('td', { style: 'font-size:.75rem' }, c.ultimo ? fnData(c.ultimo) : '—'),
+        h('td', { class: 'r ' + (c.saldo > 0.005 ? 'fn-good' : c.saldo < -0.005 ? 'fn-bad' : '') }, Math.abs(c.saldo) < 0.005 ? 'acertado' : fnEur(c.saldo, true))
       ]));
     });
-    var cartao = h('div', { class: 'card largo', style: 'padding:6px 10px' });
-    if (!ps.length) cartao.appendChild(fnVazio('Ainda ninguém.', d.splitwise ? 'Carrega em «Ler o Splitwise agora», ou junta uma pessoa à mão.' : 'Junta as pessoas com quem divides dinheiro.'));
-    else if (!vis.length) cartao.appendChild(fnVazio(FN.ccEstado === 'aberta' ? 'Nada em aberto.' : 'Ninguém aqui.', 'Muda o filtro acima para ver as outras.'));
-    else cartao.appendChild(h('div', { class: 'fn-scroll' }, [h('table', { class: 'fn-tab', style: 'min-width:600px' }, [h('thead', null, [h('tr', null, [h('th', null, 'Pessoa'), h('th', null, 'Por grupo ou conta'), h('th', null, 'Último'), h('th', { class: 'r' }, 'Saldo'), h('th')])]), tb])]));
-    cartao.appendChild(h('p', { class: 'fn-nota', style: 'padding:8px' }, 'Saldo positivo: a pessoa deve-te. Negativo: deves tu. Nas pessoas do Splitwise o saldo é o do Splitwise, mais as contas divididas no Farol e o que lançares aqui à mão.'));
+    if (!cs.length) cartao.appendChild(fnVazio('Ainda não há contas correntes.', d.splitwise ? 'Carrega em «Ler o Splitwise agora»: cada grupo passa a ser uma conta corrente.' : 'Cria uma, ou liga o Splitwise.'));
+    else if (!vis.length) cartao.appendChild(fnVazio(FN.ccEstado === 'aberta' ? 'Nada em aberto.' : 'Nenhuma aqui.', 'Muda o filtro acima para ver as outras.'));
+    else cartao.appendChild(h('div', { class: 'fn-scroll' }, [h('table', { class: 'fn-tab', style: 'min-width:560px' }, [
+      h('thead', null, [h('tr', null, [h('th', null, 'Conta corrente'), h('th', null, 'Quem deve o quê'), h('th', null, 'Último'), h('th', { class: 'r' }, 'Saldo')])]), tb])]));
+    cartao.appendChild(h('p', { class: 'fn-nota', style: 'padding:8px' }, 'Saldo positivo: devem-te. Negativo: deves tu. Nos grupos do Splitwise o saldo é o de lá; somam-se as contas partilhadas que ficaram só no Farol e o que lançares à mão.'));
     linha.appendChild(cartao);
     var painel = h('div', { class: 'card fn-painel' });
-    var ab = vis.filter(function(p){ return p.id === FN.ccAberta; })[0];
-    if (ab) fnPainelCc(painel, ab); else painel.appendChild(h('p', { class: 'fn-nota' }, 'Escolhe uma pessoa para ver os movimentos e lançar acertos.'));
+    var ab = cs.filter(function(c){ return c.id === FN.ccConta; })[0];
+    if (ab) fnPainelConta(painel, ab, d); else painel.appendChild(h('p', { class: 'fn-nota' }, 'Escolhe uma conta corrente para ver quem deve o quê, os movimentos e lançar acertos.'));
     linha.appendChild(painel);
     corpo.appendChild(linha);
-    var inativos = d.pessoas.filter(function(p){ return !p.ativo; });
-    if (inativos.length) corpo.appendChild(h('p', { class: 'fn-nota' }, 'Escondidas: ' + inativos.map(function(p){ return p.nome; }).join(', ') + '.'));
+    var esc = (d.contas || []).filter(function(c){ return !c.ativo; });
+    if (esc.length) corpo.appendChild(h('p', { class: 'fn-nota' }, 'Escondidas: ' + esc.map(function(c){ return c.nome; }).join(', ') + '.'));
   });
 }
-function fnPainelCc(p, pessoa){
-  p.appendChild(h('div', { class: 'fn-acoes', style: 'justify-content:space-between' }, [h('h3', { style: 'font-size:1.05rem' }, pessoa.nome), h('b', { class: 'fn-n ' + (pessoa.saldo > 0 ? 'fn-good' : pessoa.saldo < 0 ? 'fn-bad' : '') }, fnEur(pessoa.saldo, true))]));
+
+function fnPainelConta(p, c, d){
+  p.appendChild(h('div', { class: 'fn-acoes', style: 'justify-content:space-between' }, [h('div', null, [h('h3', { style: 'font-size:1.05rem' }, c.nome), h('small', { class: 'fn-muted' }, fnTipoCc(c))]),
+    h('b', { class: 'fn-n ' + (c.saldo > 0 ? 'fn-good' : c.saldo < 0 ? 'fn-bad' : '') }, fnEur(c.saldo, true))]));
+  p.appendChild(h('div', { class: 'fn-lista' }, c.membros.map(function(m){
+    return h('div', { class: 'fn-li' }, [h('div', { class: 'g' }, [h('a', { href: '#', onclick: function(e){ e.preventDefault(); FN.ccPessoa = m.pessoa_id; FN.aba.financas = 'pessoas'; fnGuardar(); fnRender('financas'); } }, m.nome),
+      h('small', null, [m.splitwise && c.tipo === 'splitwise' ? 'Splitwise ' + fnEur(m.saldo_splitwise, true) : '', Math.abs(m.saldo_farol) >= 0.01 ? 'Farol ' + fnEur(m.saldo_farol, true) : ''].filter(Boolean).join(' · ') || 'sem nada em aberto')]),
+      h('span', { class: 'fn-n ' + (m.saldo > 0.005 ? 'fn-good' : m.saldo < -0.005 ? 'fn-bad' : '') }, Math.abs(m.saldo) < 0.005 ? 'acertado' : fnEur(m.saldo, true))]);
+  })));
+  /* Lançar à mão: um acerto, um empréstimo, o que não passou pelo banco. */
+  var quem = h('select', { class: 'fn-sel' }, c.membros.map(function(m){ return h('option', { value: m.pessoa_id }, m.nome); }));
   var dt = h('input', { class: 'fn-in', type: 'date', value: fnHoje() });
   var ds = h('input', { class: 'fn-in', placeholder: 'Descrição' });
   var vl = h('input', { class: 'fn-in', inputmode: 'decimal', placeholder: '0,00' });
   var sen = h('select', { class: 'fn-sel' }, [h('option', { value: '1' }, 'Deve-me'), h('option', { value: '-1' }, 'Devo eu')]);
-  p.appendChild(h('div', { class: 'fn-caixa' }, [h('div', { class: 'mono' }, 'Lançar à mão'), h('div', { class: 'fn-campos' }, [fnCampo('Data', dt), fnCampo('Valor', vl), fnCampo('', sen)]), ds,
+  var recarregar = function(){ FN.cache = {}; fnRender('financas'); };
+  p.appendChild(h('div', { class: 'fn-caixa' }, [h('div', { class: 'mono' }, 'Lançar à mão'), h('div', { class: 'fn-campos' }, [c.membros.length > 1 ? fnCampo('Quem', quem) : null, fnCampo('Data', dt), fnCampo('Valor', vl), fnCampo('', sen)]), ds,
     h('div', { class: 'fn-acoes' }, [fnBtn('Lançar', function(){
       var v = Number(String(vl.value).replace(/\s/g, '').replace(',', '.'));
       if (!v) return fnAviso('Falta o valor.');
-      fnApi('/api/financas/cc/' + pessoa.id + '/mov', 'POST', { data: dt.value, descricao: ds.value || 'Acerto', valor: Math.abs(v) * Number(sen.value) }).then(function(){ FN.cache = {}; fnRender('financas'); }, fnErro);
-    }, 'primary small'), fnBtn('Acertar tudo', function(){
-      if (Math.abs(pessoa.saldo) < 0.01) return fnAviso('Já está acertado.');
-      fnJanela('Acertar com ' + pessoa.nome + '?', [h('p', null, 'Lança ' + fnEur(-pessoa.saldo, true) + ' e o saldo fica a zero.' + (pessoa.splitwise_id ? ' Se o acerto foi feito no Splitwise, não é preciso: aparece sozinho ao fim do dia.' : ''))],
-        [{ txt: 'Acertar', pri: true, fn: function(){ return fnApi('/api/financas/cc/' + pessoa.id + '/mov', 'POST', { descricao: 'Acerto de contas', valor: -pessoa.saldo }).then(function(){ FN.cache = {}; fnRender('financas'); }, fnErro); } }]);
-    }, 'small'), fnBtn('Editar', function(){ fnPessoaCcJanela(pessoa); }, 'small')])]));
+      fnApi('/api/financas/cc/' + quem.value + '/mov', 'POST', { data: dt.value, descricao: ds.value || 'Acerto', valor: Math.abs(v) * Number(sen.value), conta_id: c.id }).then(recarregar, fnErro);
+    }, 'primary small'), fnBtn('Acertar', function(){
+      var m = c.membros.filter(function(x){ return x.pessoa_id === Number(quem.value); })[0];
+      if (!m || Math.abs(m.saldo) < 0.01) return fnAviso('Já está acertado.');
+      fnJanela('Acertar com ' + m.nome + '?', [h('p', null, 'Lança ' + fnEur(-m.saldo, true) + ' nesta conta e o saldo fica a zero.' + (c.tipo === 'splitwise' ? ' Se o acerto foi feito no Splitwise, não é preciso: aparece sozinho.' : ''))],
+        [{ txt: 'Acertar', pri: true, fn: function(){ return fnApi('/api/financas/cc/' + m.pessoa_id + '/mov', 'POST', { descricao: 'Acerto de contas', valor: -m.saldo, conta_id: c.id }).then(recarregar, fnErro); } }]);
+    }, 'small'), fnBtn('Editar', function(){ fnContaCcJanela(c, d); }, 'small')])]));
   var lista = h('div', { class: 'fn-lista' }, [h('p', { class: 'fn-nota' }, 'A ler…')]);
+  p.appendChild(h('div', { class: 'mono' }, 'Movimentos'));
   p.appendChild(lista);
-  apiGestao('/api/financas/cc/' + pessoa.id).then(function(r){
+  apiGestao('/api/financas/cc/contas/' + c.id).then(function(r){
     clear(lista);
     if (!r.movimentos.length) lista.appendChild(h('p', { class: 'fn-nota' }, 'Sem movimentos.'));
-    r.movimentos.slice(0, 200).forEach(function(m){
-      lista.appendChild(h('div', { class: 'fn-li' }, [h('span', { class: 'fn-n fn-muted', style: 'width:52px;font-size:.75rem' }, fnData(m.data)),
-        h('div', { class: 'g' }, [m.descricao, h('small', null, [m.origem === 'splitwise' ? 'Splitwise' + (m.grupo ? ' · ' + m.grupo : '') + (m.total ? ' · total ' + fnEur(m.total) : '') : m.origem === 'banco' ? 'do banco' : m.origem === 'partilha' ? 'conta dividida' + (m.total ? ' · total ' + fnEur(m.total) : '') : m.origem === 'reembolso' ? 'reembolso, do banco' : 'à mão', m.pagamento ? ' · pagamento' : ''].join(''))]),
-        h('span', { class: 'fn-n ' + (m.valor > 0 ? 'fn-good' : 'fn-bad') }, fnEur(m.valor, true)),
-        m.origem !== 'splitwise' && m.origem !== 'partilha' ? h('button', { type: 'button', class: 'btn small', 'aria-label': 'Apagar', onclick: function(){ fnApi('/api/financas/cc/mov/' + m.id, 'DELETE').then(function(){ FN.cache = {}; fnRender('financas'); }, fnErro); } }, '×') : null]));
-    });
+    r.movimentos.slice(0, 300).forEach(function(m){ lista.appendChild(fnLinhaCc(m, c.membros.length > 1, recarregar)); });
   }, function(e){ clear(lista); lista.appendChild(h('p', { class: 'fn-nota' }, e.message)); });
 }
+
+function fnOrigemCc(m){
+  return m.origem === 'splitwise' ? 'Splitwise' + (m.grupo ? ' · ' + m.grupo : '') + (m.total ? ' · total ' + fnEur(m.total) : '')
+    : m.origem === 'banco' ? 'do banco' : m.origem === 'partilha' ? 'conta partilhada' + (m.total ? ' · total ' + fnEur(m.total) : '')
+    : m.origem === 'reembolso' ? 'reembolso, do banco' : 'à mão';
+}
+function fnLinhaCc(m, comPessoa, depois){
+  return h('div', { class: 'fn-li' }, [h('span', { class: 'fn-n fn-muted', style: 'width:52px;font-size:.75rem' }, fnData(m.data)),
+    h('div', { class: 'g' }, [m.descricao, h('small', null, [comPessoa && m.pessoa ? m.pessoa : '', m.conta && !comPessoa ? m.conta : '', fnOrigemCc(m), m.pagamento ? 'pagamento' : ''].filter(Boolean).join(' · '))]),
+    h('span', { class: 'fn-n ' + (m.valor > 0 ? 'fn-good' : 'fn-bad') }, fnEur(m.valor, true)),
+    m.origem !== 'splitwise' && m.origem !== 'partilha' ? h('button', { type: 'button', class: 'btn small', 'aria-label': 'Apagar', onclick: function(){ fnApi('/api/financas/cc/mov/' + m.id, 'DELETE').then(depois, fnErro); } }, '×')
+      : m.partilha_id ? h('button', { type: 'button', class: 'btn small', title: 'Abrir a conta partilhada', onclick: function(){ fnAbrirPartilha(m.partilha_id); } }, 'Abrir') : null]);
+}
+
+function fnContaCcJanela(c, d){
+  var nome = h('input', { class: 'fn-in', value: c ? c.nome : '', disabled: c && c.grupo ? true : null });
+  var nota = h('input', { class: 'fn-in', value: (c && c.nota) || '' });
+  var ativo = h('input', { type: 'checkbox', checked: c ? c.ativo : true });
+  var podeMembros = !c || (!c.grupo && !c.direta);
+  var marcados = {};
+  (c ? c.membros : []).forEach(function(m){ marcados[m.pessoa_id] = true; });
+  var caixa = h('div', { class: 'fn-lista', style: 'max-height:220px;overflow:auto' }, d.pessoas.filter(function(p){ return p.ativo; }).map(function(p){
+    var cb = h('input', { type: 'checkbox', checked: !!marcados[p.id], onchange: function(e){ marcados[p.id] = e.target.checked; } });
+    return h('label', { class: 'fn-check' }, [cb, p.nome]);
+  }));
+  fnJanela(c ? c.nome : 'Nova conta corrente', [
+    fnCampo('Nome', nome), c && c.grupo ? h('p', { class: 'fn-nota' }, 'É um grupo do Splitwise: o nome e os membros vêm de lá.') : null,
+    podeMembros ? h('div', { class: 'mono' }, 'Quem participa') : null, podeMembros ? caixa : null,
+    fnCampo('Nota', nota), c ? h('label', { class: 'fn-check' }, [ativo, 'Mostrar (desmarca para esconder)']) : null
+  ], [{ txt: c ? 'Guardar' : 'Criar', pri: true, fn: function(){
+    var membros = Object.keys(marcados).filter(function(k){ return marcados[k]; }).map(Number);
+    var corpo = { nome: nome.value.trim(), nota: nota.value.trim() };
+    if (podeMembros) corpo.membros = membros;
+    if (c) corpo.ativo = ativo.checked;
+    if (!corpo.nome) { fnAviso('Falta o nome.'); return false; }
+    var q = c ? fnApi('/api/financas/cc/contas/' + c.id, 'PATCH', corpo) : fnApi('/api/financas/cc/contas', 'POST', corpo).then(function(r){ FN.ccConta = r.id; });
+    return q.then(function(){ FN.cache = {}; fnRender('financas'); }, fnErro);
+  } }]);
+}
+
+/* ======================= CONTAS PARTILHADAS ======================= */
+/* Um pagamento (ou vários) dividido com outros: quanto pago eu e a linha de
+   cada pessoa, que fica numa conta corrente (no Splitwise ou só no Farol). */
+function fn_financas_partilhadas(corpo){
+  fnCarregar(corpo, apiGestao('/api/financas/partilhas'), function(d){
+    FN.ptEstado = FN.ptEstado || 'aberta';
+    var ps = d.partilhas || [];
+    var q = (FN.ptQ || '').toLowerCase();
+    var vis = ps.filter(function(p){ return (FN.ptEstado === 'todas' || p.estado === FN.ptEstado) &&
+      (!q || (p.descricao + ' ' + p.linhas.map(function(l){ return l.nome; }).join(' ')).toLowerCase().indexOf(q) >= 0); });
+    var procura = h('input', { class: 'fn-in', type: 'search', placeholder: 'Procurar descrição ou pessoa', value: FN.ptQ || '', style: 'max-width:280px' });
+    procura.addEventListener('input', function(){ FN.ptQ = procura.value; clearTimeout(FN.ptT); FN.ptT = setTimeout(function(){ fnRender('financas'); setTimeout(function(){ var i = document.querySelector('#fnc-financas input[type=search]'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } }, 0); }, 250); });
+    corpo.appendChild(h('div', { class: 'fn-barra' }, [
+      fnSegFiltro('ptEstado', [['aberta', 'Por receber'], ['saldada', 'Saldadas'], ['todas', 'Todas']], function(k){ return ps.filter(function(p){ return k === 'todas' || p.estado === k; }).length; }),
+      procura, h('span', { class: 'fn-esp' }),
+      h('span', { class: 'fn-nota' }, 'Nasce de um pagamento: em Movimentos, abre-o e carrega em «Partilhar a conta…», ou escolhe vários e «Partilhar…».')]));
+    var receber = ps.reduce(function(t, p){ return t + p.a_receber; }, 0);
+    var nSw = ps.reduce(function(t, p){ return t + p.linhas.filter(function(l){ return l.splitwise; }).length; }, 0);
+    corpo.appendChild(h('div', { class: 'fn-kpis' }, [fnKpi('Por receber', fnEur(receber), ps.filter(function(p){ return p.estado === 'aberta'; }).length + ' contas em aberto', 'fn-good'),
+      fnKpi('Partilhadas', String(ps.length), 'no total'), fnKpi('No Splitwise', String(nSw), nSw === 1 ? 'parte acertada lá' : 'partes acertadas lá')]));
+    var cartao = h('div', { class: 'card', style: 'padding:6px 10px' });
+    if (!ps.length) { cartao.appendChild(fnVazio('Ainda não há contas partilhadas.', 'Abre um pagamento em Movimentos e carrega em «Partilhar a conta…».')); corpo.appendChild(cartao); return; }
+    if (!vis.length) { cartao.appendChild(fnVazio('Nada aqui.', 'Muda o filtro acima.')); corpo.appendChild(cartao); return; }
+    var tb = h('tbody');
+    vis.forEach(function(p){
+      tb.appendChild(h('tr', { class: 'clic', onclick: function(){ fnPartilhaJanela(null, p); } }, [
+        h('td', { class: 'fn-n', style: 'font-size:.75rem;white-space:nowrap' }, fnData(p.data)),
+        h('td', null, [h('span', { class: 'd' }, p.descricao), h('small', { class: 'd2' }, p.movimentos.length > 1 ? p.movimentos.length + ' pagamentos' : (p.movimentos[0] ? (fnConta(p.movimentos[0].conta_id) || {}).nome || '' : ''))]),
+        h('td', { class: 'r' }, fnEur(p.total)),
+        h('td', { class: 'r fn-muted' }, fnEur(p.minha)),
+        h('td', null, p.linhas.map(function(l){ return fnPillLinha(l); })),
+        h('td', null, h('span', { class: 'fn-pill ' + (p.estado === 'aberta' ? 'warn' : 'good') }, p.estado === 'aberta' ? 'falta ' + fnEur(p.a_receber) : 'saldada'))
+      ]));
+    });
+    cartao.appendChild(h('div', { class: 'fn-scroll' }, [h('table', { class: 'fn-tab', style: 'min-width:820px' }, [
+      h('thead', null, [h('tr', null, [h('th', null, 'Data'), h('th', null, 'Descrição'), h('th', { class: 'r' }, 'Total'), h('th', { class: 'r' }, 'Eu pago'), h('th', null, 'Pessoas'), h('th', null, 'Estado')])]), tb])]));
+    corpo.appendChild(cartao);
+  });
+}
+function fnPillLinha(l){
+  var cls = l.estado === 'pago' ? ' good' : l.estado === 'splitwise' ? ' tr' : l.estado === 'parcial' ? ' warn' : '';
+  return h('span', { class: 'fn-pill' + cls, style: 'margin:1px', title: l.nome + ' · ' + fnEur(l.valor) + ' · ' + (l.estado === 'splitwise' ? 'no Splitwise (' + (l.conta || '') + ')' : l.estado + (l.pago > 0.005 && l.estado !== 'pago' ? ', pagou ' + fnEur(l.pago) : '')) },
+    (l.splitwise ? 'SW · ' : '') + l.nome.split(' ')[0] + ' ' + fnEur(l.valor));
+}
+function fnAbrirPartilha(id){
+  apiGestao('/api/financas/partilhas/' + id).then(function(r){ fnPartilhaJanela(null, r.partilha); }, fnErro);
+}
+
+/* A janela da conta partilhada (como no Buxfer): quanto pago eu, e uma linha
+   por pessoa com o valor e a conta corrente onde fica. Em partes iguais, o
+   que eu não pago reparte-se pelas linhas. */
+function fnPartilhaJanela(movs, partilha){
+  apiGestao('/api/financas/cc').then(function(cc){ fnPartilhaAbrir(movs, partilha, cc); }, fnErro);
+}
+function fnPartilhaAbrir(movs, partilha, cc){
+  movs = partilha ? partilha.movimentos : movs;
+  var total = Math.round(movs.reduce(function(s, m){ return s - m.valor; }, 0) * 100) / 100;
+  var pessoas = cc.pessoas.filter(function(p){ return p.ativo; });
+  var porNome = function(n){ n = String(n || '').trim().toLowerCase(); return pessoas.filter(function(p){ return p.nome.toLowerCase() === n; })[0]; };
+  var num = function(v){ var n = Number(String(v || '').replace(/\s/g, '').replace(',', '.')); return isFinite(n) ? Math.round(n * 100) / 100 : 0; };
+  var txt = function(v){ return v.toFixed(2).replace('.', ','); };
+  var m0 = movs[0] || {};
+  var desc = h('input', { class: 'fn-in', value: partilha ? partilha.descricao : (movs.length === 1 ? m0.descricao : ''), placeholder: movs.length > 1 ? 'Ex.: Ubers do fim de semana' : '' });
+  var minha = h('input', { class: 'fn-in', inputmode: 'decimal', value: txt(partilha ? partilha.minha : Math.round(total / 2 * 100) / 100), style: 'max-width:130px' });
+  var iguais = h('input', { type: 'checkbox', checked: partilha ? partilha.iguais : true });
+  var catSel = fnSelCategorias((partilha && partilha.categoria_id) || m0.categoria_id || m0.ia_categoria_id || '', '— categoria da minha parte —', 'despesa');
+  var linhas = h('div');
+  var lista = h('datalist', { id: 'fn-dl-pt' }, pessoas.map(function(p){ return h('option', { value: p.nome }); }));
+  var resumo = h('p', { class: 'fn-nota', style: 'margin:4px 0' });
+
+  /* As contas onde a linha pode ficar: só no Farol, ou uma conta do Splitwise
+     onde a pessoa está (um grupo, ou sem grupo). */
+  function opcoesConta(sel, p, valor){
+    clear(sel);
+    sel.appendChild(h('option', { value: 'f' }, 'Só no Farol'));
+    (cc.contas || []).filter(function(c){ return c.ativo && !c.direta && !c.grupo && p && c.membros.some(function(m){ return m.pessoa_id === p.id; }); }).forEach(function(c){
+      sel.appendChild(h('option', { value: 'c:' + c.id }, 'Farol · ' + c.nome));
+    });
+    if (p && p.splitwise_id) {
+      (cc.contas || []).filter(function(c){ return c.tipo === 'splitwise' && c.membros.some(function(m){ return m.pessoa_id === p.id; }); }).forEach(function(c){
+        sel.appendChild(h('option', { value: 's:' + c.id }, 'Splitwise · ' + (c.grupo ? c.nome : 'sem grupo')));
+      });
+    }
+    if (valor && [].some.call(sel.options, function(o){ return o.value === valor; })) sel.value = valor;
+  }
+  function linha(l){
+    var ni = h('input', { class: 'fn-in fn-pt-n', list: 'fn-dl-pt', value: l ? l.nome : '', placeholder: 'Nome', style: 'flex:2 1 150px' });
+    var vi = h('input', { class: 'fn-in fn-pt-v', inputmode: 'decimal', value: l ? txt(l.valor) : '', placeholder: '0,00', style: 'flex:0 1 90px;min-width:70px' });
+    var cs = h('select', { class: 'fn-sel fn-pt-c', style: 'flex:2 1 160px' });
+    var est = h('small', { class: 'fn-muted', style: 'flex:1 1 100%;margin:-2px 0 4px' });
+    var atual = l ? (l.splitwise ? 's:' + l.conta_id : (cc.contas || []).some(function(c){ return c.id === l.conta_id && !c.direta && !c.grupo; }) ? 'c:' + l.conta_id : 'f') : 'f';
+    opcoesConta(cs, porNome(ni.value), atual);
+    if (l && l.splitwise_despesa) est.textContent = l.splitwise_despesa.criada ? 'Despesa criada pelo Farol no Splitwise.' : 'Ligada a uma despesa que já estava no Splitwise.';
+    else if (l && l.estado && l.estado !== 'splitwise') est.textContent = l.estado === 'pago' ? 'Já pagou.' : l.estado === 'parcial' ? 'Pagou ' + fnEur(l.pago) + '.' : 'Ainda não pagou.';
+    ni.addEventListener('change', function(){ opcoesConta(cs, porNome(ni.value), cs.value); });
+    vi.addEventListener('input', function(){ if (iguais.checked) { iguais.checked = false; } atualizar(); });
+    var row = h('div', { class: 'fn-acoes fn-pt-l', style: 'margin-bottom:4px;flex-wrap:wrap;align-items:center' }, [ni, vi, cs,
+      h('button', { type: 'button', class: 'btn small', 'aria-label': 'Tirar', onclick: function(){ row.parentNode.removeChild(row); atualizar(); } }, '×'), est.textContent ? est : null]);
+    linhas.appendChild(row);
+    return row;
+  }
+  function rows(){ return [].slice.call(linhas.querySelectorAll('.fn-pt-l')); }
+  function atualizar(){
+    var rs = rows();
+    var eu = num(minha.value);
+    if (iguais.checked && rs.length) {
+      var resto = Math.round((total - eu) * 100);
+      var cada = Math.floor(resto / rs.length), sobra = resto - cada * rs.length;
+      rs.forEach(function(r, i){ r.querySelector('.fn-pt-v').value = txt(Math.max(0, cada + (i < sobra ? 1 : 0)) / 100); });
+    }
+    var outros = rs.reduce(function(t, r){ return t + num(r.querySelector('.fn-pt-v').value); }, 0);
+    var falta = Math.round((total - eu - outros) * 100) / 100;
+    resumo.textContent = 'Total ' + fnEur(total) + ' · eu ' + fnEur(eu) + ' · os outros ' + fnEur(outros) +
+      (Math.abs(falta) >= 0.01 ? (falta > 0 ? ' · faltam ' + fnEur(falta) + ' por distribuir' : ' · passa ' + fnEur(-falta) + ' do total') : ' · certo.');
+    resumo.style.color = Math.abs(falta) >= 0.01 ? 'var(--bad)' : '';
+  }
+  minha.addEventListener('input', atualizar);
+  iguais.addEventListener('change', atualizar);
+  if (partilha && partilha.linhas.length) partilha.linhas.forEach(function(l){ linha(l); });
+  else linha(null);
+
+  var lst = movs.length > 1 ? h('div', { class: 'fn-lista', style: 'max-height:130px;overflow:auto;margin-bottom:6px' }, movs.map(function(m){
+    return h('div', { class: 'fn-li' }, [h('span', { class: 'fn-n fn-muted', style: 'width:52px;font-size:.75rem' }, fnData(m.data)), h('div', { class: 'g' }, m.descricao), h('span', { class: 'fn-n' }, fnEur(-m.valor))]);
+  })) : null;
+  var botoes = [{ txt: 'Guardar', pri: true, fn: function(){
+    var ls = [], erro = '';
+    rows().forEach(function(r){
+      var n = r.querySelector('.fn-pt-n').value.trim(), v = num(r.querySelector('.fn-pt-v').value), c = r.querySelector('.fn-pt-c').value;
+      if (!n && !v) return;
+      if (!n || !(v > 0)) { erro = 'Cada linha precisa de nome e valor.'; return; }
+      var p = porNome(n);
+      var l = p ? { pessoa_id: p.id, valor: v } : { nome: n, valor: v };
+      if (c.charAt(0) === 's') { l.conta_id = Number(c.slice(2)); l.splitwise = true; }
+      else if (c.charAt(0) === 'c') l.conta_id = Number(c.slice(2));
+      ls.push(l);
+    });
+    if (erro) { fnAviso(erro); return false; }
+    var corpo = { movimentos: movs.map(function(m){ return m.id; }), descricao: desc.value.trim(), minha: num(minha.value), iguais: iguais.checked,
+      categoria_id: catSel.value ? Number(catSel.value) : null, linhas: ls };
+    var q = partilha ? fnApi('/api/financas/partilhas/' + partilha.id, 'PUT', corpo) : fnApi('/api/financas/partilhas', 'POST', corpo);
+    return q.then(function(r){
+      var s = r.splitwise || {}, extra = [];
+      if (s.criadas) extra.push(s.criadas + (s.criadas === 1 ? ' despesa criada' : ' despesas criadas') + ' no Splitwise');
+      if (s.existentes) extra.push(s.existentes + (s.existentes === 1 ? ' já estava no Splitwise (ligada, não duplicada)' : ' já estavam no Splitwise (ligadas, não duplicadas)'));
+      if (s.atualizadas) extra.push(s.atualizadas + ' atualizada(s) no Splitwise');
+      if (s.apagadas) extra.push(s.apagadas + ' apagada(s) no Splitwise');
+      fnAviso('Guardado: eu pago ' + fnEur(r.minha) + ', os outros ' + fnEur(r.outros) + (extra.length ? ' · ' + extra.join(' · ') : '') + '.');
+      if (s.erros && s.erros.length) setTimeout(function(){ fnAviso('Splitwise: ' + s.erros.join(' · ')); }, 2500);
+      FN.mov.sel = {};
+      fnMudou();
+    }, fnErro);
+  } }];
+  if (partilha) botoes.push({ txt: 'Desfazer', fn: function(){
+    return fnApi('/api/financas/partilhas/' + partilha.id, 'DELETE').then(function(r){
+      var s = r.splitwise || {};
+      fnAviso('Conta partilhada desfeita' + (s.apagadas ? '; a despesa que o Farol tinha posto no Splitwise foi apagada.' : '.'));
+      fnMudou();
+    }, fnErro);
+  } });
+  fnJanela(partilha ? 'Conta partilhada' : 'Partilhar ' + (movs.length > 1 ? movs.length + ' pagamentos' : 'a conta'), [
+    lst,
+    h('p', { class: 'fn-nota' }, (movs.length === 1 ? m0.descricao + ' · ' + fnData(m0.data) + ' · ' : '') + 'pagaste ' + fnEur(total) + '.'),
+    fnCampo('Descrição', desc),
+    h('div', { class: 'fn-acoes', style: 'align-items:flex-end;gap:12px' }, [fnCampo('Eu pago', minha), h('label', { class: 'fn-check', style: 'margin-bottom:8px' }, [iguais, 'Dividido em partes iguais (o resto)'])]),
+    fnCampo('A minha parte vai para', catSel),
+    h('div', { class: 'mono', style: 'margin-top:8px' }, 'Quem deve e quanto'), lista, linhas,
+    h('div', { class: 'fn-acoes' }, [fnBtn('+ Pessoa', function(){ linha(null); atualizar(); }, 'small'),
+      fnBtn('Fico eu com o resto', function(){ var o = rows().reduce(function(t, r){ return t + num(r.querySelector('.fn-pt-v').value); }, 0);
+        iguais.checked = false; minha.value = txt(Math.max(0, Math.round((total - o) * 100) / 100)); atualizar(); }, 'small')]),
+    resumo,
+    h('p', { class: 'fn-nota' }, 'Escreve o nome de quem já existe, ou um nome novo (a pessoa é criada). «Só no Farol»: a parte fica na conta corrente dela aqui e o reembolso liga-se quando chegar ao banco. Numa conta do Splitwise, o Farol lança lá a despesa — mas primeiro procura se já lá está (mesmo valor, mesmas pessoas, perto da data) e, se estiver, só a liga.')
+  ], botoes);
+  var mods = document.querySelectorAll('.fn-mod'); if (mods.length) mods[mods.length - 1].classList.add('largo');
+  atualizar();
+}
+
+/* ======================= PESSOAS ======================= */
+/* Quem entra nas contas correntes e nas contas partilhadas. Uma pessoa pode
+   estar em várias de umas e de outras. */
+function fn_financas_pessoas(corpo){
+  fnCarregar(corpo, apiGestao('/api/financas/cc'), function(d){
+    FN.pesVer = FN.pesVer || 'ativas';
+    var q = (FN.pesQ || '').toLowerCase();
+    var todas = d.pessoas;
+    var vis = todas.filter(function(p){ return (FN.pesVer === 'ativas' ? p.ativo : FN.pesVer === 'escondidas' ? !p.ativo : true) && (!q || p.nome.toLowerCase().indexOf(q) >= 0); })
+      .sort(function(a, b){ return Math.abs(b.saldo) - Math.abs(a.saldo) || a.nome.localeCompare(b.nome); });
+    var procura = h('input', { class: 'fn-in', type: 'search', placeholder: 'Procurar pessoa', value: FN.pesQ || '', style: 'max-width:240px' });
+    procura.addEventListener('input', function(){ FN.pesQ = procura.value; clearTimeout(FN.pesT); FN.pesT = setTimeout(function(){ fnRender('financas'); setTimeout(function(){ var i = document.querySelector('#fnc-financas input[type=search]'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } }, 0); }, 250); });
+    corpo.appendChild(h('div', { class: 'fn-barra' }, [
+      fnSegFiltro('pesVer', [['ativas', 'Ativas'], ['escondidas', 'Escondidas'], ['todas', 'Todas']], function(k){ return todas.filter(function(p){ return k === 'ativas' ? p.ativo : k === 'escondidas' ? !p.ativo : true; }).length; }),
+      procura, h('span', { class: 'fn-esp' }), fnBtn('+ Pessoa', function(){ fnPessoaCcJanela(); }, 'primary')]));
+    var linha = h('div', { class: 'fn-linha', style: 'align-items:flex-start' });
+    var cartao = h('div', { class: 'card largo', style: 'padding:6px 10px' });
+    var tb = h('tbody');
+    vis.forEach(function(p){
+      var casa = p.person_id && typeof fnPessoaNome === 'function' ? fnPessoaNome(p.person_id) : '';
+      tb.appendChild(h('tr', { class: 'clic' + (FN.ccPessoa === p.id ? ' on' : ''), onclick: function(){ FN.ccPessoa = FN.ccPessoa === p.id ? null : p.id; fnRender('financas'); } }, [
+        h('td', null, [h('b', { style: 'font-weight:500' }, p.nome), h('small', { style: 'display:block' }, [p.splitwise_id ? 'Splitwise' : 'só no Farol', casa ? 'agregado: ' + casa : ''].filter(Boolean).join(' · '))]),
+        h('td', null, (p.contas_correntes || []).map(function(c){ return h('span', { class: 'fn-pill' + (c.tipo === 'splitwise' ? ' tr' : ''), style: 'margin:1px' }, (c.direta ? (c.tipo === 'splitwise' ? 'sem grupo' : 'Farol') : c.nome) + (Math.abs(c.saldo) >= 0.01 ? ' ' + fnEur(c.saldo, true) : '')); })),
+        h('td', { class: 'r' }, p.n_partilhas ? String(p.n_partilhas) : '—'),
+        h('td', { style: 'font-size:.75rem' }, p.ultimo ? fnData(p.ultimo) : '—'),
+        h('td', { class: 'r ' + (p.saldo > 0.005 ? 'fn-good' : p.saldo < -0.005 ? 'fn-bad' : '') }, Math.abs(p.saldo) < 0.005 ? 'acertado' : fnEur(p.saldo, true))
+      ]));
+    });
+    if (!vis.length) cartao.appendChild(fnVazio('Ninguém aqui.', 'Junta uma pessoa, ou muda o filtro.'));
+    else cartao.appendChild(h('div', { class: 'fn-scroll' }, [h('table', { class: 'fn-tab', style: 'min-width:600px' }, [
+      h('thead', null, [h('tr', null, [h('th', null, 'Pessoa'), h('th', null, 'Contas correntes'), h('th', { class: 'r' }, 'Partilhadas'), h('th', null, 'Último'), h('th', { class: 'r' }, 'Saldo')])]), tb])]));
+    linha.appendChild(cartao);
+    var painel = h('div', { class: 'card fn-painel' });
+    var ab = todas.filter(function(p){ return p.id === FN.ccPessoa; })[0];
+    if (ab) fnPainelPessoa(painel, ab, d); else painel.appendChild(h('p', { class: 'fn-nota' }, 'Escolhe uma pessoa para ver as contas correntes, as contas partilhadas e os movimentos dela.'));
+    linha.appendChild(painel);
+    corpo.appendChild(linha);
+  });
+}
+
+function fnPainelPessoa(p, pessoa, d){
+  var recarregar = function(){ FN.cache = {}; fnRender('financas'); };
+  p.appendChild(h('div', { class: 'fn-acoes', style: 'justify-content:space-between' }, [h('div', null, [h('h3', { style: 'font-size:1.05rem' }, pessoa.nome),
+    h('small', { class: 'fn-muted' }, [pessoa.splitwise_id ? 'no Splitwise' : 'só no Farol', pessoa.person_id && typeof fnPessoaNome === 'function' ? 'agregado: ' + fnPessoaNome(pessoa.person_id) : '', pessoa.ativo ? '' : 'escondida'].filter(Boolean).join(' · '))]),
+    h('b', { class: 'fn-n ' + (pessoa.saldo > 0 ? 'fn-good' : pessoa.saldo < 0 ? 'fn-bad' : '') }, fnEur(pessoa.saldo, true))]));
+  p.appendChild(h('div', { class: 'fn-acoes' }, [fnBtn('Editar', function(){ fnPessoaCcJanela(pessoa); }, 'small'),
+    fnBtn('Juntar com…', function(){ fnJuntarJanela(pessoa, d); }, 'small'),
+    !pessoa.splitwise_id && !pessoa.n ? fnBtn('Apagar', function(){ fnApi('/api/financas/cc/pessoas/' + pessoa.id, 'DELETE').then(function(){ FN.ccPessoa = null; recarregar(); }, fnErro); }, 'small') : null]));
+  p.appendChild(h('div', { class: 'mono' }, 'Contas correntes'));
+  p.appendChild(h('div', { class: 'fn-lista' }, (pessoa.contas_correntes || []).length ? pessoa.contas_correntes.map(function(c){
+    return h('div', { class: 'fn-li clic', style: 'cursor:pointer', onclick: function(){ FN.ccConta = c.id; FN.ccEstado = 'todas'; FN.ccTipo = 'todas'; FN.aba.financas = 'cc'; fnGuardar(); fnRender('financas'); } },
+      [h('div', { class: 'g' }, [c.direta ? (c.tipo === 'splitwise' ? 'Splitwise · sem grupo' : 'Só no Farol') : c.nome, h('small', null, c.tipo === 'splitwise' ? 'Splitwise' : 'Farol')]),
+       h('span', { class: 'fn-n ' + (c.saldo > 0.005 ? 'fn-good' : c.saldo < -0.005 ? 'fn-bad' : '') }, Math.abs(c.saldo) < 0.005 ? 'acertado' : fnEur(c.saldo, true))]);
+  }) : [h('p', { class: 'fn-nota' }, 'Em nenhuma.')]));
+  var zp = h('div', { class: 'fn-lista' }, [h('p', { class: 'fn-nota' }, 'A ler…')]);
+  p.appendChild(h('div', { class: 'mono' }, 'Contas partilhadas'));
+  p.appendChild(zp);
+  apiGestao('/api/financas/partilhas?pessoa=' + pessoa.id).then(function(r){
+    clear(zp);
+    if (!r.partilhas.length) zp.appendChild(h('p', { class: 'fn-nota' }, 'Nenhuma.'));
+    r.partilhas.slice(0, 60).forEach(function(pt){
+      var ls = pt.linhas.filter(function(l){ return l.pessoa_id === pessoa.id; });
+      zp.appendChild(h('div', { class: 'fn-li clic', style: 'cursor:pointer', onclick: function(){ fnPartilhaJanela(null, pt); } }, [
+        h('span', { class: 'fn-n fn-muted', style: 'width:52px;font-size:.75rem' }, fnData(pt.data)),
+        h('div', { class: 'g' }, [pt.descricao, h('small', null, 'total ' + fnEur(pt.total) + ' · ' + ls.map(function(l){ return l.estado === 'splitwise' ? 'no Splitwise' : l.estado; }).join(', '))]),
+        h('span', { class: 'fn-n' }, fnEur(ls.reduce(function(t, l){ return t + l.valor; }, 0)))]));
+    });
+  }, function(e){ clear(zp); zp.appendChild(h('p', { class: 'fn-nota' }, e.message)); });
+  var zm = h('div', { class: 'fn-lista' }, [h('p', { class: 'fn-nota' }, 'A ler…')]);
+  p.appendChild(h('div', { class: 'mono' }, 'Movimentos'));
+  p.appendChild(zm);
+  apiGestao('/api/financas/cc/' + pessoa.id).then(function(r){
+    clear(zm);
+    if (!r.movimentos.length) zm.appendChild(h('p', { class: 'fn-nota' }, 'Sem movimentos.'));
+    r.movimentos.slice(0, 300).forEach(function(m){ zm.appendChild(fnLinhaCc(m, false, recarregar)); });
+  }, function(e){ clear(zm); zm.appendChild(h('p', { class: 'fn-nota' }, e.message)); });
+}
+
+function fnJuntarJanela(pessoa, d){
+  var sel = h('select', { class: 'fn-sel' }, [h('option', { value: '' }, '— escolhe —')].concat(d.pessoas.filter(function(x){ return x.id !== pessoa.id; })
+    .sort(function(a, b){ return a.nome.localeCompare(b.nome); }).map(function(x){ return h('option', { value: x.id }, x.nome + (x.splitwise_id ? ' (Splitwise)' : '')); })));
+  fnJanela('Juntar ' + pessoa.nome + ' com…', [h('p', { class: 'fn-nota' }, 'Para quando é a mesma pessoa com dois nomes (o do banco e o do Splitwise). Tudo o que é de «' + pessoa.nome + '» passa para a escolhida, e «' + pessoa.nome + '» desaparece.'), fnCampo('Fica', sel)],
+    [{ txt: 'Juntar', pri: true, fn: function(){
+      if (!sel.value) { fnAviso('Escolhe com quem juntar.'); return false; }
+      return fnApi('/api/financas/cc/pessoas/' + pessoa.id + '/juntar', 'POST', { em: Number(sel.value) }).then(function(r){ FN.ccPessoa = r.id; FN.cache = {}; fnRender('financas'); }, fnErro);
+    } }]);
+}
+
 function fnPessoaCcJanela(p){
   var nome = h('input', { class: 'fn-in', value: p ? p.nome : '' });
   var pes = h('select', { class: 'fn-sel' }, [h('option', { value: '' }, '— ninguém da casa —')]);
   ((window.G && (G.people || G.pessoas)) || (window.D && D.people) || []).forEach(function(x){ pes.appendChild(h('option', { value: x.id }, x.name)); });
   if (p && p.person_id) pes.value = String(p.person_id);
+  var nota = h('input', { class: 'fn-in', value: (p && p.nota) || '' });
   var ativo = h('input', { type: 'checkbox', checked: p ? p.ativo : true });
-  fnJanela(p ? p.nome : 'Nova pessoa na conta corrente', [fnCampo('Nome', nome), fnCampo('É da casa', pes), p ? h('label', { class: 'fn-check' }, [ativo, 'Mostrar (desmarca para esconder)']) : null,
-    p && p.splitwise_id ? h('p', { class: 'fn-nota' }, 'Vem do Splitwise: o nome volta a ser o de lá na próxima leitura só se mudares lá.') : h('p', { class: 'fn-nota' }, 'Para quem não está no Splitwise: a empresa, os pais, um amigo.')],
+  fnJanela(p ? p.nome : 'Nova pessoa', [fnCampo('Nome', nome), fnCampo('É do agregado', pes), fnCampo('Nota', nota), p ? h('label', { class: 'fn-check' }, [ativo, 'Mostrar (desmarca para esconder)']) : null,
+    p && p.splitwise_id ? h('p', { class: 'fn-nota' }, 'Vem do Splitwise: os grupos e o saldo vêm de lá.') : h('p', { class: 'fn-nota' }, 'Para quem não está no Splitwise: a empresa, os pais, um amigo. Pode entrar em contas partilhadas e em contas correntes do Farol.')],
   [{ txt: p ? 'Guardar' : 'Criar', pri: true, fn: function(){
     if (!nome.value.trim()) { fnAviso('Falta o nome.'); return false; }
-    var corpo = { nome: nome.value.trim(), person_id: pes.value ? Number(pes.value) : null };
+    var corpo = { nome: nome.value.trim(), person_id: pes.value ? Number(pes.value) : null, nota: nota.value.trim() };
     if (p) corpo.ativo = ativo.checked;
-    var q = p ? fnApi('/api/financas/cc/pessoas/' + p.id, 'PATCH', corpo) : fnApi('/api/financas/cc/pessoas', 'POST', corpo).then(function(r){ FN.ccAberta = r.id; });
+    var q = p ? fnApi('/api/financas/cc/pessoas/' + p.id, 'PATCH', corpo) : fnApi('/api/financas/cc/pessoas', 'POST', corpo).then(function(r){ FN.ccPessoa = r.id; });
     return q.then(function(){ FN.cache = {}; fnRender('financas'); }, fnErro);
   } }]);
 }
