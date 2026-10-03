@@ -812,6 +812,7 @@ async function detalharMovimentos(ids, B, sug) {
   const rows = await all(
     `SELECT m.id, m.conta_id, to_char(m.data,'YYYY-MM-DD') AS data, m.descricao, m.valor, m.saldo, m.categoria_id, m.categoria_fonte,
             m.context_id, m.person_id, m.expense_id, m.ia_categoria_id, m.ia_confianca, m.ia_fonte, m.nota, m.origem,
+            m.project_id, pj.name AS projeto,
             e.description AS despesa, (e.document_id IS NOT NULL) AS despesa_papel, e.splitwise_id::text AS despesa_splitwise,
             ccm.pessoa_id AS cc_pessoa_id, ccp.nome AS cc_pessoa, ccm.origem AS cc_origem,
             (SELECT json_agg(json_build_object('id', pt.id, 'valor', pt.valor, 'categoria_id', pt.categoria_id,
@@ -822,6 +823,7 @@ async function detalharMovimentos(ids, B, sug) {
        LEFT JOIN expenses e ON e.id = m.expense_id
        LEFT JOIN fin_cc_mov ccm ON ccm.movimento_id = m.id
        LEFT JOIN fin_cc_pessoas ccp ON ccp.id = ccm.pessoa_id
+       LEFT JOIN projects pj ON pj.id = m.project_id
       WHERE m.id = ANY($1::int[])`, [ids]);
   const por = {};
   rows.forEach((m) => {
@@ -963,6 +965,7 @@ function instalar(app) {
       }
       if (q.categoria === 'nenhuma') w.push('m.categoria_id IS NULL');
       else if (q.categoria) add('m.categoria_id = ?', Number(q.categoria));
+      if (q.projeto) add('m.project_id = ?', Number(q.projeto));
       if (q.q) {
         /* Procura no descritivo e, se o texto parecer um valor, no montante. */
         const num = String(q.q).replace(/\s/g, '').replace(',', '.');
@@ -1059,7 +1062,7 @@ function instalar(app) {
         set('categoria_fonte', !cat ? null : (b.aceite ? 'ia-aceite' : (m.ia_categoria_id && m.ia_categoria_id !== Number(cat) ? 'tu-corrigiu' : 'tu')));
         sets.push('categoria_em = now()');
       }
-      ['context_id', 'person_id', 'nota', 'expense_id', 'data', 'descricao'].forEach((k) => { if (b[k] !== undefined) set(k, b[k] === '' ? null : b[k]); });
+      ['context_id', 'person_id', 'nota', 'expense_id', 'data', 'descricao', 'project_id'].forEach((k) => { if (b[k] !== undefined) set(k, b[k] === '' ? null : b[k]); });
       if (sets.length) { vals.push(m.id); await query('UPDATE fin_movimentos SET ' + sets.join(', ') + ' WHERE id = $' + vals.length, vals); }
       if (b.categoria_id !== undefined) await cc.categoriaDaMinhaParte(m.id, b.categoria_id || null);
       if (b.cc_pessoa_id !== undefined) {
@@ -1099,6 +1102,7 @@ function instalar(app) {
       const sets = [], vals = [ids];
       if (b.categoria_id !== undefined) { vals.push(b.categoria_id || null); sets.push('categoria_id = $' + vals.length, "categoria_fonte = 'tu'", 'categoria_em = now()'); }
       if (b.context_id !== undefined) { vals.push(b.context_id || null); sets.push('context_id = $' + vals.length); }
+      if (b.project_id !== undefined) { vals.push(b.project_id || null); sets.push('project_id = $' + vals.length); }
       if (!sets.length) return res.json({ feitos: 0 });
       const r = await all('UPDATE fin_movimentos SET ' + sets.join(', ') + ' WHERE id = ANY($1::int[]) RETURNING id', vals);
       res.json({ feitos: r.length });
