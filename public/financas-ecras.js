@@ -290,8 +290,8 @@ function fnMovDesenhar(zona, d, qs){
     var b2 = fnBtn('Mostrar todos', function(){ pedir(falta, b2); }, 'small');
     maisZona.appendChild(b1); maisZona.appendChild(b2);
   };
-  cartao.appendChild(h('div', { class: 'fn-scroll' }, [h('table', { class: 'fn-tab fn-movtab', style: 'min-width:1100px' }, [
-    h('colgroup', null, [h('col', { style: 'width:30px' }), h('col', { style: 'width:62px' }), h('col', { style: 'width:140px' }), h('col'), h('col', { style: 'width:118px' }), h('col', { style: 'width:240px' }), h('col', { style: 'width:120px' }), h('col', { style: 'width:110px' }), h('col', { style: 'width:160px' })]),
+  cartao.appendChild(h('div', { class: 'fn-scroll' }, [h('table', { class: 'fn-tab fn-movtab', style: 'min-width:1130px' }, [
+    h('colgroup', null, [h('col', { style: 'width:30px' }), h('col', { style: 'width:62px' }), h('col', { style: 'width:140px' }), h('col'), h('col', { style: 'width:118px' }), h('col', { style: 'width:240px' }), h('col', { style: 'width:120px' }), h('col', { style: 'width:140px' }), h('col', { style: 'width:160px' })]),
     h('thead', null, [h('tr', null, [h('th', null, [todos]), h('th', null, 'Data'), h('th', null, 'Conta'), h('th', null, 'Descrição'), h('th', { class: 'r' }, 'Valor'), h('th', null, 'Categoria'), h('th', null, 'Área'), h('th', null, 'De quem'), h('th', null, 'Ligado a')])]),
     tb])]));
   cartao.appendChild(maisZona);
@@ -496,10 +496,51 @@ function fnLinhaMov(m, aoMarcar){
     h('td', { class: 'r ' + (m.valor > 0 ? 'fn-good' : '') }, [fnEur(m.valor, true), fnMinhaParte(m)]),
     h('td', null, [cat]),
     h('td', { class: 'fn-area', title: fnCtxNome(ctx && ctx.id) }, ctx ? ctx.name : h('span', { class: 'fn-muted' }, '—')),
-    h('td', { class: 'fn-area', title: m.person_id ? 'Pessoa do agregado' : '' }, m.person_id ? (m.pessoa_nome || fnPessoaNome(m.person_id)) : h('span', { class: 'fn-muted' }, '—')),
+    h('td', { class: 'fn-dequem', onclick: function(e){ e.stopPropagation(); fnEscolherPessoa([m.id], m.person_id); } }, fnDeQuem(m)),
     h('td', null, lig)
   ]);
   return tr;
+}
+
+/* De quem e o movimento: a pessoa do agregado, com a cara dela, ou um sinal
+   discreto para a escolher. Carrega-se e abre a janela das pessoas. */
+function fnDeQuem(m){
+  if (!m.person_id) return h('button', { type: 'button', class: 'fn-dq vazio', title: 'De quem é este movimento?' }, '+ pessoa');
+  var p = fnPessoas().filter(function(x){ return x.id === Number(m.person_id); })[0] || { name: m.pessoa_nome || '?' };
+  return h('button', { type: 'button', class: 'fn-dq', title: 'Mudar de quem é' }, [fnAvatar(p), h('span', null, p.name)]);
+}
+function fnAvatar(p){
+  if (typeof ibAvatar === 'function') return ibAvatar(p);
+  return h('span', { class: 'ib-av', style: 'background:' + (p.color || 'var(--accent)') }, p.initials || String(p.name || '?').slice(0, 1));
+}
+/* A mesma janela da catalogacao dos documentos: as pessoas do agregado num
+   relance, um clique e fica gravado (num movimento ou em varios). */
+function fnEscolherPessoa(ids, atual){
+  if (typeof ibEstilo === 'function') ibEstilo();
+  var dlg = h('dialog', { class: 'ib-dlg' });
+  var fechar = function(){ try { dlg.close(); } catch (e) {} if (dlg.parentNode) dlg.parentNode.removeChild(dlg); };
+  var gravar = function(pid){
+    var q = ids.length === 1 ? fnApi('/api/financas/movimentos/' + ids[0], 'PATCH', { person_id: pid })
+      : fnApi('/api/financas/movimentos/lote', 'POST', { ids: ids, person_id: pid });
+    q.then(function(){
+      fechar();
+      if (ids.length === 1) fnMovAtualizar(ids[0]);
+      else { FN.mov.sel = {}; fnAviso(ids.length + (pid ? ' movimentos de ' + fnPessoaNome(pid) + '.' : ' movimentos sem pessoa.')); fnMudou(); }
+    }, fnErro);
+  };
+  var lista = h('div', { class: 'ib-pessoas' }, fnPessoas().map(function(p){
+    return h('button', { type: 'button', class: 'ib-pessoa' + (Number(atual) === p.id ? ' on' : ''), onclick: function(){ gravar(p.id); } }, [fnAvatar(p), h('span', null, p.name)]);
+  }));
+  dlg.appendChild(h('div', { class: 'ib-dlgc' }, [
+    h('h3', null, ids.length === 1 ? 'De quem é este movimento?' : 'De quem são estes ' + ids.length + ' movimentos?'),
+    h('p', null, 'Aparece na ficha da pessoa, no cartão «Movimentos do banco».'),
+    lista,
+    h('div', { class: 'ib-dlga' }, [h('button', { type: 'button', class: 'btn', onclick: function(){ gravar(null); } }, 'Ninguém'),
+      h('button', { type: 'button', class: 'btn', onclick: fechar }, 'Fechar')])]));
+  dlg.addEventListener('cancel', function(){ setTimeout(fechar, 0); });
+  dlg.addEventListener('click', function(e){ if (e.target === dlg) fechar(); });
+  document.body.appendChild(dlg);
+  dlg.showModal();
 }
 
 /* Num movimento dividido, a parte que e mesmo do Marco. */
@@ -514,7 +555,6 @@ function fnBarraLote(ids, ms, limpar){
   var debs = (ms || []).filter(function(m){ return FN.mov.sel[m.id] && m.valor < 0; });
   var sa = fnSelAreas('', 'Área…');
   var spj = fnSelProjetos('', 'Projeto…');
-  var spe = fnSelPessoas('', 'Pessoa…');
   return h('div', { class: 'fn-barra', style: 'padding:8px;border-bottom:1px solid var(--line)' }, [
     h('b', null, ids.length + ' escolhidos'), sc,
     fnBtn('Categorizar', function(){ if (!sc.value) return fnAviso('Escolhe a categoria.');
@@ -525,9 +565,7 @@ function fnBarraLote(ids, ms, limpar){
     spj,
     fnBtn('Pôr no projeto', function(){
       fnApi('/api/financas/movimentos/lote', 'POST', { ids: ids, project_id: spj.value ? Number(spj.value) : null }).then(function(r){ FN.mov.sel = {}; fnAviso(r.feitos + (spj.value ? ' postos no projeto.' : ' tirados do projeto.')); fnMudou(); }, fnErro); }, 'small'),
-    spe,
-    fnBtn('Associar à pessoa', function(){
-      fnApi('/api/financas/movimentos/lote', 'POST', { ids: ids, person_id: spe.value ? Number(spe.value) : null }).then(function(r){ FN.mov.sel = {}; fnAviso(r.feitos + (spe.value ? ' associados a ' + fnPessoaNome(spe.value) + '.' : ' sem pessoa.')); fnMudou(); }, fnErro); }, 'small'),
+    fnBtn('De quem…', function(){ fnEscolherPessoa(ids, null); }, 'small'),
     debs.length ? fnBtn('Dividir com… (' + debs.length + ')', function(){ fnDividirGrupoJanela(debs); }, 'small') : null,
     fnBtn('Aceitar sugestões', function(){
       fnApi('/api/financas/movimentos/lote', 'POST', { ids: ids, aceitar: true }).then(function(r){ FN.mov.sel = {}; fnAviso(r.feitos + ' categorizados.'); fnMudou(); }, fnErro); }, 'small'),
