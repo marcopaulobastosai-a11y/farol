@@ -78,6 +78,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS fin_mov_impressao_uidx ON fin_movimentos (cont
 CREATE INDEX IF NOT EXISTS fin_mov_data_idx ON fin_movimentos (data DESC);
 CREATE INDEX IF NOT EXISTS fin_mov_cat_idx ON fin_movimentos (categoria_id);
 CREATE INDEX IF NOT EXISTS fin_mov_exp_idx ON fin_movimentos (expense_id) WHERE expense_id IS NOT NULL;
+-- Um movimento pode pertencer a um projeto (o casamento, a casa nova): aparece
+-- na pagina do projeto, com as entradas e as saidas.
+ALTER TABLE fin_movimentos ADD COLUMN IF NOT EXISTS project_id INTEGER REFERENCES projects(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS fin_mov_proj_idx ON fin_movimentos (project_id) WHERE project_id IS NOT NULL;
 
 -- Regras: «se a descricao contem X (e o valor esta entre A e B, e a conta e
 -- C) entao categoria Y». Aplicam-se antes da IA e sem perguntar.
