@@ -126,7 +126,7 @@ function passa(m, f, B) {
   if (!conta) return false;
   if (f.ambito === 'pessoal' && !conta.pessoal) return false;
   if (f.ambito === 'profissional' && conta.pessoal) return false;
-  if (f.conta && Number(f.conta) !== m.conta_id) return false;
+  if (f.conta && f.conta.length && f.conta.indexOf(m.conta_id) < 0) return false;
   if (f.area) {
     const ctx = m.context_id || conta.context_id;
     if (!ctx) return false;
@@ -739,9 +739,53 @@ async function patrimonio(empresas) {
   };
 }
 
+/* ---------------- repartir por varios pagamentos ---------------- */
+/* Um valor repartido por varios pesos, ao centimo: os centimos que sobram vao
+   para quem tem a maior fracao. A soma bate sempre. */
+function alocar(valor, pesos) {
+  const cents = Math.round(valor * 100), soma = pesos.reduce((t, p) => t + p, 0);
+  if (!soma) return pesos.map(() => 0);
+  const brutos = pesos.map((p) => cents * p / soma);
+  const out = brutos.map(Math.floor);
+  let falta = cents - out.reduce((t, x) => t + x, 0);
+  brutos.map((x, i) => [x - Math.floor(x), i]).sort((a, b) => b[0] - a[0]).forEach(([, i]) => { if (falta > 0) { out[i]++; falta--; } });
+  return out.map((x) => x / 100);
+}
+
+/* Junta pessoas (cada uma com o seu valor) a um ou mais pagamentos. Cada
+   pessoa fica com a sua parte repartida pelos pagamentos na proporcao do
+   valor de cada um; o que la estivesse dividido mantem-se (a mesma pessoa e
+   substituida). Confere tudo antes de mexer em nada. */
+async function repartir(debIds, pessoas, opcoes) {
+  const o = opcoes || {};
+  const debs = await all('SELECT id, descricao, valor, categoria_id, ia_categoria_id FROM fin_movimentos WHERE id = ANY($1::int[]) AND valor < 0 ORDER BY data, id', [debIds]);
+  if (!debs.length) throw erro(400, 'Escolhe pagamentos que saíram da conta.');
+  const pesos = debs.map((d) => -Number(d.valor));
+  const planos = debs.map(() => ({}));
+  pessoas.forEach((p) => { alocar(p.valor, pesos).forEach((v, i) => { if (v > 0) planos[i][p.pessoa_id] = v; }); });
+  const atuais = await all('SELECT movimento_id, pessoa_id, valor, categoria_id FROM fin_mov_partes WHERE movimento_id = ANY($1::int[])', [debs.map((d) => d.id)]);
+  const feitos = debs.map((d, i) => {
+    const deste = atuais.filter((p) => p.movimento_id === d.id);
+    const outros = deste.filter((p) => p.pessoa_id && planos[i][p.pessoa_id] === undefined)
+      .map((p) => ({ pessoa_id: p.pessoa_id, valor: -Number(p.valor) }))
+      .concat(Object.keys(planos[i]).map((k) => ({ pessoa_id: Number(k), valor: planos[i][k] })));
+    const soma = cent(outros.reduce((t, x) => t + x.valor, 0));
+    if (soma > pesos[i] + 0.005) throw erro(400, 'Em «' + d.descricao + '» a parte dos outros passaria o valor do pagamento.');
+    const minhaCat = o.categoria_id || (deste.find((p) => !p.pessoa_id) || {}).categoria_id || d.categoria_id || d.ia_categoria_id || null;
+    return { d, outros, minhaCat };
+  });
+  let minha = 0, outrosT = 0;
+  for (const f of feitos) {
+    const r = await cc.dividir(f.d.id, { outros: f.outros, categoria_id: f.minhaCat,
+      descricao: o.descricao ? String(o.descricao).trim() + ' · ' + f.d.descricao : undefined });
+    minha += r.minha; outrosT += r.outros;
+  }
+  return { minha: cent(minha), outros: cent(outrosT), pagamentos: feitos.length, pessoas: pessoas.length };
+}
+
 /* ---------------- rotas ---------------- */
 function instalar(app) {
-  const f = (q) => ({ ambito: q.ambito || 'tudo', area: q.area ? Number(q.area) : null, conta: q.conta ? Number(q.conta) : null });
+  const f = (q) => ({ ambito: q.ambito || 'tudo', area: q.area ? Number(q.area) : null, conta: q.conta ? String(q.conta).split(',').map(Number).filter(Boolean) : null });
   const mesQ = (q) => (/^\d{4}-\d{2}$/.test(q.mes || '') ? q.mes : mesDe(hojeIso()));
 
   app.get('/api/financas/base', async (req, res) => {
@@ -854,7 +898,11 @@ function instalar(app) {
       const add = (sql, val) => { v.push(val); w.push(sql.replace('?', '$' + v.length)); };
       if (q.de) add('m.data >= ?', q.de);
       if (q.ate) add('m.data <= ?', q.ate);
-      if (q.conta) add('m.conta_id = ?', Number(q.conta));
+      if (q.conta) {
+        /* Uma conta ou varias, separadas por virgulas. */
+        const cs = String(q.conta).split(',').map(Number).filter(Boolean);
+        if (cs.length) { v.push(cs); w.push('m.conta_id = ANY($' + v.length + '::int[])'); }
+      }
       if (q.categoria === 'nenhuma') w.push('m.categoria_id IS NULL');
       else if (q.categoria) add('m.categoria_id = ?', Number(q.categoria));
       if (q.q) {
@@ -1016,11 +1064,15 @@ function instalar(app) {
   /* Uma ou mais entradas sao a parte de pessoas numa conta que o Marco pagou:
      divide-se o pagamento (juntando-as as partes que ja la estivessem) e cada
      entrada liga-se como reembolso. Tudo de uma vez, sem nada registado antes. */
+  /* Uma ou mais entradas sao a parte de pessoas numa conta (ou em varias) que
+     o Marco pagou: divide-se o pagamento - ou os pagamentos, na proporcao do
+     valor de cada um - e cada entrada liga-se como reembolso. Tudo de uma
+     vez, sem nada registado antes. */
   app.post('/api/financas/movimentos/:id(\\d+)/devolucao', async (req, res) => {
     try {
       const b = req.body || {};
-      const deb = (await all('SELECT id, valor, categoria_id, ia_categoria_id FROM fin_movimentos WHERE id = $1', [b.debito_id]))[0];
-      if (!deb || Number(deb.valor) >= 0) throw erro(400, 'Escolhe o pagamento que foi dividido.');
+      const debIds = (b.debito_ids && b.debito_ids.length ? b.debito_ids : [b.debito_id]).map(Number).filter(Boolean);
+      if (!debIds.length) throw erro(400, 'Escolhe o pagamento que foi dividido.');
       const pedidos = (b.creditos && b.creditos.length ? b.creditos : [{ id: Number(req.params.id) }]);
       const ids = pedidos.map((x) => Number(x.id)).filter(Boolean);
       const cs = await all('SELECT id, descricao, valor FROM fin_movimentos WHERE id = ANY($1::int[]) AND valor > 0', [ids]);
@@ -1032,12 +1084,10 @@ function instalar(app) {
         if (!nome) throw erro(400, 'Falta o nome de quem mandou «' + c.descricao + '».');
         novos.push({ credito: c.id, pessoa_id: await cc.resolverPessoa(nome), valor: cent(c.valor) });
       }
-      const atuais = await all('SELECT pessoa_id, valor, categoria_id FROM fin_mov_partes WHERE movimento_id = $1', [deb.id]);
-      const outros = atuais.filter((p) => p.pessoa_id && !novos.some((n) => n.pessoa_id === p.pessoa_id))
-        .map((p) => ({ pessoa_id: p.pessoa_id, valor: -Number(p.valor) }))
-        .concat(novos.map((n) => ({ pessoa_id: n.pessoa_id, valor: n.valor })));
-      const minhaCat = (atuais.find((p) => !p.pessoa_id) || {}).categoria_id || b.categoria_id || deb.categoria_id || deb.ia_categoria_id || null;
-      const r = await cc.dividir(deb.id, { outros, categoria_id: minhaCat });
+      /* A mesma pessoa com duas entradas conta uma vez, somada. */
+      const porPessoa = {};
+      novos.forEach((n) => { porPessoa[n.pessoa_id] = cent((porPessoa[n.pessoa_id] || 0) + n.valor); });
+      const r = await repartir(debIds, Object.keys(porPessoa).map((k) => ({ pessoa_id: Number(k), valor: porPessoa[k] })), { categoria_id: b.categoria_id });
       for (const n of novos) {
         await cc.ligarMovimento(n.credito, n.pessoa_id);
         await query(`UPDATE fin_movimentos SET categoria_id = (SELECT id FROM fin_categorias WHERE natureza = 'transferencia' AND nome ILIKE '%acerto%' ORDER BY id LIMIT 1),
@@ -1045,6 +1095,31 @@ function instalar(app) {
       }
       res.json(Object.assign(r, { ligados: novos.length }));
     } catch (e) { falha(res, e, 'a devolução'); }
+  });
+
+  /* Varios pagamentos (as viagens de Uber de um fim de semana) divididos pelo
+     grupo de uma vez: cada pessoa fica com a sua parte do total, repartida
+     pelos pagamentos na proporcao do valor de cada um. */
+  app.post('/api/financas/movimentos/dividir-grupo', async (req, res) => {
+    try {
+      const b = req.body || {};
+      const ids = (b.ids || []).map(Number).filter(Boolean);
+      if (!ids.length) throw erro(400, 'Escolhe os pagamentos.');
+      const lidos = (b.outros || []).map((o) => ({ pessoa_id: o.pessoa_id ? Number(o.pessoa_id) : null, nome: String(o.nome || '').trim(),
+        valor: cent(String(o.valor == null ? '' : o.valor).replace(/\s/g, '').replace(',', '.')) })).filter((o) => o.valor > 0 && (o.pessoa_id || o.nome));
+      if (!lidos.length) throw erro(400, 'Falta com quem dividir e quanto.');
+      const debs = await all('SELECT id, valor FROM fin_movimentos WHERE id = ANY($1::int[]) AND valor < 0', [ids]);
+      const total = cent(debs.reduce((t, d) => t - Number(d.valor), 0));
+      if (cent(lidos.reduce((t, o) => t + o.valor, 0)) > total + 0.005) throw erro(400, 'A parte dos outros passa o total dos pagamentos (' + total.toFixed(2).replace('.', ',') + ' €).');
+      const porPessoa = {};
+      for (const o of lidos) {
+        const pid = o.pessoa_id || await cc.resolverPessoa(o.nome);
+        porPessoa[pid] = cent((porPessoa[pid] || 0) + o.valor);
+      }
+      const r = await repartir(debs.map((d) => d.id), Object.keys(porPessoa).map((k) => ({ pessoa_id: Number(k), valor: porPessoa[k] })),
+        { categoria_id: b.categoria_id, descricao: b.descricao });
+      res.json(r);
+    } catch (e) { falha(res, e, 'a divisão'); }
   });
 
   /* Dividir a conta: a parte do Marco e a de cada pessoa. */
