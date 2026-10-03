@@ -152,55 +152,67 @@ function fn_financas_movimentos(corpo){
   fnMovLista(zona);
 }
 
-/* A lista de movimentos. Guarda-se por filtro (FN.cache, que se limpa
-   quando algo muda); entretanto mostra-se a última lista com estes filtros,
-   esbatida, e troca-se quando chegar a nova. As linhas desenham-se aos
-   bocados: 200 de cada vez. */
+/* A lista de movimentos, aos bocados de 200 pedidos ao servidor. Guarda-se
+   por filtro (FN.cache, que se limpa quando algo muda) com as páginas já
+   lidas; entretanto mostra-se a última lista com estes filtros, esbatida, e
+   troca-se quando chegar a nova. Os totais e os avisos vêm do servidor e
+   contam a lista toda, não só o que está à vista. */
+var FN_MOV_PAG = 200;
 function fnMovQs(){
   var per = fnPeriodoMov();
-  return fnQs({ estado: FN.mov.estado, conta: FN.mov.conta, categoria: FN.mov.categoria, q: FN.mov.q, de: per.de, ate: per.ate, ambito: FN.ambito, area: FN.area, limite: 1500 });
+  return fnQs({ estado: FN.mov.estado, conta: FN.mov.conta, categoria: FN.mov.categoria, q: FN.mov.q, de: per.de, ate: per.ate, ambito: FN.ambito, area: FN.area });
 }
 function fnMovLista(zona){
   var qs = fnMovQs();
   var chave = 'mov:' + qs;
   FN.movPedido = qs;
   var pronto = FN.cache[chave];
-  if (pronto) { fnMovDesenhar(zona, pronto); return; }
+  if (pronto) { fnMovDesenhar(zona, pronto, qs); return; }
   var velho = FN.movUlt && FN.movUlt.qs === qs ? FN.movUlt.d : null;
-  if (velho) fnMovDesenhar(zona, velho);
+  if (velho) fnMovDesenhar(zona, velho, qs);
   if (zona.firstChild) zona.classList.add('fn-aler');
   else zona.appendChild(h('p', { class: 'fn-nota' }, 'A ler…'));
-  fnLer(chave, '/api/financas/movimentos?' + qs).then(function(d){
+  /* Pede pelo menos tantas linhas como as que estavam à vista. */
+  var quantas = Math.max(FN_MOV_PAG, FN.mov.mostrar || 0);
+  apiGestao('/api/financas/movimentos?' + qs + '&desde=0&limite=' + quantas).then(function(d){
+    FN.cache[chave] = d;
     if (FN.movPedido !== qs || !zona.isConnected) return;
     FN.movUlt = { qs: qs, d: d };
     zona.classList.remove('fn-aler');
-    fnMovDesenhar(zona, d);
+    fnMovDesenhar(zona, d, qs);
   }, function(e){
     if (FN.movPedido !== qs) return;
     zona.classList.remove('fn-aler'); clear(zona);
     zona.appendChild(fnVazio('Não foi possível ler.', e.message, [fnBtn('Tentar outra vez', fnMudou)]));
   });
 }
-function fnMovDesenhar(zona, d){
+function fnMovDesenhar(zona, d, qs){
   clear(zona);
   var ms = d.movimentos;
-  var comSug = ms.filter(function(m){ return !m.categoria_id && m.ia_categoria_id && !m.reembolso && !m.divisao; });
-  if (comSug.length){
-    zona.appendChild(h('div', { class: 'fn-banner' }, [h('span', { class: 'fn-pill ai' }, '✦ IA'),
-      h('div', { class: 'g' }, [h('b', null, comSug.length + (comSug.length === 1 ? ' movimento tem' : ' movimentos têm') + ' categoria sugerida'),
-        h('span', { class: 'fn-muted' }, ' · confiança média ' + Math.round(comSug.reduce(function(s, m){ return s + (m.ia_confianca || 0); }, 0) / comSug.length * 100) + '%. Vêm das tuas regras, do histórico e do Gemini.')]),
-      fnBtn('Aceitar ' + (comSug.length === 1 ? 'a sugestão' : 'as ' + comSug.length), function(){
-        fnApi('/api/financas/movimentos/lote', 'POST', { ids: comSug.map(function(m){ return m.id; }), aceitar: true })
-          .then(function(r){ fnAviso(r.feitos + ' categorizados.'); fnMudou(); }, fnErro);
-      }, 'primary small')]));
-  }
-  var reemb = ms.filter(function(m){ return m.reembolso || m.divisao; });
-  if (reemb.length && FN.mov.estado !== 'reembolsos'){
-    zona.appendChild(h('div', { class: 'fn-banner' }, [h('span', { class: 'fn-pill ai' }, '✦ Reembolsos'),
-      h('div', { class: 'g' }, [h('b', null, reemb.length + (reemb.length === 1 ? ' entrada parece' : ' entradas parecem') + ' alguém a devolver a parte de uma conta'),
-        h('span', { class: 'fn-muted' }, ' · pelo nome de quem mandou e por um pagamento teu, dos dias antes, que é múltiplo exato do valor.')]),
-      fnBtn('Ver', function(){ FN.mov.estado = 'reembolsos'; FN.mov.sel = {}; FN.mov.mostrar = 0; fnRender('financas'); }, 'small')]));
-  }
+  var todosIds = d.todos || ms.map(function(m){ return [m.id, m.valor]; });
+  var rs = d.resumo || {};
+  var avisos = h('div');
+  zona.appendChild(avisos);
+  var desenharAvisos = function(){
+    clear(avisos);
+    var sug = rs.sugestoes || [];
+    if (sug.length){
+      avisos.appendChild(h('div', { class: 'fn-banner' }, [h('span', { class: 'fn-pill ai' }, '✦ IA'),
+        h('div', { class: 'g' }, [h('b', null, sug.length + (sug.length === 1 ? ' movimento tem' : ' movimentos têm') + ' categoria sugerida'),
+          h('span', { class: 'fn-muted' }, (rs.confianca != null ? ' · confiança média ' + Math.round(rs.confianca * 100) + '%.' : '') + ' Vêm das tuas regras, do histórico e do Gemini.')]),
+        fnBtn('Aceitar ' + (sug.length === 1 ? 'a sugestão' : 'as ' + sug.length), function(){
+          fnApi('/api/financas/movimentos/lote', 'POST', { ids: sug, aceitar: true })
+            .then(function(r){ fnAviso(r.feitos + ' categorizados.'); fnMudou(); }, fnErro);
+        }, 'primary small')]));
+    }
+    if (rs.reembolsos && FN.mov.estado !== 'reembolsos'){
+      avisos.appendChild(h('div', { class: 'fn-banner' }, [h('span', { class: 'fn-pill ai' }, '✦ Reembolsos'),
+        h('div', { class: 'g' }, [h('b', null, rs.reembolsos + (rs.reembolsos === 1 ? ' entrada parece' : ' entradas parecem') + ' alguém a devolver a parte de uma conta'),
+          h('span', { class: 'fn-muted' }, ' · pelo nome de quem mandou e por um pagamento teu, dos dias antes, que é múltiplo exato do valor.')]),
+        fnBtn('Ver', function(){ FN.mov.estado = 'reembolsos'; FN.mov.sel = {}; FN.mov.mostrar = 0; fnRender('financas'); }, 'small')]));
+    }
+  };
+  desenharAvisos();
   var cartao = h('div', { class: 'card', style: 'padding:6px 10px' });
   zona.appendChild(cartao);
   if (!ms.length) { cartao.appendChild(fnVazio('Nenhum movimento com estes filtros.', FN.mov.estado ? 'Experimenta «Todos» ou outro período.' : null)); return; }
@@ -208,43 +220,80 @@ function fnMovDesenhar(zona, d){
   var lote = h('div');
   cartao.appendChild(lote);
   var todos = h('input', { type: 'checkbox', 'aria-label': 'Escolher todos' });
+  var tb = h('tbody');
   var desenharLote = function(){
     clear(lote);
     var selN = Object.keys(FN.mov.sel).filter(function(k){ return FN.mov.sel[k]; });
-    todos.checked = selN.length > 0 && selN.length === ms.length;
-    if (selN.length) lote.appendChild(fnBarraLote(selN, ms, function(){ FN.mov.sel = {}; Array.prototype.forEach.call(tb.querySelectorAll('input[type=checkbox]'), function(c){ c.checked = false; }); desenharLote(); }));
+    todos.checked = selN.length > 0 && selN.length === todosIds.length;
+    if (selN.length) lote.appendChild(fnBarraLote(selN, todosIds.map(function(x){ return { id: x[0], valor: x[1] }; }), function(){
+      FN.mov.sel = {}; Array.prototype.forEach.call(tb.querySelectorAll('input[type=checkbox]'), function(c){ c.checked = false; }); desenharLote(); }));
   };
   todos.addEventListener('change', function(){
-    FN.mov.sel = {}; if (todos.checked) ms.forEach(function(m){ FN.mov.sel[m.id] = true; });
+    FN.mov.sel = {}; if (todos.checked) todosIds.forEach(function(x){ FN.mov.sel[x[0]] = true; });
     Array.prototype.forEach.call(tb.querySelectorAll('input[type=checkbox]'), function(c){ c.checked = todos.checked; });
     desenharLote();
   });
-  var tb = h('tbody');
-  var mostrados = 0;
+  /* O que está à vista fica registado, para se poder trocar uma linha só. */
+  FN.movVista = { d: d, qs: qs, tb: tb, aoMarcar: desenharLote, avisos: desenharAvisos };
   var maisZona = h('div', { class: 'fn-acoes', style: 'justify-content:center;padding:8px' });
-  var mais = function(n){
-    var ate = Math.min(ms.length, mostrados + n);
+  var acrescentar = function(lista){
     var frag = document.createDocumentFragment();
-    for (var i = mostrados; i < ate; i++) frag.appendChild(fnLinhaMov(ms[i], desenharLote));
+    lista.forEach(function(m){ frag.appendChild(fnLinhaMov(m, desenharLote)); });
     tb.appendChild(frag);
-    mostrados = ate; FN.mov.mostrar = mostrados;
+    FN.mov.mostrar = d.movimentos.length;
+    desenharMais();
+  };
+  var desenharMais = function(){
     clear(maisZona);
-    if (mostrados < ms.length) {
-      maisZona.appendChild(h('span', { class: 'fn-nota' }, 'A mostrar ' + mostrados + ' de ' + ms.length + '.'));
-      maisZona.appendChild(fnBtn('Mostrar mais ' + Math.min(300, ms.length - mostrados), function(){ mais(300); }, 'small'));
-      maisZona.appendChild(fnBtn('Mostrar todos', function(){ mais(ms.length); }, 'small'));
-    }
+    var falta = (d.total || ms.length) - d.movimentos.length;
+    if (falta <= 0) return;
+    maisZona.appendChild(h('span', { class: 'fn-nota' }, 'A mostrar ' + d.movimentos.length + ' de ' + d.total + '.'));
+    var pedir = function(n, botao){
+      if (botao) botao.disabled = true;
+      apiGestao('/api/financas/movimentos?' + qs + '&desde=' + d.movimentos.length + '&limite=' + n).then(function(p){
+        d.movimentos = d.movimentos.concat(p.movimentos);
+        acrescentar(p.movimentos);
+      }, function(e){ if (botao) botao.disabled = false; fnErro(e); });
+    };
+    var b1 = fnBtn('Mostrar mais ' + Math.min(300, falta), function(){ pedir(300, b1); }, 'small');
+    var b2 = fnBtn('Mostrar todos', function(){ pedir(falta, b2); }, 'small');
+    maisZona.appendChild(b1); maisZona.appendChild(b2);
   };
   cartao.appendChild(h('div', { class: 'fn-scroll' }, [h('table', { class: 'fn-tab fn-movtab' }, [
     h('colgroup', null, [h('col', { style: 'width:30px' }), h('col', { style: 'width:62px' }), h('col'), h('col', { style: 'width:118px' }), h('col', { style: 'width:250px' }), h('col', { style: 'width:130px' }), h('col', { style: 'width:170px' })]),
     h('thead', null, [h('tr', null, [h('th', null, [todos]), h('th', null, 'Data'), h('th', null, 'Descrição'), h('th', { class: 'r' }, 'Valor'), h('th', null, 'Categoria'), h('th', null, 'Área'), h('th', null, 'Ligado a')])]),
     tb])]));
   cartao.appendChild(maisZona);
-  mais(Math.max(200, FN.mov.mostrar || 0));
+  acrescentar(ms);
   desenharLote();
-  var tot = ms.reduce(function(s, m){ return s + m.valor; }, 0);
-  cartao.appendChild(h('p', { class: 'fn-nota', style: 'padding:8px' }, ms.length + ' movimentos · entradas ' + fnEur(ms.filter(function(m){ return m.valor > 0; }).reduce(function(s, m){ return s + m.valor; }, 0)) +
-    ' · saídas ' + fnEur(ms.filter(function(m){ return m.valor < 0; }).reduce(function(s, m){ return s - m.valor; }, 0)) + ' · saldo ' + fnEur(tot, true) + (ms.length >= 1500 ? ' · só os 1500 mais recentes: afina os filtros para ver o resto' : '')));
+  var total = d.total != null ? d.total : ms.length;
+  cartao.appendChild(h('p', { class: 'fn-nota', style: 'padding:8px' }, total + ' movimentos · entradas ' + fnEur(rs.entradas != null ? rs.entradas : 0) +
+    ' · saídas ' + fnEur(rs.saidas != null ? rs.saidas : 0) + ' · saldo ' + fnEur(rs.saldo != null ? rs.saldo : 0, true)));
+}
+
+/* Depois de gravar um movimento, troca-se só a linha dele: lê-se esse
+   movimento e acerta-se o aviso das sugestões. As outras listas guardadas
+   deixam de valer (podiam ter este movimento com a categoria velha). */
+function fnMovAtualizar(id){
+  if (FN.movJanela) { FN.movJanela.fechar(); FN.movJanela = null; }
+  var v = FN.movVista;
+  var tr = v && v.tb && v.tb.isConnected ? v.tb.querySelector('tr[data-id="' + id + '"]') : null;
+  if (!tr) { fnMudou(); return Promise.resolve(); }
+  tr.classList.add('fn-aler');
+  return apiGestao('/api/financas/movimentos/' + id).then(function(r){
+    var m = r.movimento;
+    /* Os outros ecrãs (resumo, análise, orçamentos) e as outras listas
+       voltam a ler-se quando se abrirem. */
+    Object.keys(FN.cache).forEach(function(k){ if (k !== 'mov:' + v.qs) delete FN.cache[k]; });
+    var i = v.d.movimentos.map(function(x){ return x.id; }).indexOf(id);
+    if (i >= 0) v.d.movimentos[i] = m;
+    var rs = v.d.resumo || {};
+    if (rs.sugestoes && (m.categoria_id || !m.ia_categoria_id)) rs.sugestoes = rs.sugestoes.filter(function(x){ return x !== id; });
+    if (rs.reembolsos && m.cc_pessoa_id && !m.reembolso && !m.divisao) rs.reembolsos = Math.max(0, rs.reembolsos - 1);
+    var novo = fnLinhaMov(m, v.aoMarcar);
+    if (tr.parentNode) tr.parentNode.replaceChild(novo, tr);
+    v.avisos();
+  }, function(e){ tr.classList.remove('fn-aler'); fnErro(e); fnMudou(); });
 }
 
 /* O detalhe de um movimento abre numa janela por cima da lista. */
@@ -296,7 +345,7 @@ function fnCatNaLinha(m, conteudo){
     sc.addEventListener('change', function(){
       var v = sc.value ? Number(sc.value) : null;
       fnApi('/api/financas/movimentos/' + m.id, 'PATCH', { categoria_id: v, aceite: !m.categoria_id && v && v === m.ia_categoria_id })
-        .then(function(){ fnMudou(); }, fnErro);
+        .then(function(){ fnMovAtualizar(m.id); }, fnErro);
     });
     sc.addEventListener('keydown', function(e){ if (e.key === 'Escape'){ e.stopPropagation(); pronto(); } });
     sc.addEventListener('blur', function(){ setTimeout(function(){ if (document.activeElement !== sc) pronto(); }, 150); });
@@ -317,7 +366,7 @@ function fnLinhaMov(m, aoMarcar){
   else if (m.ia_categoria_id) cat = h('div', { class: 'fn-acoes' }, [h('span', { class: 'fn-pill ai', title: 'Sugestão: ' + ({ historico: 'histórico', modelo: 'Gemini', transferencia: 'transferência entre contas' }[m.ia_fonte] || m.ia_fonte) },
       '✦ ' + fnCatNome(m.ia_categoria_id, true) + ' · ' + Math.round((m.ia_confianca || 0) * 100) + '%'),
     h('button', { type: 'button', class: 'btn small', onclick: function(e){ e.stopPropagation();
-      fnApi('/api/financas/movimentos/' + m.id, 'PATCH', { categoria_id: m.ia_categoria_id, aceite: true }).then(function(){ fnMudou(); }, fnErro); } }, 'Aceitar')]);
+      fnApi('/api/financas/movimentos/' + m.id, 'PATCH', { categoria_id: m.ia_categoria_id, aceite: true }).then(function(){ fnMovAtualizar(m.id); }, fnErro); } }, 'Aceitar')]);
   else cat = h('span', { class: 'fn-pill warn' }, 'por categorizar');
   cat = fnCatNaLinha(m, cat.classList.contains('fn-acoes') ? Array.prototype.slice.call(cat.childNodes) : [cat]);
   var lig = [];
@@ -328,13 +377,13 @@ function fnLinhaMov(m, aoMarcar){
     'dividido · ' + outros.map(function(p){ return (p.pessoa || '').split(' ')[0]; }).join(', ')));
   if (m.reembolso) lig.push(h('div', { class: 'fn-acoes' }, [h('span', { class: 'fn-pill ai', title: m.reembolso.motivo }, '✦ de ' + m.reembolso.nome + '?'),
     h('button', { type: 'button', class: 'btn small', onclick: function(e){ e.stopPropagation();
-      fnApi('/api/financas/movimentos/' + m.id, 'PATCH', { cc_pessoa_id: m.reembolso.pessoa_id }).then(function(){ fnAviso('Reembolso de ' + m.reembolso.nome + '.'); fnMudou(); }, fnErro); } }, 'Sim')]));
+      fnApi('/api/financas/movimentos/' + m.id, 'PATCH', { cc_pessoa_id: m.reembolso.pessoa_id }).then(function(){ fnAviso('Reembolso de ' + m.reembolso.nome + '.'); fnMovAtualizar(m.id); }, fnErro); } }, 'Sim')]));
   else if (m.divisao) lig.push(h('div', { class: 'fn-acoes' }, [h('span', { class: 'fn-pill ai', title: fnTextoDivisao(m.divisao) }, '✦ parte de «' + m.divisao.descricao.slice(0, 18) + '»?'),
     h('button', { type: 'button', class: 'btn small', onclick: function(e){ e.stopPropagation(); fnAceitarDivisao(m.id, m.divisao); } }, 'Sim')]));
   if (!lig.length && m.valor < 0 && m.natureza === 'despesa') lig.push(h('span', { class: 'fn-muted', style: 'font-size:.75rem' }, '—'));
   var conta = fnConta(m.conta_id);
   var ctx = fnCtx(m.context_id || (conta && conta.context_id));
-  var tr = h('tr', { class: 'clic', onclick: function(){ fnMovJanela(m); } }, [
+  var tr = h('tr', { class: 'clic', 'data-id': m.id, onclick: function(){ fnMovJanela(m); } }, [
     h('td', { onclick: function(e){ e.stopPropagation(); } }, [h('input', { type: 'checkbox', 'aria-label': 'Escolher', checked: !!FN.mov.sel[m.id], onchange: function(e){ FN.mov.sel[m.id] = e.target.checked; if (aoMarcar) aoMarcar(); else fnRender('financas'); } })]),
     h('td', { class: 'fn-n', style: 'font-size:.75rem;white-space:nowrap' }, fnData(m.data)),
     h('td', { style: 'min-width:0' }, [h('span', { class: 'd', title: m.descricao }, m.descricao), h('small', { class: 'd2' }, (conta ? conta.nome : '') + (m.categoria_fonte === 'regra' ? ' · regra' : ''))]),
@@ -404,7 +453,7 @@ function fnPainelMov(p, m, emJanela){
     var corpo = { categoria_id: sc.value ? Number(sc.value) : null, context_id: sa.value ? Number(sa.value) : null, nota: nota.value,
       cc_pessoa_id: sp.value ? Number(sp.value) : null, aceite: !m.categoria_id && m.ia_categoria_id && String(m.ia_categoria_id) === sc.value };
     if (regra.checked) { corpo.criar_regra = true; corpo.regra_padrao = padrao.value; }
-    fnApi('/api/financas/movimentos/' + m.id, 'PATCH', corpo).then(function(){ fnAviso('Guardado.'); fnMudou(); }, fnErro);
+    fnApi('/api/financas/movimentos/' + m.id, 'PATCH', corpo).then(function(){ fnAviso('Guardado.'); if (corpo.criar_regra) fnMudou(); else fnMovAtualizar(m.id); }, fnErro);
   }, 'primary small'), fnBtn('Apagar movimento', function(){
     fnJanela('Apagar este movimento?', [h('p', null, m.descricao + ' · ' + fnEur(m.valor))], [{ txt: 'Apagar', pri: true, fn: function(){
       return fnApi('/api/financas/movimentos/' + m.id, 'DELETE').then(function(){ FN.mov.aberto = null; fnMudou(); }, fnErro); } }]);
