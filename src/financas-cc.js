@@ -78,6 +78,19 @@ async function sincronizar(opcoes) {
       return r.id;
     };
 
+    /* Cada grupo e uma conta corrente, com os membros dele (menos o Marco). */
+    for (const g of ((gr && gr.groups) || [])) {
+      if (!Number(g.id)) continue;
+      const c = (await all(
+        `INSERT INTO fin_cc_contas (nome, splitwise_grupo_id) VALUES ($1, $2)
+         ON CONFLICT (splitwise_grupo_id) DO UPDATE SET nome = EXCLUDED.nome RETURNING id`, [g.name || ('Grupo ' + g.id), Number(g.id)]))[0];
+      for (const mb of (g.members || [])) {
+        if (Number(mb.id) === meu) continue;
+        const pid = await quem(Number(mb.id), mb);
+        await query('INSERT INTO fin_cc_membros (conta_id, pessoa_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [c.id, pid]);
+      }
+    }
+
     /* As despesas: da primeira vez todas, depois so as que mudaram desde a
        ultima leitura (um dia de folga, para nao perder nada no limite). */
     const ultima = tudo ? null : await lerSetting('fin_cc_sync_em');
@@ -124,6 +137,7 @@ async function sincronizar(opcoes) {
       offset += 200;
       if (offset > 20000) break;
     }
+    await organizarContas();
     await gravarSetting('fin_cc_sync_em', new Date().toISOString());
     console.log('[farol] contas correntes: Splitwise lido,', lidas, 'despesas');
     return { ok: true, lidas };
@@ -150,6 +164,7 @@ function agendar() {
 }
 async function arrancar() {
   agendar();
+  setTimeout(() => { garantirCabecalhos().then(organizarContas).catch((e) => console.error('[farol] contas partilhadas (arranque):', e.message)); }, 5000);
   setTimeout(async () => {
     try {
       const u = await lerSetting('fin_cc_sync_em');
@@ -160,6 +175,7 @@ async function arrancar() {
 
 /* ---------------- leitura ---------------- */
 async function resumo() {
+  await organizarContas().catch((e) => console.error('[farol] contas correntes (organizar):', e.message));
   const ps = await all(
     `SELECT p.id, p.nome, p.person_id, p.splitwise_id::text AS splitwise_id, p.saldo_splitwise, p.por_grupo,
             to_char(p.lido_em AT TIME ZONE 'Europe/Lisbon','YYYY-MM-DD HH24:MI') AS lido_em, p.ativo, p.nota,
@@ -203,8 +219,16 @@ async function resumo() {
     p.estado = Math.abs(p.saldo) >= 0.01 ? 'aberta' : 'saldada';
   });
   const ativos = pessoas.filter((p) => p.ativo);
+  const contasCc = await lerContas(pessoas);
+  const nPart = await all('SELECT pessoa_id, COUNT(DISTINCT partilha_id) AS n FROM fin_mov_partes WHERE pessoa_id IS NOT NULL AND partilha_id IS NOT NULL GROUP BY pessoa_id');
+  pessoas.forEach((p) => {
+    p.contas_correntes = contasCc.filter((c) => c.membros.some((m) => m.pessoa_id === p.id))
+      .map((c) => ({ id: c.id, nome: c.nome, tipo: c.tipo, direta: c.direta, saldo: (c.membros.find((m) => m.pessoa_id === p.id) || {}).saldo || 0 }));
+    p.n_partilhas = Number((nPart.find((x) => x.pessoa_id === p.id) || {}).n || 0);
+  });
   return {
     pessoas,
+    contas: contasCc,
     a_receber: cent(ativos.filter((p) => p.saldo > 0).reduce((s, p) => s + p.saldo, 0)),
     a_pagar: cent(ativos.filter((p) => p.saldo < 0).reduce((s, p) => s + p.saldo, 0)),
     sync_em: await lerSetting('fin_cc_sync_em'),
@@ -223,6 +247,7 @@ async function saldoTotalEm(dataIso) {
 
 /* ---------------- rotas ---------------- */
 function instalar(app, falha) {
+  instalarContas(app, falha);
   app.get('/api/financas/cc', async (req, res) => {
     try { res.json(await resumo()); } catch (e) { falha(res, e, 'cc'); }
   });
@@ -233,8 +258,8 @@ function instalar(app, falha) {
       if (!p) return res.status(404).json({ error: 'Pessoa não encontrada.' });
       const movs = await all(
         `SELECT c.id, to_char(c.data,'YYYY-MM-DD') AS data, c.descricao, c.valor, c.origem, c.grupo, c.total, c.pagamento,
-                COALESCE(c.movimento_id, pt.movimento_id) AS movimento_id
-           FROM fin_cc_mov c LEFT JOIN fin_mov_partes pt ON pt.id = c.parte_id
+                COALESCE(c.movimento_id, pt.movimento_id) AS movimento_id, c.conta_id, CASE WHEN cc.pessoa_direta_id IS NULL THEN cc.nome END AS conta, pt.partilha_id
+           FROM fin_cc_mov c LEFT JOIN fin_mov_partes pt ON pt.id = c.parte_id LEFT JOIN fin_cc_contas cc ON cc.id = c.conta_id
           WHERE c.pessoa_id = $1 AND NOT c.apagado ORDER BY c.data DESC, c.id DESC LIMIT 1000`, [p.id]);
       res.json({ pessoa: p, movimentos: movs.map((m) => Object.assign({}, m, { valor: cent(m.valor), total: m.total == null ? null : cent(m.total) })) });
     } catch (e) { falha(res, e, 'cc pessoa'); }
@@ -270,9 +295,9 @@ function instalar(app, falha) {
       const valor = cent(String(b.valor).replace(',', '.'));
       if (!valor) return res.status(400).json({ error: 'Falta o valor.' });
       const r = (await all(
-        `INSERT INTO fin_cc_mov (pessoa_id, data, descricao, valor, origem)
-         VALUES ($1, COALESCE($2::date, CURRENT_DATE), $3, $4, 'tu') RETURNING id`,
-        [req.params.id, b.data || null, String(b.descricao || 'Acerto').trim(), valor]))[0];
+        `INSERT INTO fin_cc_mov (pessoa_id, data, descricao, valor, origem, conta_id)
+         VALUES ($1, COALESCE($2::date, CURRENT_DATE), $3, $4, 'tu', $5) RETURNING id`,
+        [req.params.id, b.data || null, String(b.descricao || 'Acerto').trim(), valor, b.conta_id ? Number(b.conta_id) : await contaDireta(Number(req.params.id))]))[0];
       res.json({ id: r.id });
     } catch (e) { falha(res, e, 'cc lancamento'); }
   });
@@ -371,6 +396,8 @@ async function dividir(movimentoId, b) {
     await cli.query('ROLLBACK').catch(() => {});
     throw e;
   } finally { cli.release(); }
+  await garantirCabecalhos();
+  await organizarContas();
   return { minha, outros: soma, pessoas: Object.keys(porPessoa).length };
 }
 
@@ -589,6 +616,560 @@ function reembolsoDe(m, lista) {
   return out.sort((a, b) => b.confianca - a.confianca).slice(0, 3);
 }
 
+/* ======================= contas correntes por grupo ======================= */
+/* Cada pessoa sem grupo (ou com dividas fora dos grupos) tem a sua conta
+   direta; e os lancamentos ficam na conta certa: os do Splitwise no grupo de
+   onde vem, os outros (a mao, do banco, das contas partilhadas) na conta
+   direta, se nao disserem outra. */
+async function organizarContas() {
+  await query(
+    `INSERT INTO fin_cc_contas (nome, pessoa_direta_id)
+     SELECT p.nome, p.id FROM fin_cc_pessoas p
+      WHERE NOT EXISTS (SELECT 1 FROM fin_cc_contas c WHERE c.pessoa_direta_id = p.id)
+        AND (NOT EXISTS (SELECT 1 FROM fin_cc_membros mb WHERE mb.pessoa_id = p.id)
+             OR EXISTS (SELECT 1 FROM fin_cc_mov m WHERE m.pessoa_id = p.id AND (m.origem <> 'splitwise' OR COALESCE(m.grupo_id, 0) = 0))
+             OR EXISTS (SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(p.por_grupo) = 'array' THEN p.por_grupo ELSE '[]'::jsonb END) g
+                         WHERE COALESCE((g->>'id')::bigint, 0) = 0))
+     ON CONFLICT DO NOTHING`);
+  await query(
+    `INSERT INTO fin_cc_membros (conta_id, pessoa_id)
+     SELECT id, pessoa_direta_id FROM fin_cc_contas WHERE pessoa_direta_id IS NOT NULL ON CONFLICT DO NOTHING`);
+  await query(
+    `UPDATE fin_cc_mov m SET conta_id = c.id FROM fin_cc_contas c
+      WHERE m.origem = 'splitwise' AND COALESCE(m.grupo_id, 0) <> 0 AND c.splitwise_grupo_id = m.grupo_id
+        AND m.conta_id IS DISTINCT FROM c.id`);
+  await query(
+    `UPDATE fin_cc_mov m SET conta_id = c.id FROM fin_cc_contas c
+      WHERE c.pessoa_direta_id = m.pessoa_id AND m.conta_id IS NULL
+        AND (m.origem <> 'splitwise' OR COALESCE(m.grupo_id, 0) = 0)`);
+  /* A parte de cada pessoa sabe em que conta corrente esta. */
+  await query(
+    `UPDATE fin_mov_partes p SET cc_conta_id = c.conta_id FROM fin_cc_mov c
+      WHERE c.parte_id = p.id AND p.cc_conta_id IS NULL AND c.conta_id IS NOT NULL`);
+}
+
+async function contaDireta(pessoaId) {
+  await organizarContas();
+  const c = (await all('SELECT id FROM fin_cc_contas WHERE pessoa_direta_id = $1', [pessoaId]))[0];
+  if (c) return c.id;
+  const n = (await all(
+    `INSERT INTO fin_cc_contas (nome, pessoa_direta_id) SELECT nome, id FROM fin_cc_pessoas WHERE id = $1 RETURNING id`, [pessoaId]))[0];
+  await query('INSERT INTO fin_cc_membros (conta_id, pessoa_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [n.id, pessoaId]);
+  return n.id;
+}
+
+/* O que cada pessoa deve em cada conta corrente. A parte do Splitwise vem do
+   saldo que ele da por grupo (o que nao e de grupo nenhum e a conta direta);
+   a do Farol soma os lancamentos a mao, as contas partilhadas e os
+   reembolsos (e, para quem nao esta no Splitwise, os acertos do banco). */
+async function lerContas(pessoas) {
+  const contas = await all(
+    `SELECT c.id, c.nome, c.splitwise_grupo_id::text AS splitwise_grupo_id, c.pessoa_direta_id, c.ativo, c.nota,
+            to_char((SELECT MAX(m.data) FROM fin_cc_mov m WHERE m.conta_id = c.id AND NOT m.apagado), 'YYYY-MM-DD') AS ultimo,
+            (SELECT COUNT(*) FROM fin_cc_mov m WHERE m.conta_id = c.id AND NOT m.apagado) AS n
+       FROM fin_cc_contas c ORDER BY c.splitwise_grupo_id IS NULL, c.nome`);
+  const membros = await all('SELECT conta_id, pessoa_id FROM fin_cc_membros');
+  const farol = await all(
+    `SELECT m.conta_id, m.pessoa_id, SUM(m.valor) AS s FROM fin_cc_mov m JOIN fin_cc_pessoas p ON p.id = m.pessoa_id
+      WHERE NOT m.apagado AND m.conta_id IS NOT NULL
+        AND (m.origem IN ('tu', 'partilha', 'reembolso') OR (m.origem = 'banco' AND p.splitwise_id IS NULL))
+      GROUP BY m.conta_id, m.pessoa_id`);
+  const porP = {};
+  pessoas.forEach((p) => { porP[p.id] = p; });
+  const fs = {};
+  farol.forEach((f) => { fs[f.conta_id + ':' + f.pessoa_id] = cent(f.s); });
+  return contas.map((c) => {
+    const grupo = c.splitwise_grupo_id ? Number(c.splitwise_grupo_id) : 0;
+    const ms = membros.filter((x) => x.conta_id === c.id).map((x) => {
+      const p = porP[x.pessoa_id];
+      if (!p) return null;
+      let sw = 0;
+      if (p.splitwise_id) {
+        const pg = Array.isArray(p.por_grupo) ? p.por_grupo : [];
+        if (grupo) sw = cent((pg.find((g) => Number(g.id) === grupo) || {}).saldo || 0);
+        else if (c.pessoa_direta_id === p.id) sw = cent((p.saldo_splitwise || 0) - pg.filter((g) => Number(g.id) !== 0).reduce((t, g) => t + Number(g.saldo || 0), 0));
+      }
+      const fa = fs[c.id + ':' + p.id] || 0;
+      return { pessoa_id: p.id, nome: p.nome, splitwise: Boolean(p.splitwise_id), saldo_splitwise: sw, saldo_farol: fa, saldo: cent(sw + fa) };
+    }).filter(Boolean).sort((a, b) => a.nome.localeCompare(b.nome));
+    const direta = c.pessoa_direta_id ? porP[c.pessoa_direta_id] : null;
+    const tipo = grupo ? 'splitwise' : (direta && direta.splitwise_id ? 'splitwise' : 'farol');
+    const saldo = cent(ms.reduce((t, x) => t + x.saldo, 0));
+    return {
+      id: c.id, nome: c.nome, tipo, grupo: grupo || null, direta: Boolean(c.pessoa_direta_id), pessoa_direta_id: c.pessoa_direta_id,
+      ativo: c.ativo && (!direta || direta.ativo), nota: c.nota, ultimo: c.ultimo, n: Number(c.n), membros: ms, saldo,
+      estado: ms.some((x) => Math.abs(x.saldo) >= 0.01) ? 'aberta' : 'saldada'
+    };
+  });
+}
+
+/* ======================= contas partilhadas ======================= */
+/* As partes antigas (de antes de haver contas partilhadas) e as que o
+   caminho das sugestoes cria ganham o cabecalho que lhes falta; e o
+   cabecalho acompanha as partes (total, a parte do Marco). */
+async function garantirCabecalhos() {
+  await query(
+    `INSERT INTO fin_partilhas (movimento_id, descricao, data, total, minha, categoria_id)
+     SELECT m.id,
+            COALESCE((SELECT c.descricao FROM fin_cc_mov c JOIN fin_mov_partes p2 ON p2.id = c.parte_id WHERE p2.movimento_id = m.id ORDER BY c.id LIMIT 1), m.descricao),
+            m.data, -m.valor, 0,
+            (SELECT p3.categoria_id FROM fin_mov_partes p3 WHERE p3.movimento_id = m.id AND p3.pessoa_id IS NULL ORDER BY p3.id LIMIT 1)
+       FROM fin_movimentos m
+      WHERE EXISTS (SELECT 1 FROM fin_mov_partes p WHERE p.movimento_id = m.id AND p.partilha_id IS NULL)
+        AND NOT EXISTS (SELECT 1 FROM fin_partilhas f WHERE f.movimento_id = m.id)`);
+  await query(
+    `UPDATE fin_mov_partes p SET partilha_id = f.id FROM fin_partilhas f
+      WHERE f.movimento_id = p.movimento_id AND p.partilha_id IS NULL`);
+  await query(
+    `UPDATE fin_partilhas f SET
+        minha = COALESCE((SELECT -SUM(p.valor) FROM fin_mov_partes p WHERE p.partilha_id = f.id AND p.pessoa_id IS NULL), 0),
+        total = COALESCE((SELECT -SUM(m.valor) FROM fin_movimentos m WHERE m.id IN (SELECT p.movimento_id FROM fin_mov_partes p WHERE p.partilha_id = f.id)), f.total)
+      WHERE EXISTS (SELECT 1 FROM fin_mov_partes p WHERE p.partilha_id = f.id)`);
+  /* Sem partes nenhuma (desfeita pelo caminho antigo), so fica se tiver uma
+     despesa no Splitwise por apagar. */
+  await query(
+    `DELETE FROM fin_partilhas f WHERE NOT EXISTS (SELECT 1 FROM fin_mov_partes p WHERE p.partilha_id = f.id)
+        AND (f.splitwise IS NULL OR f.splitwise = '{}'::jsonb)`);
+}
+
+function alocar(valor, pesos) {
+  const cents = Math.round(valor * 100), soma = pesos.reduce((t, p) => t + p, 0);
+  if (!soma) return pesos.map(() => 0);
+  const brutos = pesos.map((p) => cents * p / soma);
+  const out = brutos.map(Math.floor);
+  let falta = cents - out.reduce((t, x) => t + x, 0);
+  brutos.map((x, i) => [x - Math.floor(x), i]).sort((a, b) => b[0] - a[0]).forEach(([, i]) => { if (falta > 0) { out[i]++; falta--; } });
+  return out.map((x) => x / 100);
+}
+
+const numero = (v) => cent(String(v == null ? '' : v).replace(/\s/g, '').replace(',', '.'));
+
+/* Guarda uma conta partilhada: os pagamentos (um ou mais), quanto paga o
+   Marco e a linha de cada pessoa (com a conta corrente onde fica). Refazer
+   substitui as partes, mas mantem a ligacao as despesas do Splitwise. */
+async function guardarPartilha(b) {
+  const ids = [...new Set((b.movimentos || []).map(Number).filter(Boolean))];
+  if (!ids.length) throw erro(400, 'Faltam os pagamentos.');
+  const debs = await all("SELECT id, to_char(data,'YYYY-MM-DD') AS data, descricao, valor FROM fin_movimentos WHERE id = ANY($1::int[]) ORDER BY data, id", [ids]);
+  if (debs.length !== ids.length) throw erro(404, 'Algum pagamento já não existe.');
+  if (debs.some((d) => !(Number(d.valor) < 0))) throw erro(400, 'Só se partilha dinheiro que saiu da conta.');
+  const pesos = debs.map((d) => cent(-Number(d.valor)));
+  const total = cent(pesos.reduce((t, x) => t + x, 0));
+  const minha = numero(b.minha);
+  if (minha < 0) throw erro(400, 'A tua parte não pode ser negativa.');
+  let linhas = (b.linhas || []).map((l) => ({
+    pessoa_id: l.pessoa_id ? Number(l.pessoa_id) : null, nome: String(l.nome || '').trim().slice(0, 120),
+    valor: numero(l.valor), conta_id: l.conta_id ? Number(l.conta_id) : null, splitwise: Boolean(l.splitwise)
+  })).filter((l) => (l.pessoa_id || l.nome) && l.valor > 0);
+  if (!linhas.length && !(minha > 0)) throw erro(400, 'Falta com quem partilhar.');
+  const soma = cent(minha + linhas.reduce((t, l) => t + l.valor, 0));
+  if (Math.abs(soma - total) > 0.005) {
+    throw erro(400, 'As partes somam ' + soma.toFixed(2).replace('.', ',') + ' € e o total é ' + total.toFixed(2).replace('.', ',') + ' €.');
+  }
+  for (const l of linhas) { if (!l.pessoa_id) l.pessoa_id = await resolverPessoa(l.nome); }
+  /* A conta corrente de cada linha: a escolhida (tem de ser uma onde a
+     pessoa esta), ou a direta. */
+  const membros = await all('SELECT conta_id, pessoa_id FROM fin_cc_membros WHERE pessoa_id = ANY($1::int[])', [linhas.map((l) => l.pessoa_id)]);
+  for (const l of linhas) {
+    if (l.conta_id && !membros.some((x) => x.conta_id === l.conta_id && x.pessoa_id === l.pessoa_id)) {
+      const c = (await all('SELECT splitwise_grupo_id, pessoa_direta_id FROM fin_cc_contas WHERE id = $1', [l.conta_id]))[0];
+      if (!c) throw erro(404, 'Essa conta corrente já não existe.');
+      if (c.splitwise_grupo_id || c.pessoa_direta_id) throw erro(400, 'Essa pessoa não está nessa conta corrente.');
+      await query('INSERT INTO fin_cc_membros (conta_id, pessoa_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [l.conta_id, l.pessoa_id]);
+    }
+    if (!l.conta_id) l.conta_id = await contaDireta(l.pessoa_id);
+  }
+  /* A mesma pessoa na mesma conta e uma linha so. */
+  const junta = {};
+  linhas.forEach((l) => { const k = l.pessoa_id + ':' + l.conta_id + ':' + l.splitwise; if (junta[k]) junta[k].valor = cent(junta[k].valor + l.valor); else junta[k] = Object.assign({}, l); });
+  linhas = Object.values(junta);
+  const contas = await all(
+    `SELECT c.id, c.splitwise_grupo_id::text AS grupo, c.pessoa_direta_id, p.splitwise_id::text AS direta_sw
+       FROM fin_cc_contas c LEFT JOIN fin_cc_pessoas p ON p.id = c.pessoa_direta_id WHERE c.id = ANY($1::int[])`, [linhas.map((l) => l.conta_id)]);
+  const contaSw = (cid) => { const c = contas.find((x) => x.id === cid); return Boolean(c && (c.grupo || c.direta_sw)); };
+  /* So vai para o Splitwise a linha que o pede (numa conta do Splitwise); a
+     que fica so no Farol, se estava num grupo, passa para a conta direta. */
+  for (const l of linhas) {
+    if (l.splitwise && !contaSw(l.conta_id)) throw erro(400, 'Essa conta corrente não é do Splitwise.');
+    const c = contas.find((x) => x.id === l.conta_id);
+    if (!l.splitwise && c && c.grupo) l.conta_id = await contaDireta(l.pessoa_id);
+  }
+  const daSw = (l) => l.splitwise;
+  const pessoasSw = await all('SELECT id, nome, splitwise_id::text AS splitwise_id FROM fin_cc_pessoas WHERE id = ANY($1::int[])', [linhas.map((l) => l.pessoa_id)]);
+  for (const l of linhas) {
+    if (daSw(l) && !(pessoasSw.find((p) => p.id === l.pessoa_id) || {}).splitwise_id) {
+      throw erro(400, (pessoasSw.find((p) => p.id === l.pessoa_id) || {}).nome + ' não está no Splitwise: escolhe outra conta corrente.');
+    }
+  }
+  const descricao = String(b.descricao || '').trim().slice(0, 200) || (debs.length === 1 ? debs[0].descricao : debs.length + ' pagamentos');
+  const acertos = (await all("SELECT id FROM fin_categorias WHERE natureza = 'transferencia' AND nome ILIKE '%acerto%' ORDER BY id LIMIT 1"))[0];
+  const categoria = minha > 0.005 ? (b.categoria_id ? Number(b.categoria_id) : null) : (acertos ? acertos.id : null);
+
+  const cli = await pool.connect();
+  let pid = b.id ? Number(b.id) : null;
+  try {
+    await cli.query('BEGIN');
+    if (pid) {
+      const r = await cli.query(
+        `UPDATE fin_partilhas SET movimento_id = $2, descricao = $3, data = $4, total = $5, minha = $6, iguais = $7, categoria_id = $8, nota = $9
+          WHERE id = $1 RETURNING id`, [pid, debs.length === 1 ? debs[0].id : null, descricao, debs[0].data, total, minha, Boolean(b.iguais), categoria, b.nota || null]);
+      if (!r.rows.length) throw erro(404, 'Conta partilhada não encontrada.');
+    } else {
+      pid = (await cli.query(
+        `INSERT INTO fin_partilhas (movimento_id, descricao, data, total, minha, iguais, categoria_id, nota)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
+        [debs.length === 1 ? debs[0].id : null, descricao, debs[0].data, total, minha, Boolean(b.iguais), categoria, b.nota || null])).rows[0].id;
+    }
+    /* Um pagamento so pertence a uma conta partilhada: o que la havia sai. */
+    await cli.query('DELETE FROM fin_mov_partes WHERE partilha_id = $1 OR movimento_id = ANY($2::int[])', [pid, ids]);
+    await cli.query('DELETE FROM fin_cc_mov WHERE movimento_id = ANY($1::int[])', [ids]);
+    await cli.query(
+      `DELETE FROM fin_partilhas f WHERE f.id <> $1 AND NOT EXISTS (SELECT 1 FROM fin_mov_partes p WHERE p.partilha_id = f.id)
+          AND (f.splitwise IS NULL OR f.splitwise = '{}'::jsonb)`, [pid]);
+    const planos = linhas.map((l) => alocar(l.valor, pesos));
+    for (let i = 0; i < debs.length; i++) {
+      const d = debs[i];
+      const outros = cent(planos.reduce((t, pl) => t + pl[i], 0));
+      const aMinha = cent(pesos[i] - outros);
+      if (aMinha > 0.005) {
+        await cli.query('INSERT INTO fin_mov_partes (movimento_id, valor, categoria_id, partilha_id) VALUES ($1, $2, $3, $4)', [d.id, -aMinha, categoria, pid]);
+      }
+      for (let j = 0; j < linhas.length; j++) {
+        const v = planos[j][i];
+        if (!(v > 0)) continue;
+        const l = linhas[j];
+        const pt = (await cli.query(
+          'INSERT INTO fin_mov_partes (movimento_id, valor, pessoa_id, partilha_id, cc_conta_id, sw) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id',
+          [d.id, -v, l.pessoa_id, pid, l.conta_id, l.splitwise])).rows[0];
+        /* No Splitwise a divida chega pela despesa de la; no Farol fica aqui. */
+        if (!daSw(l)) {
+          await cli.query(
+            `INSERT INTO fin_cc_mov (pessoa_id, data, descricao, valor, origem, total, parte_id, conta_id)
+             VALUES ($1, $2, $3, $4, 'partilha', $5, $6, $7)`,
+            [l.pessoa_id, d.data, debs.length === 1 ? descricao : descricao + ' · ' + d.descricao, v, total, pt.id, l.conta_id]);
+        }
+      }
+      if (categoria) await cli.query(`UPDATE fin_movimentos SET categoria_id = $1, categoria_fonte = 'tu', categoria_em = now() WHERE id = $2`, [categoria, d.id]);
+    }
+    await cli.query('COMMIT');
+  } catch (e) {
+    await cli.query('ROLLBACK').catch(() => {});
+    throw e;
+  } finally { cli.release(); }
+  let sw = { criadas: 0, existentes: 0, atualizadas: 0, apagadas: 0, erros: [] };
+  try { sw = await partilhaNoSplitwise(pid); } catch (e) { sw.erros.push(e.message); }
+  return { id: pid, minha, outros: cent(total - minha), total, pessoas: linhas.length, splitwise: sw };
+}
+
+/* As linhas de uma conta partilhada que vao para o Splitwise, por conta
+   corrente (um grupo, ou a conta direta com um amigo, que e o grupo 0). */
+async function linhasSplitwise(pid) {
+  return all(
+    `SELECT pt.cc_conta_id AS conta_id, c.nome AS conta, COALESCE(c.splitwise_grupo_id, 0)::text AS grupo,
+            pt.pessoa_id, p.nome, p.splitwise_id::text AS splitwise_id, -SUM(pt.valor) AS valor,
+            dp.splitwise_id::text AS direta_sw
+       FROM fin_mov_partes pt
+       JOIN fin_cc_contas c ON c.id = pt.cc_conta_id
+       JOIN fin_cc_pessoas p ON p.id = pt.pessoa_id
+       LEFT JOIN fin_cc_pessoas dp ON dp.id = c.pessoa_direta_id
+      WHERE pt.partilha_id = $1 AND pt.pessoa_id IS NOT NULL AND pt.sw
+        AND (c.splitwise_grupo_id IS NOT NULL OR dp.splitwise_id IS NOT NULL)
+      GROUP BY pt.cc_conta_id, c.nome, c.splitwise_grupo_id, pt.pessoa_id, p.nome, p.splitwise_id, dp.splitwise_id
+      ORDER BY pt.cc_conta_id, p.nome`, [pid]);
+}
+
+/* Leva a conta partilhada ao Splitwise. Antes de criar, procura-se la uma
+   despesa que ja seja esta (o mesmo grupo ou amigo, o mesmo valor - so as
+   partes dos outros ou o total -, a mesma gente, uns dias antes ou depois):
+   se existir, liga-se a ela e nao se cria outra. As que o Farol criou e
+   mudaram atualizam-se; as que deixaram de ter linhas apagam-se. */
+async function partilhaNoSplitwise(pid) {
+  const out = { criadas: 0, existentes: 0, atualizadas: 0, apagadas: 0, erros: [] };
+  const f = (await all("SELECT id, descricao, to_char(data,'YYYY-MM-DD') AS data, total, minha, splitwise FROM fin_partilhas WHERE id = $1", [pid]))[0];
+  if (!f) return out;
+  const guardado = (f.splitwise && typeof f.splitwise === 'object') ? Object.assign({}, f.splitwise) : {};
+  const ls = await linhasSplitwise(pid);
+  const porConta = {};
+  ls.forEach((l) => { (porConta[l.conta_id] = porConta[l.conta_id] || { conta_id: l.conta_id, conta: l.conta, grupo: Number(l.grupo), linhas: [] }).linhas.push(l); });
+  const contas = Object.values(porConta);
+  if (!contas.length && !Object.keys(guardado).length) return out;
+  if (!(await splitwise.ativo().catch(() => false))) { out.erros.push('O Splitwise não está ligado: a parte de lá não foi lançada.'); return out; }
+  const eu = Number((await splitwise.quemSou()).id);
+  /* Todas as linhas do Splitwise numa conta so, e nenhuma fora: vai a conta
+     inteira, com a parte do Marco. Senao, cada despesa leva so a parte dos
+     outros. */
+  const totalLinhas = cent(ls.reduce((t, l) => t + Number(l.valor), 0));
+  const outrasFora = cent(Number(f.total) - Number(f.minha) - totalLinhas);
+  const inteira = contas.length === 1 && Math.abs(outrasFora) < 0.005;
+  const somaD = (iso, n) => somaDias(iso, n);
+  for (const c of contas) {
+    const custo = inteira ? cent(f.total) : cent(c.linhas.reduce((t, l) => t + Number(l.valor), 0));
+    const minhaAqui = inteira ? cent(f.minha) : 0;
+    const users = [{ id: eu, paid: custo, owed: minhaAqui }].concat(c.linhas.map((l) => ({ id: Number(l.splitwise_id), paid: 0, owed: cent(l.valor) })));
+    const assinatura = JSON.stringify([c.grupo, f.descricao, f.data, custo, users.map((u) => [u.id, u.owed]).sort((a, b) => a[0] - b[0])]);
+    const ja = guardado[c.conta_id];
+    if (ja && ja.assinatura === assinatura) continue;
+    const corpo = { cost: custo.toFixed(2), description: String(f.descricao).slice(0, 120), date: f.data + 'T12:00:00Z', currency_code: 'EUR', group_id: c.grupo,
+      details: 'Conta partilhada no Farol' };
+    users.forEach((u, i) => {
+      corpo['users__' + i + '__user_id'] = u.id;
+      corpo['users__' + i + '__paid_share'] = u.paid.toFixed(2);
+      corpo['users__' + i + '__owed_share'] = u.owed.toFixed(2);
+    });
+    try {
+      if (ja && ja.expense_id && ja.criada) {
+        await splitwise.pedir('/update_expense/' + ja.expense_id, { metodo: 'POST', corpo });
+        guardado[c.conta_id] = Object.assign({}, ja, { assinatura });
+        out.atualizadas++;
+        continue;
+      }
+      if (ja && ja.expense_id && !ja.criada) {
+        /* Ligada a uma que ja la estava: essa e a referencia; nao se mexe. */
+        guardado[c.conta_id] = Object.assign({}, ja, { assinatura });
+        continue;
+      }
+      /* Ja esta la? */
+      const filtro = c.grupo ? 'group_id=' + c.grupo : 'friend_id=' + c.linhas[0].splitwise_id;
+      const j = await splitwise.pedir('/get_expenses?' + filtro + '&dated_after=' + somaD(f.data, -7) + '&dated_before=' + somaD(f.data, 8) + '&limit=200');
+      const usados = new Set();
+      (await all("SELECT splitwise FROM fin_partilhas WHERE id <> $1 AND splitwise IS NOT NULL", [pid])).forEach((x) => {
+        Object.values(x.splitwise || {}).forEach((v) => { if (v && v.expense_id) usados.add(String(v.expense_id)); });
+      });
+      const quem = c.linhas.map((l) => Number(l.splitwise_id));
+      const igual = ((j && j.expenses) || []).find((e) => {
+        if (e.deleted_at || e.payment || usados.has(String(e.id))) return false;
+        if (Number(e.group_id || 0) !== c.grupo) return false;
+        const custoE = cent(e.cost);
+        if (Math.abs(custoE - custo) > 0.005 && Math.abs(custoE - cent(f.total)) > 0.005 && Math.abs(custoE - cent(c.linhas.reduce((t, l) => t + Number(l.valor), 0))) > 0.005) return false;
+        const nela = (e.users || []).map((u) => Number(u.user_id || (u.user && u.user.id)));
+        return quem.every((q) => nela.indexOf(q) >= 0);
+      });
+      if (igual) {
+        guardado[c.conta_id] = { expense_id: Number(igual.id), criada: false, assinatura, descricao: igual.description, data: String(igual.date || '').slice(0, 10) };
+        out.existentes++;
+        continue;
+      }
+      const r = await splitwise.pedir('/create_expense', { metodo: 'POST', corpo });
+      const feita = (r && r.expenses && r.expenses[0]) || null;
+      if (!feita) throw new Error('O Splitwise não devolveu a despesa criada.');
+      guardado[c.conta_id] = { expense_id: Number(feita.id), criada: true, assinatura };
+      out.criadas++;
+    } catch (e) {
+      out.erros.push(c.conta + ': ' + e.message);
+    }
+  }
+  /* Contas que deixaram de ter linhas: a despesa que o Farol criou sai. */
+  for (const k of Object.keys(guardado)) {
+    if (porConta[k]) continue;
+    const g = guardado[k];
+    try {
+      if (g && g.criada && g.expense_id) { await splitwise.pedir('/delete_expense/' + g.expense_id, { metodo: 'POST' }); out.apagadas++; }
+      delete guardado[k];
+    } catch (e) { out.erros.push(e.message); }
+  }
+  await query('UPDATE fin_partilhas SET splitwise = $2::jsonb WHERE id = $1', [pid, JSON.stringify(guardado)]);
+  if (out.criadas || out.atualizadas || out.apagadas || out.existentes) {
+    /* O saldo de quem esta no Splitwise vem de la: le-se ja, sem esperar pela noite. */
+    sincronizar().catch((e) => console.error('[farol] contas correntes (depois da partilha):', e.message));
+  }
+  return out;
+}
+
+async function apagarPartilha(pid) {
+  const f = (await all('SELECT id, splitwise FROM fin_partilhas WHERE id = $1', [pid]))[0];
+  if (!f) throw erro(404, 'Conta partilhada não encontrada.');
+  await query('DELETE FROM fin_mov_partes WHERE partilha_id = $1', [pid]);
+  const r = await partilhaNoSplitwise(pid).catch((e) => ({ erros: [e.message], apagadas: 0 }));
+  await query('DELETE FROM fin_partilhas WHERE id = $1', [pid]);
+  return { ok: true, splitwise: r };
+}
+
+/* O que cada pessoa ja pagou, pelo mais antigo primeiro: o que entrou dela
+   (reembolsos, acertos) vai abatendo as dividas pela ordem em que nasceram.
+   So conta o que e do Farol; o do Splitwise acerta-se la. */
+async function pagoPorParte() {
+  const ms = await all(
+    `SELECT m.id, m.pessoa_id, m.conta_id, m.valor, m.parte_id, m.data FROM fin_cc_mov m JOIN fin_cc_pessoas p ON p.id = m.pessoa_id
+      WHERE NOT m.apagado AND (m.origem IN ('tu', 'partilha', 'reembolso') OR (m.origem = 'banco' AND p.splitwise_id IS NULL))
+      ORDER BY m.data, m.id`);
+  const porPessoa = {};
+  ms.forEach((m) => { (porPessoa[m.pessoa_id] = porPessoa[m.pessoa_id] || []).push(Object.assign(m, { valor: cent(m.valor) })); });
+  const pago = {};
+  Object.values(porPessoa).forEach((lista) => {
+    let credito = cent(-lista.filter((m) => m.valor < 0).reduce((t, m) => t + m.valor, 0));
+    lista.filter((m) => m.valor > 0).forEach((m) => {
+      const p = Math.min(credito, m.valor);
+      credito = cent(credito - p);
+      if (m.parte_id) pago[m.parte_id] = cent(p);
+    });
+  });
+  return pago;
+}
+
+async function listarPartilhas(filtro) {
+  const fi = filtro || {};
+  const cab = await all(
+    `SELECT f.id, f.movimento_id, f.descricao, to_char(f.data,'YYYY-MM-DD') AS data, f.total, f.minha, f.iguais, f.categoria_id, f.splitwise, f.nota
+       FROM fin_partilhas f ${fi.id ? 'WHERE f.id = $1' : fi.pessoa ? 'WHERE EXISTS (SELECT 1 FROM fin_mov_partes x WHERE x.partilha_id = f.id AND x.pessoa_id = $1)' : ''}
+      ORDER BY f.data DESC, f.id DESC LIMIT 2000`, fi.id ? [fi.id] : fi.pessoa ? [fi.pessoa] : []);
+  if (!cab.length) return [];
+  const ids = cab.map((f) => f.id);
+  const partes = await all(
+    `SELECT pt.id, pt.partilha_id, pt.movimento_id, pt.valor, pt.pessoa_id, pt.cc_conta_id, pt.categoria_id, p.nome, c.nome AS conta,
+            pt.sw AS conta_sw
+       FROM fin_mov_partes pt
+       LEFT JOIN fin_cc_pessoas p ON p.id = pt.pessoa_id
+       LEFT JOIN fin_cc_contas c ON c.id = pt.cc_conta_id
+       LEFT JOIN fin_cc_pessoas dp ON dp.id = c.pessoa_direta_id
+      WHERE pt.partilha_id = ANY($1::int[]) ORDER BY pt.id`, [ids]);
+  const movs = await all(
+    `SELECT m.id, to_char(m.data,'YYYY-MM-DD') AS data, m.descricao, m.valor, m.conta_id FROM fin_movimentos m
+      WHERE m.id IN (SELECT movimento_id FROM fin_mov_partes WHERE partilha_id = ANY($1::int[]))`, [ids]);
+  const pago = await pagoPorParte();
+  return cab.map((f) => {
+    const ps = partes.filter((p) => p.partilha_id === f.id);
+    const linhas = {};
+    ps.filter((p) => p.pessoa_id).forEach((p) => {
+      const k = p.pessoa_id + ':' + p.cc_conta_id;
+      const l = linhas[k] = linhas[k] || { pessoa_id: p.pessoa_id, nome: p.nome, conta_id: p.cc_conta_id, conta: p.conta, splitwise: Boolean(p.conta_sw), valor: 0, pago: 0 };
+      l.valor = cent(l.valor - Number(p.valor));
+      l.pago = cent(l.pago + (pago[p.id] || 0));
+    });
+    const ls = Object.values(linhas).map((l) => Object.assign(l, {
+      estado: l.splitwise ? 'splitwise' : l.pago >= l.valor - 0.005 ? 'pago' : l.pago > 0.005 ? 'parcial' : 'por receber'
+    }));
+    const sw = (f.splitwise && typeof f.splitwise === 'object') ? f.splitwise : {};
+    ls.forEach((l) => { const s = sw[l.conta_id]; if (s) l.splitwise_despesa = { id: s.expense_id, criada: s.criada }; });
+    const mIds = [...new Set(ps.map((p) => p.movimento_id))];
+    const minhaParte = ps.find((p) => !p.pessoa_id);
+    return {
+      id: f.id, descricao: f.descricao, data: f.data, total: cent(f.total), minha: cent(f.minha), iguais: f.iguais, nota: f.nota,
+      categoria_id: f.categoria_id || (minhaParte && minhaParte.categoria_id) || null,
+      linhas: ls.sort((a, b) => a.nome.localeCompare(b.nome)),
+      movimentos: movs.filter((m) => mIds.indexOf(m.id) >= 0).map((m) => Object.assign(m, { valor: cent(m.valor) })),
+      a_receber: cent(ls.filter((l) => !l.splitwise).reduce((t, l) => t + l.valor - l.pago, 0)),
+      estado: ls.some((l) => l.estado === 'por receber' || l.estado === 'parcial') ? 'aberta' : 'saldada'
+    };
+  });
+}
+
+/* Junta duas pessoas que sao a mesma (o nome do banco e o do Splitwise):
+   tudo passa para a que fica. Duas do Splitwise nao se juntam aqui. */
+async function juntarPessoas(deId, paraId) {
+  if (Number(deId) === Number(paraId)) throw erro(400, 'É a mesma pessoa.');
+  const ps = await all('SELECT id, nome, person_id, splitwise_id::text AS splitwise_id FROM fin_cc_pessoas WHERE id = ANY($1::int[])', [[deId, paraId]]);
+  const de = ps.find((p) => p.id === Number(deId)), para = ps.find((p) => p.id === Number(paraId));
+  if (!de || !para) throw erro(404, 'Pessoa não encontrada.');
+  if (de.splitwise_id && para.splitwise_id) throw erro(400, 'As duas estão no Splitwise: junta-as lá.');
+  const cli = await pool.connect();
+  try {
+    await cli.query('BEGIN');
+    const dDe = (await cli.query('SELECT id FROM fin_cc_contas WHERE pessoa_direta_id = $1', [de.id])).rows[0];
+    let dPara = (await cli.query('SELECT id FROM fin_cc_contas WHERE pessoa_direta_id = $1', [para.id])).rows[0];
+    if (dDe && !dPara) { await cli.query('UPDATE fin_cc_contas SET pessoa_direta_id = $1, nome = $2 WHERE id = $3', [para.id, para.nome, dDe.id]); dPara = dDe; }
+    else if (dDe && dPara) {
+      await cli.query('UPDATE fin_cc_mov SET conta_id = $1 WHERE conta_id = $2', [dPara.id, dDe.id]);
+      await cli.query('UPDATE fin_mov_partes SET cc_conta_id = $1 WHERE cc_conta_id = $2', [dPara.id, dDe.id]);
+      await cli.query('DELETE FROM fin_cc_contas WHERE id = $1', [dDe.id]);
+    }
+    await cli.query('INSERT INTO fin_cc_membros (conta_id, pessoa_id) SELECT conta_id, $1 FROM fin_cc_membros WHERE pessoa_id = $2 ON CONFLICT DO NOTHING', [para.id, de.id]);
+    await cli.query('UPDATE fin_cc_mov SET pessoa_id = $1 WHERE pessoa_id = $2', [para.id, de.id]);
+    await cli.query('UPDATE fin_mov_partes SET pessoa_id = $1 WHERE pessoa_id = $2', [para.id, de.id]);
+    if (de.splitwise_id) {
+      const x = (await cli.query('SELECT splitwise_id, saldo_splitwise, por_grupo, lido_em FROM fin_cc_pessoas WHERE id = $1', [de.id])).rows[0];
+      await cli.query('UPDATE fin_cc_pessoas SET splitwise_id = NULL WHERE id = $1', [de.id]);
+      await cli.query('UPDATE fin_cc_pessoas SET splitwise_id = $2, saldo_splitwise = $3, por_grupo = $4, lido_em = $5 WHERE id = $1',
+        [para.id, x.splitwise_id, x.saldo_splitwise, x.por_grupo == null ? null : JSON.stringify(x.por_grupo), x.lido_em]);
+    }
+    if (!para.person_id && de.person_id) await cli.query('UPDATE fin_cc_pessoas SET person_id = $1 WHERE id = $2', [de.person_id, para.id]);
+    await cli.query('DELETE FROM fin_cc_pessoas WHERE id = $1', [de.id]);
+    await cli.query('COMMIT');
+  } catch (e) {
+    await cli.query('ROLLBACK').catch(() => {});
+    throw e;
+  } finally { cli.release(); }
+  await organizarContas();
+  return { ok: true, id: para.id };
+}
+
+function instalarContas(app, falha) {
+  app.get('/api/financas/cc/contas/:id(\\d+)', async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const movs = await all(
+        `SELECT c.id, to_char(c.data,'YYYY-MM-DD') AS data, c.descricao, c.valor, c.origem, c.grupo, c.total, c.pagamento, c.pessoa_id, p.nome AS pessoa,
+                COALESCE(c.movimento_id, pt.movimento_id) AS movimento_id, pt.partilha_id
+           FROM fin_cc_mov c JOIN fin_cc_pessoas p ON p.id = c.pessoa_id LEFT JOIN fin_mov_partes pt ON pt.id = c.parte_id
+          WHERE c.conta_id = $1 AND NOT c.apagado ORDER BY c.data DESC, c.id DESC LIMIT 1500`, [id]);
+      res.json({ movimentos: movs.map((m) => Object.assign(m, { valor: cent(m.valor), total: m.total == null ? null : cent(m.total) })) });
+    } catch (e) { falha(res, e, 'conta corrente'); }
+  });
+  app.post('/api/financas/cc/contas', async (req, res) => {
+    try {
+      const b = req.body || {};
+      const nome = String(b.nome || '').trim();
+      if (!nome) return res.status(400).json({ error: 'Falta o nome.' });
+      const c = (await all('INSERT INTO fin_cc_contas (nome, nota) VALUES ($1, $2) RETURNING id', [nome, b.nota || null]))[0];
+      for (const pid of (b.membros || [])) await query('INSERT INTO fin_cc_membros (conta_id, pessoa_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [c.id, Number(pid)]);
+      res.json({ id: c.id });
+    } catch (e) { falha(res, e, 'nova conta corrente'); }
+  });
+  app.patch('/api/financas/cc/contas/:id(\\d+)', async (req, res) => {
+    try {
+      const b = req.body || {}, id = Number(req.params.id);
+      const c = (await all('SELECT splitwise_grupo_id, pessoa_direta_id FROM fin_cc_contas WHERE id = $1', [id]))[0];
+      if (!c) return res.status(404).json({ error: 'Conta corrente não encontrada.' });
+      if (b.nome !== undefined && !c.splitwise_grupo_id) await query('UPDATE fin_cc_contas SET nome = $1 WHERE id = $2', [String(b.nome).trim() || 'Conta', id]);
+      if (b.ativo !== undefined) await query('UPDATE fin_cc_contas SET ativo = $1 WHERE id = $2', [Boolean(b.ativo), id]);
+      if (b.nota !== undefined) await query('UPDATE fin_cc_contas SET nota = $1 WHERE id = $2', [b.nota || null, id]);
+      if (Array.isArray(b.membros) && !c.splitwise_grupo_id && !c.pessoa_direta_id) {
+        await query('DELETE FROM fin_cc_membros WHERE conta_id = $1 AND NOT (pessoa_id = ANY($2::int[]))', [id, b.membros.map(Number)]);
+        for (const pid of b.membros) await query('INSERT INTO fin_cc_membros (conta_id, pessoa_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [id, Number(pid)]);
+      }
+      res.json({ ok: true });
+    } catch (e) { falha(res, e, 'conta corrente'); }
+  });
+
+  app.get('/api/financas/partilhas', async (req, res) => {
+    try { res.json({ partilhas: await listarPartilhas({ pessoa: req.query.pessoa ? Number(req.query.pessoa) : null }) }); }
+    catch (e) { falha(res, e, 'contas partilhadas'); }
+  });
+  app.get('/api/financas/partilhas/:id(\\d+)', async (req, res) => {
+    try {
+      const p = (await listarPartilhas({ id: Number(req.params.id) }))[0];
+      if (!p) return res.status(404).json({ error: 'Conta partilhada não encontrada.' });
+      res.json({ partilha: p });
+    } catch (e) { falha(res, e, 'conta partilhada'); }
+  });
+  app.post('/api/financas/partilhas', async (req, res) => {
+    try { res.json(await guardarPartilha(req.body || {})); } catch (e) { falha(res, e, 'a conta partilhada'); }
+  });
+  app.put('/api/financas/partilhas/:id(\\d+)', async (req, res) => {
+    try { res.json(await guardarPartilha(Object.assign({}, req.body || {}, { id: Number(req.params.id) }))); } catch (e) { falha(res, e, 'a conta partilhada'); }
+  });
+  app.delete('/api/financas/partilhas/:id(\\d+)', async (req, res) => {
+    try { res.json(await apagarPartilha(Number(req.params.id))); } catch (e) { falha(res, e, 'a conta partilhada'); }
+  });
+  app.post('/api/financas/partilhas/:id(\\d+)/splitwise', async (req, res) => {
+    try { res.json(await partilhaNoSplitwise(Number(req.params.id))); } catch (e) { falha(res, e, 'o Splitwise'); }
+  });
+
+  app.post('/api/financas/cc/pessoas/:id(\\d+)/juntar', async (req, res) => {
+    try { res.json(await juntarPessoas(Number(req.params.id), Number((req.body || {}).em))); } catch (e) { falha(res, e, 'juntar pessoas'); }
+  });
+  app.delete('/api/financas/cc/pessoas/:id(\\d+)', async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const n = (await all(
+        `SELECT (SELECT COUNT(*) FROM fin_cc_mov WHERE pessoa_id = $1) + (SELECT COUNT(*) FROM fin_mov_partes WHERE pessoa_id = $1) AS n,
+                (SELECT splitwise_id FROM fin_cc_pessoas WHERE id = $1) AS sw`, [id]))[0];
+      if (Number(n.n) > 0 || n.sw) return res.status(409).json({ error: 'Tem movimentos (ou vem do Splitwise): esconde-a em vez de apagar.' });
+      await query('DELETE FROM fin_cc_pessoas WHERE id = $1', [id]);
+      res.json({ ok: true });
+    } catch (e) { falha(res, e, 'apagar pessoa'); }
+  });
+}
+
 module.exports = { instalar, arrancar, sincronizar, resumo, saldoTotalEm, ligarMovimento,
   dividir, desfazerDivisao, categoriaDaMinhaParte, abertos, reembolsoDe, pagador, resolverPessoa, sugerirDivisoes,
-  contasEmAberto, novaComEntrada };
+  contasEmAberto, novaComEntrada, organizarContas, garantirCabecalhos, guardarPartilha, apagarPartilha, listarPartilhas, contaDireta, lerContas };
