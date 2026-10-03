@@ -161,6 +161,24 @@ CREATE UNIQUE INDEX IF NOT EXISTS fin_cc_sw_uidx ON fin_cc_mov (pessoa_id, split
 CREATE UNIQUE INDEX IF NOT EXISTS fin_cc_mov_uidx ON fin_cc_mov (movimento_id) WHERE movimento_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS fin_cc_pessoa_idx ON fin_cc_mov (pessoa_id, data);
 
+-- Contas divididas: o Marco paga o jantar inteiro e os amigos devolvem a parte
+-- deles. O movimento do banco reparte-se em partes: a do Marco (com categoria,
+-- e a unica que conta como despesa) e a de cada pessoa (sem categoria: e
+-- dinheiro adiantado, fica na conta corrente dela ate devolver). As partes
+-- tem o sinal do movimento e somam o valor dele.
+CREATE TABLE IF NOT EXISTS fin_mov_partes (
+  id           SERIAL PRIMARY KEY,
+  movimento_id INTEGER NOT NULL REFERENCES fin_movimentos(id) ON DELETE CASCADE,
+  valor        NUMERIC(14,2) NOT NULL,
+  categoria_id INTEGER REFERENCES fin_categorias(id) ON DELETE SET NULL,
+  pessoa_id    INTEGER REFERENCES fin_cc_pessoas(id) ON DELETE CASCADE,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS fin_partes_mov_idx ON fin_mov_partes (movimento_id);
+-- A parte de uma pessoa entra na conta corrente dela (origem 'partilha').
+ALTER TABLE fin_cc_mov ADD COLUMN IF NOT EXISTS parte_id INTEGER REFERENCES fin_mov_partes(id) ON DELETE CASCADE;
+CREATE INDEX IF NOT EXISTS fin_cc_parte_idx ON fin_cc_mov (parte_id) WHERE parte_id IS NOT NULL;
+
 -- Categorias de partida, genericas, uma vez so. Depois disso a lista e do
 -- Marco: o que ele apagar nao volta.
 DO $$
