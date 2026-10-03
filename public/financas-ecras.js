@@ -535,11 +535,13 @@ function fnPainelReembolso(p, m){
       h('div', { class: 'fn-acoes' }, [fnBtn('Desligar', function(){ fnApi('/api/financas/movimentos/' + m.id, 'PATCH', { cc_pessoa_id: null }).then(function(){ fnMudou(); }, fnErro); }, 'small')])]));
     return;
   }
-  p.appendChild(h('div', { class: 'mono', style: 'margin-top:6px' }, 'É alguém a devolver?'));
+  var lbl = h('div', { class: 'mono', style: 'margin-top:6px' }, 'É alguém a devolver?');
+  p.appendChild(lbl);
   var cx = h('div', { class: 'fn-lista' }, [h('p', { class: 'fn-nota' }, 'A procurar…')]);
   p.appendChild(cx);
   apiGestao('/api/financas/movimentos/' + m.id + '/candidatos').then(function(r){
     clear(cx);
+    if (r.empresa) { if (lbl.parentNode) lbl.parentNode.removeChild(lbl); if (cx.parentNode) cx.parentNode.removeChild(cx); return; }
     if (r.divisao) {
       cx.appendChild(h('div', { class: 'fn-caixa melhor', style: 'margin-bottom:6px' }, [
         h('div', { class: 'fn-acoes', style: 'justify-content:space-between' }, [h('b', null, 'Parte de «' + r.divisao.descricao + '»'), h('span', { class: 'fn-pill ai' }, '✦ ' + Math.round(r.divisao.confianca * 100) + '%')]),
