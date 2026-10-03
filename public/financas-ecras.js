@@ -566,7 +566,7 @@ function fnBarraLote(ids, ms, limpar){
     fnBtn('Pôr no projeto', function(){
       fnApi('/api/financas/movimentos/lote', 'POST', { ids: ids, project_id: spj.value ? Number(spj.value) : null }).then(function(r){ FN.mov.sel = {}; fnAviso(r.feitos + (spj.value ? ' postos no projeto.' : ' tirados do projeto.')); fnMudou(); }, fnErro); }, 'small'),
     fnBtn('De quem…', function(){ fnEscolherPessoa(ids, null); }, 'small'),
-    debs.length ? fnBtn('Dividir com… (' + debs.length + ')', function(){ fnDividirGrupoJanela(debs); }, 'small') : null,
+    debs.length ? fnBtn('Partilhar… (' + debs.length + ')', function(){ fnPartilhaJanela(debs); }, 'small') : null,
     fnBtn('Aceitar sugestões', function(){
       fnApi('/api/financas/movimentos/lote', 'POST', { ids: ids, aceitar: true }).then(function(r){ FN.mov.sel = {}; fnAviso(r.feitos + ' categorizados.'); fnMudou(); }, fnErro); }, 'small'),
     fnBtn('Apagar', function(){
@@ -646,87 +646,22 @@ function fnPainelMov(p, m, emJanela){
     cx.appendChild(h('p', { class: 'fn-nota', style: 'margin-top:6px' }, 'Ligar não cria nada novo: o movimento do banco passa a ser a prova de que a despesa foi paga, e a despesa deixa de contar duas vezes.'));
   }, function(e){ clear(cx); cx.appendChild(h('p', { class: 'fn-nota' }, e.message)); });
 }
-/* Conta dividida: pagaste por todos e os outros devolvem a parte deles. */
+/* Conta partilhada: pagaste por todos e os outros devolvem a parte deles. */
 function fnPainelDivisao(p, m){
-  p.appendChild(h('div', { class: 'mono', style: 'margin-top:6px' }, 'Conta dividida'));
+  p.appendChild(h('div', { class: 'mono', style: 'margin-top:6px' }, 'Conta partilhada'));
   var outros = (m.partes || []).filter(function(x){ return x.pessoa_id; });
   if (!outros.length){
-    p.appendChild(h('div', { class: 'fn-caixa' }, [h('small', { class: 'fn-muted' }, 'Pagaste por outros (um jantar, um presente)? Divide: só a tua parte conta como despesa e o resto fica a receber de cada um.'),
-      h('div', { class: 'fn-acoes' }, [fnBtn('Dividir a conta…', function(){ fnDividirJanela(m); }, 'small')])]));
+    p.appendChild(h('div', { class: 'fn-caixa' }, [h('small', { class: 'fn-muted' }, 'Pagaste por outros (um jantar, a conta da casa)? Diz quanto pagas tu e a parte de cada um: só a tua conta como despesa e a dos outros fica na conta corrente de cada um (aqui ou no Splitwise).'),
+      h('div', { class: 'fn-acoes' }, [fnBtn('Partilhar a conta…', function(){ fnPartilhaJanela([m]); }, 'small')])]));
     return;
   }
   var minha = (m.partes || []).filter(function(x){ return !x.pessoa_id; })[0];
+  var pid = (m.partes || []).filter(function(x){ return x.partilha_id; }).map(function(x){ return x.partilha_id; })[0];
   p.appendChild(h('div', { class: 'fn-caixa melhor' }, [
-    h('div', { class: 'fn-li' }, [h('div', { class: 'g' }, ['A tua parte', h('small', null, minha && minha.categoria_id ? fnCatNome(minha.categoria_id) : 'sem categoria')]), h('span', { class: 'fn-n' }, fnEur(minha ? -minha.valor : 0))])
-  ].concat(outros.map(function(x){ return h('div', { class: 'fn-li' }, [h('div', { class: 'g' }, [x.pessoa, h('small', null, 'a receber · conta corrente')]), h('span', { class: 'fn-n fn-good' }, fnEur(-x.valor))]); })).concat([
-    h('div', { class: 'fn-acoes' }, [fnBtn('Alterar', function(){ fnDividirJanela(m); }, 'small'),
-      fnBtn('Desfazer', function(){ fnApi('/api/financas/movimentos/' + m.id + '/partes', 'DELETE').then(function(){ fnAviso('Divisão desfeita.'); fnMudou(); }, fnErro); }, 'small')])])));
-}
-
-function fnDividirJanela(m){
-  var total = -m.valor;
-  var pessoas = [];
-  var lista = h('datalist', { id: 'fn-dl-pessoas' });
-  var linhas = h('div');
-  var catSel = fnSelCategorias(((m.partes || []).filter(function(x){ return !x.pessoa_id; })[0] || {}).categoria_id || m.categoria_id || m.ia_categoria_id, '— categoria da tua parte —', 'despesa');
-  var desc = h('input', { class: 'fn-in', value: '', placeholder: m.descricao });
-  var nTot = h('input', { class: 'fn-in', type: 'number', min: '2', step: '1', value: String(Math.max(2, ((m.partes || []).filter(function(x){ return x.pessoa_id; }).length || 1) + 1)), style: 'width:70px' });
-  var resumo = h('p', { class: 'fn-nota' });
-  function num(v){ var n = Number(String(v || '').replace(/\s/g, '').replace(',', '.')); return isFinite(n) ? n : 0; }
-  function atualizar(){
-    var soma = 0;
-    linhas.querySelectorAll('.fn-dv-v').forEach(function(i){ soma += num(i.value); });
-    var minha = Math.round((total - soma) * 100) / 100;
-    resumo.textContent = minha < -0.004 ? 'A parte dos outros passa o total (' + fnEur(total) + ').' : 'A tua parte: ' + fnEur(minha) + ' de ' + fnEur(total) + '. Só esta conta como despesa.';
-    resumo.style.color = minha < -0.004 ? 'var(--bad)' : '';
-  }
-  function linha(nome, valor){
-    var ni = h('input', { class: 'fn-in fn-dv-n', list: 'fn-dl-pessoas', value: nome || '', placeholder: 'Nome', style: 'flex:2 1 140px' });
-    var vi = h('input', { class: 'fn-in fn-dv-v', inputmode: 'decimal', value: valor != null ? String(valor.toFixed(2)).replace('.', ',') : '', placeholder: '0,00', style: 'flex:1 1 80px' });
-    vi.addEventListener('input', atualizar);
-    var row = h('div', { class: 'fn-acoes', style: 'margin-bottom:6px;flex-wrap:nowrap' }, [ni, vi,
-      h('button', { type: 'button', class: 'btn small', 'aria-label': 'Tirar', onclick: function(){ row.parentNode.removeChild(row); atualizar(); } }, '×')]);
-    linhas.appendChild(row);
-    return row;
-  }
-  function porIgual(){
-    var n = Math.max(2, Math.round(num(nTot.value)) || 2);
-    var cada = Math.floor(total / n * 100) / 100;
-    var rows = linhas.querySelectorAll('.fn-dv-n');
-    var nomes = []; rows.forEach(function(i){ nomes.push(i.value); });
-    clear(linhas);
-    for (var i = 0; i < n - 1; i++) linha(nomes[i] || '', cada);
-    atualizar();
-  }
-  var antes = (m.partes || []).filter(function(x){ return x.pessoa_id; });
-  if (antes.length) antes.forEach(function(x){ linha(x.pessoa, -x.valor); });
-  apiGestao('/api/financas/cc').then(function(c){
-    pessoas = c.pessoas.filter(function(x){ return x.ativo; });
-    pessoas.forEach(function(x){ lista.appendChild(h('option', { value: x.nome })); });
-  }, function(){});
-  fnJanela('Dividir a conta', [
-    h('p', { class: 'fn-nota' }, m.descricao + ' · ' + fnData(m.data) + ' · pagaste ' + fnEur(total) + '.'),
-    h('div', { class: 'fn-acoes', style: 'align-items:center' }, [h('span', null, 'Éramos'), nTot, fnBtn('Dividir por igual', porIgual, 'small')]),
-    h('div', { class: 'mono', style: 'margin-top:8px' }, 'Quem te deve e quanto'), lista, linhas,
-    fnBtn('+ Pessoa', function(){ linha('', null); }, 'small'),
-    fnCampo('A tua parte vai para', catSel),
-    fnCampo('Descrição nas contas correntes (opcional)', desc),
-    resumo,
-    h('p', { class: 'fn-nota' }, 'Escreve o nome de quem já está nas contas correntes, ou um nome novo: a pessoa é criada. Quando te devolverem, a transferência liga-se como reembolso.')
-  ], [{ txt: 'Guardar', pri: true, fn: function(){
-    var outros = [];
-    linhas.querySelectorAll('.fn-acoes').forEach(function(r){
-      var n = r.querySelector('.fn-dv-n').value.trim(), v = num(r.querySelector('.fn-dv-v').value);
-      if (!n && !v) return;
-      var ex = pessoas.filter(function(x){ return x.nome.toLowerCase() === n.toLowerCase(); })[0];
-      outros.push(ex ? { pessoa_id: ex.id, valor: v } : { nome: n, valor: v });
-    });
-    if (!outros.length) { fnAviso('Falta com quem dividir.'); return false; }
-    if (outros.some(function(o){ return !(o.valor > 0) || (!o.pessoa_id && !o.nome); })) { fnAviso('Cada pessoa precisa de nome e valor.'); return false; }
-    return fnApi('/api/financas/movimentos/' + m.id + '/partes', 'PUT', { outros: outros, categoria_id: catSel.value ? Number(catSel.value) : null, descricao: desc.value.trim() })
-      .then(function(r){ fnAviso('Dividido: a tua parte ' + fnEur(r.minha) + ', a receber ' + fnEur(r.outros) + '.'); fnMudou(); }, fnErro);
-  } }]);
-  if (!antes.length) porIgual(); else atualizar();
+    h('div', { class: 'fn-li' }, [h('div', { class: 'g' }, ['Eu pago', h('small', null, minha && minha.categoria_id ? fnCatNome(minha.categoria_id) : 'sem categoria')]), h('span', { class: 'fn-n' }, fnEur(minha ? -minha.valor : 0))])
+  ].concat(outros.map(function(x){ return h('div', { class: 'fn-li' }, [h('div', { class: 'g' }, [x.pessoa, h('small', null, 'a receber · ' + (x.conta || 'conta corrente'))]), h('span', { class: 'fn-n fn-good' }, fnEur(-x.valor))]); })).concat([
+    h('div', { class: 'fn-acoes' }, [fnBtn('Alterar', function(){ if (pid) fnAbrirPartilha(pid); else fnPartilhaJanela([m]); }, 'small'),
+      fnBtn('Desfazer', function(){ fnApi('/api/financas/movimentos/' + m.id + '/partes', 'DELETE').then(function(){ fnAviso('Conta partilhada desfeita.'); fnMudou(); }, fnErro); }, 'small')])])));
 }
 
 /* A explicação de uma sugestão de conta dividida. */
@@ -740,74 +675,6 @@ function fnTextoDivisao(d){
 function fnAceitarDivisao(creditoId, d){
   return fnApi('/api/financas/movimentos/' + creditoId + '/devolucao', 'POST', { debito_id: d.movimento_id, creditos: d.pagos.map(function(x){ return { id: x.id }; }) })
     .then(function(r){ fnAviso('Dividido: a tua parte ' + fnEur(r.minha) + ' · ' + r.ligados + (r.ligados === 1 ? ' reembolso ligado.' : ' reembolsos ligados.')); fnMudou(); }, fnErro);
-}
-
-/* Vários pagamentos (as viagens de Uber de um fim de semana) divididos pelo
-   grupo de uma vez: o total reparte-se por quem andou, e a parte de cada um
-   fica na conta corrente dele, repartida pelos pagamentos. */
-function fnDividirGrupoJanela(debs){
-  var total = Math.round(debs.reduce(function(s, m){ return s - m.valor; }, 0) * 100) / 100;
-  var pessoas = [];
-  var lista = h('datalist', { id: 'fn-dl-pessoas-g' });
-  var linhas = h('div');
-  var catSel = fnSelCategorias('', '— manter a categoria de cada pagamento —', 'despesa');
-  var desc = h('input', { class: 'fn-in', placeholder: 'Ex.: Ubers do fim de semana em Lisboa' });
-  var nTot = h('input', { class: 'fn-in', type: 'number', min: '2', step: '1', value: '2', style: 'width:70px' });
-  var resumo = h('p', { class: 'fn-nota' });
-  function num(v){ var n = Number(String(v || '').replace(/\s/g, '').replace(',', '.')); return isFinite(n) ? n : 0; }
-  function atualizar(){
-    var soma = 0; linhas.querySelectorAll('.fn-dv-v').forEach(function(i){ soma += num(i.value); });
-    var minha = Math.round((total - soma) * 100) / 100;
-    resumo.textContent = minha < -0.004 ? 'A parte dos outros passa o total (' + fnEur(total) + ').' : 'A tua parte: ' + fnEur(minha) + ' de ' + fnEur(total) + '. Cada pessoa fica com a sua parte repartida pelos ' + debs.length + ' pagamentos.';
-    resumo.style.color = minha < -0.004 ? 'var(--bad)' : '';
-  }
-  function linha(nome, valor){
-    var ni = h('input', { class: 'fn-in fn-dv-n', list: 'fn-dl-pessoas-g', value: nome || '', placeholder: 'Nome', style: 'flex:2 1 140px' });
-    var vi = h('input', { class: 'fn-in fn-dv-v', inputmode: 'decimal', value: valor != null ? String(valor.toFixed(2)).replace('.', ',') : '', placeholder: '0,00', style: 'flex:1 1 80px' });
-    vi.addEventListener('input', atualizar);
-    var row = h('div', { class: 'fn-acoes', style: 'margin-bottom:6px;flex-wrap:nowrap' }, [ni, vi,
-      h('button', { type: 'button', class: 'btn small', 'aria-label': 'Tirar', onclick: function(){ row.parentNode.removeChild(row); atualizar(); } }, '×')]);
-    linhas.appendChild(row);
-  }
-  function porIgual(){
-    var n = Math.max(2, Math.round(num(nTot.value)) || 2);
-    var cada = Math.floor(total / n * 100) / 100;
-    var nomes = []; linhas.querySelectorAll('.fn-dv-n').forEach(function(i){ nomes.push(i.value); });
-    clear(linhas);
-    for (var i = 0; i < n - 1; i++) linha(nomes[i] || '', cada);
-    atualizar();
-  }
-  apiGestao('/api/financas/cc').then(function(c){
-    pessoas = c.pessoas.filter(function(x){ return x.ativo; });
-    pessoas.forEach(function(x){ lista.appendChild(h('option', { value: x.nome })); });
-  }, function(){});
-  var lst = h('div', { class: 'fn-lista', style: 'max-height:150px;overflow:auto;margin-bottom:6px' }, debs.map(function(m){
-    return h('div', { class: 'fn-li' }, [h('span', { class: 'fn-n fn-muted', style: 'width:52px;font-size:.75rem' }, fnData(m.data)), h('div', { class: 'g' }, m.descricao), h('span', { class: 'fn-n' }, fnEur(-m.valor))]);
-  }));
-  fnJanela('Dividir ' + debs.length + (debs.length === 1 ? ' pagamento' : ' pagamentos') + ' com o grupo', [
-    lst,
-    h('p', { class: 'fn-nota' }, 'Total pago: ' + fnEur(total) + '.'),
-    h('div', { class: 'fn-acoes', style: 'align-items:center' }, [h('span', null, 'Éramos'), nTot, fnBtn('Dividir por igual', porIgual, 'small')]),
-    h('div', { class: 'mono', style: 'margin-top:8px' }, 'Quem te deve e quanto, no total'), lista, linhas,
-    fnBtn('+ Pessoa', function(){ linha('', null); }, 'small'),
-    fnCampo('Descrição nas contas correntes (opcional)', desc),
-    fnCampo('A tua parte vai para', catSel),
-    resumo
-  ], [{ txt: 'Guardar', pri: true, fn: function(){
-    var outros = [];
-    linhas.querySelectorAll('.fn-acoes').forEach(function(r){
-      var n = r.querySelector('.fn-dv-n').value.trim(), v = num(r.querySelector('.fn-dv-v').value);
-      if (!n && !v) return;
-      var ex = pessoas.filter(function(x){ return x.nome.toLowerCase() === n.toLowerCase(); })[0];
-      outros.push(ex ? { pessoa_id: ex.id, valor: v } : { nome: n, valor: v });
-    });
-    if (!outros.length) { fnAviso('Falta com quem dividir.'); return false; }
-    if (outros.some(function(o){ return !(o.valor > 0) || (!o.pessoa_id && !o.nome); })) { fnAviso('Cada pessoa precisa de nome e valor.'); return false; }
-    return fnApi('/api/financas/movimentos/dividir-grupo', 'POST', { ids: debs.map(function(m){ return m.id; }), outros: outros,
-      categoria_id: catSel.value ? Number(catSel.value) : null, descricao: desc.value.trim() })
-      .then(function(r){ FN.mov.sel = {}; fnAviso('Dividido em ' + r.pagamentos + ' pagamentos: a tua parte ' + fnEur(r.minha) + ', a receber ' + fnEur(r.outros) + '.'); fnMudou(); }, fnErro);
-  } }]);
-  porIgual();
 }
 
 /* Uma entrada pode ser alguém a devolver a parte de uma conta dividida. */
