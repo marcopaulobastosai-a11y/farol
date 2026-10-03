@@ -426,13 +426,15 @@ async function sugerirDivisoes(creditos) {
   const de = datas[0], ate = datas[datas.length - 1];
   const debs = await all(
     `SELECT id, to_char(data,'YYYY-MM-DD') AS data, descricao, valor, categoria_id, ia_categoria_id FROM fin_movimentos
-      WHERE valor < 0 AND data BETWEEN $1::date - 12 AND $2::date + 1`, [de, ate]);
+      WHERE valor < 0 AND data BETWEEN $1::date - 12 AND $2::date + 1
+        AND conta_id IN (SELECT id FROM fin_contas WHERE pessoal)`, [de, ate]);
   const pts = await all(
     `SELECT p.movimento_id, p.valor, p.pessoa_id, cp.nome FROM fin_mov_partes p LEFT JOIN fin_cc_pessoas cp ON cp.id = p.pessoa_id
       WHERE p.movimento_id = ANY($1::int[])`, [debs.map((d) => d.id)]);
   const vizinhos = (await all(
     `SELECT id, to_char(data,'YYYY-MM-DD') AS data, descricao, valor FROM fin_movimentos m
       WHERE valor > 0 AND data BETWEEN $1::date - 12 AND $2::date + 14
+        AND conta_id IN (SELECT id FROM fin_contas WHERE pessoal)
         AND NOT EXISTS (SELECT 1 FROM fin_cc_mov c WHERE c.movimento_id = m.id)`, [de, ate]))
     .map((c) => Object.assign(c, { valor: cent(c.valor), quem: pagador(c.descricao) })).filter((c) => c.quem);
   const dias = (a, b) => Math.round((new Date(a) - new Date(b)) / 86400000);
