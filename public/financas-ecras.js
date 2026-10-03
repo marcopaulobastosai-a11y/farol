@@ -129,7 +129,7 @@ function fn_financas_movimentos(corpo){
 
   var f = h('div', { class: 'fn-barra' });
   var seg = h('div', { class: 'fn-seg', role: 'group', 'aria-label': 'Estado' });
-  [['','Todos'],['categorizar','Por categorizar'],['sugestoes','Sugestões da IA'],['reconciliar','Por reconciliar'],['semdespesa','Sem despesa'],['repetidos','Repetidos']].forEach(function(o){
+  [['','Todos'],['categorizar','Por categorizar'],['sugestoes','Sugestões da IA'],['reconciliar','Por reconciliar'],['semdespesa','Sem despesa'],['reembolsos','Reembolsos'],['divididos','Divididos'],['repetidos','Repetidos']].forEach(function(o){
     seg.appendChild(h('button', { type: 'button', class: FN.mov.estado === o[0] ? 'on' : '', onclick: function(){ FN.mov.estado = o[0]; FN.mov.sel = {}; fnRender('financas'); } }, o[1]));
   });
   f.appendChild(seg);
@@ -161,6 +161,13 @@ function fn_financas_movimentos(corpo){
             .then(function(r){ fnAviso(r.feitos + ' categorizados.'); fnMudou(); }, fnErro);
         }, 'primary small')]));
     }
+    var reemb = ms.filter(function(m){ return m.reembolso; });
+    if (reemb.length && FN.mov.estado !== 'reembolsos'){
+      corpo.appendChild(h('div', { class: 'fn-banner' }, [h('span', { class: 'fn-pill ai' }, '✦ Reembolsos'),
+        h('div', { class: 'g' }, [h('b', null, reemb.length + (reemb.length === 1 ? ' entrada parece' : ' entradas parecem') + ' alguém a devolver uma conta dividida'),
+          h('span', { class: 'fn-muted' }, ' · pelo nome na descrição e pelo valor das partes por pagar.')]),
+        fnBtn('Ver', function(){ FN.mov.estado = 'reembolsos'; FN.mov.sel = {}; fnRender('financas'); }, 'small')]));
+    }
     var linha = h('div', { class: 'fn-linha', style: 'align-items:flex-start' });
     var cartao = h('div', { class: 'card largo', style: 'padding:6px 10px' });
     var selN = Object.keys(FN.mov.sel).filter(function(k){ return FN.mov.sel[k]; });
@@ -190,7 +197,7 @@ function fn_financas_movimentos(corpo){
 
 function fnLinhaMov(m){
   var cat;
-  if (m.categoria_id) cat = h('span', { class: 'fn-pill' + (m.natureza === 'transferencia' || m.natureza === 'financiamento' ? ' tr' : m.natureza === 'receita' ? ' good' : '') }, fnCatNome(m.categoria_id));
+  if (m.categoria_id) cat = h('span', { class: 'fn-pill' + (m.natureza === 'transferencia' || m.natureza === 'financiamento' || m.natureza === 'acerto' ? ' tr' : m.natureza === 'receita' ? ' good' : '') }, fnCatNome(m.categoria_id));
   else if (m.ia_categoria_id) cat = h('div', { class: 'fn-acoes' }, [h('span', { class: 'fn-pill ai', title: 'Sugestão: ' + ({ historico: 'histórico', modelo: 'Gemini', transferencia: 'transferência entre contas' }[m.ia_fonte] || m.ia_fonte) },
       '✦ ' + fnCatNome(m.ia_categoria_id, true) + ' · ' + Math.round((m.ia_confianca || 0) * 100) + '%'),
     h('button', { type: 'button', class: 'btn small', onclick: function(e){ e.stopPropagation();
@@ -198,7 +205,13 @@ function fnLinhaMov(m){
   else cat = h('span', { class: 'fn-pill warn' }, 'por categorizar');
   var lig = [];
   if (m.expense_id) lig.push(h('span', { class: 'fn-pill good', title: m.despesa || '' }, (m.despesa_papel ? 'papel · ' : 'despesa · ') + (m.despesa || '').slice(0, 24)));
-  if (m.cc_pessoa) lig.push(h('span', { class: 'fn-pill tr' }, 'c/c · ' + m.cc_pessoa));
+  if (m.cc_pessoa) lig.push(h('span', { class: 'fn-pill tr' }, (m.cc_origem === 'reembolso' ? 'reembolso · ' : 'c/c · ') + m.cc_pessoa));
+  var outros = (m.partes || []).filter(function(p){ return p.pessoa_id; });
+  if (outros.length) lig.push(h('span', { class: 'fn-pill tr', title: outros.map(function(p){ return p.pessoa + ' ' + fnEur(-p.valor); }).join(' · ') },
+    'dividido · ' + outros.map(function(p){ return (p.pessoa || '').split(' ')[0]; }).join(', ')));
+  if (m.reembolso) lig.push(h('div', { class: 'fn-acoes' }, [h('span', { class: 'fn-pill ai', title: m.reembolso.motivo }, '✦ de ' + m.reembolso.nome + '?'),
+    h('button', { type: 'button', class: 'btn small', onclick: function(e){ e.stopPropagation();
+      fnApi('/api/financas/movimentos/' + m.id, 'PATCH', { cc_pessoa_id: m.reembolso.pessoa_id }).then(function(){ fnAviso('Reembolso de ' + m.reembolso.nome + '.'); fnMudou(); }, fnErro); } }, 'Sim')]));
   if (!lig.length && m.valor < 0 && m.natureza === 'despesa') lig.push(h('span', { class: 'fn-muted', style: 'font-size:.75rem' }, '—'));
   var conta = fnConta(m.conta_id);
   var tr = h('tr', { class: 'clic' + (FN.mov.aberto === m.id ? ' on' : ''), onclick: function(){ FN.mov.aberto = FN.mov.aberto === m.id ? null : m.id; fnRender('financas'); } }, [
@@ -208,9 +221,16 @@ function fnLinhaMov(m){
     h('td', null, [cat]),
     h('td', { style: 'font-size:.75rem' }, fnCtxNome(m.context_id || (conta && conta.context_id)) || h('span', { class: 'fn-muted' }, '—')),
     h('td', null, lig),
-    h('td', { class: 'r ' + (m.valor > 0 ? 'fn-good' : '') }, fnEur(m.valor, true))
+    h('td', { class: 'r ' + (m.valor > 0 ? 'fn-good' : '') }, [fnEur(m.valor, true), fnMinhaParte(m)])
   ]);
   return tr;
+}
+
+/* Num movimento dividido, a parte que e mesmo do Marco. */
+function fnMinhaParte(m){
+  if (!m.partes || !m.partes.length) return null;
+  var minha = m.partes.filter(function(p){ return !p.pessoa_id; }).reduce(function(s, p){ return s + p.valor; }, 0);
+  return h('small', { style: 'display:block', class: 'fn-muted' }, 'tua parte ' + fnEur(minha));
 }
 
 function fnBarraLote(ids){
@@ -267,7 +287,9 @@ function fnPainelMov(p, m){
       return fnApi('/api/financas/movimentos/' + m.id, 'DELETE').then(function(){ FN.mov.aberto = null; fnMudou(); }, fnErro); } }]);
   }, 'small')]));
 
-  if (m.valor >= 0) return;
+  if (m.valor > 0) { fnPainelReembolso(p, m); return; }
+  if (m.valor === 0) return;
+  fnPainelDivisao(p, m);
   p.appendChild(h('div', { class: 'mono', style: 'margin-top:6px' }, 'Despesa no Farol'));
   if (m.expense_id){
     p.appendChild(h('div', { class: 'fn-caixa melhor' }, [h('b', null, m.despesa || 'Despesa'),
@@ -293,6 +315,113 @@ function fnPainelMov(p, m){
     cx.appendChild(h('p', { class: 'fn-nota', style: 'margin-top:6px' }, 'Ligar não cria nada novo: o movimento do banco passa a ser a prova de que a despesa foi paga, e a despesa deixa de contar duas vezes.'));
   }, function(e){ clear(cx); cx.appendChild(h('p', { class: 'fn-nota' }, e.message)); });
 }
+/* Conta dividida: pagaste por todos e os outros devolvem a parte deles. */
+function fnPainelDivisao(p, m){
+  p.appendChild(h('div', { class: 'mono', style: 'margin-top:6px' }, 'Conta dividida'));
+  var outros = (m.partes || []).filter(function(x){ return x.pessoa_id; });
+  if (!outros.length){
+    p.appendChild(h('div', { class: 'fn-caixa' }, [h('small', { class: 'fn-muted' }, 'Pagaste por outros (um jantar, um presente)? Divide: só a tua parte conta como despesa e o resto fica a receber de cada um.'),
+      h('div', { class: 'fn-acoes' }, [fnBtn('Dividir a conta…', function(){ fnDividirJanela(m); }, 'small')])]));
+    return;
+  }
+  var minha = (m.partes || []).filter(function(x){ return !x.pessoa_id; })[0];
+  p.appendChild(h('div', { class: 'fn-caixa melhor' }, [
+    h('div', { class: 'fn-li' }, [h('div', { class: 'g' }, ['A tua parte', h('small', null, minha && minha.categoria_id ? fnCatNome(minha.categoria_id) : 'sem categoria')]), h('span', { class: 'fn-n' }, fnEur(minha ? -minha.valor : 0))])
+  ].concat(outros.map(function(x){ return h('div', { class: 'fn-li' }, [h('div', { class: 'g' }, [x.pessoa, h('small', null, 'a receber · conta corrente')]), h('span', { class: 'fn-n fn-good' }, fnEur(-x.valor))]); })).concat([
+    h('div', { class: 'fn-acoes' }, [fnBtn('Alterar', function(){ fnDividirJanela(m); }, 'small'),
+      fnBtn('Desfazer', function(){ fnApi('/api/financas/movimentos/' + m.id + '/partes', 'DELETE').then(function(){ fnAviso('Divisão desfeita.'); fnMudou(); }, fnErro); }, 'small')])])));
+}
+
+function fnDividirJanela(m){
+  var total = -m.valor;
+  var pessoas = [];
+  var lista = h('datalist', { id: 'fn-dl-pessoas' });
+  var linhas = h('div');
+  var catSel = fnSelCategorias(((m.partes || []).filter(function(x){ return !x.pessoa_id; })[0] || {}).categoria_id || m.categoria_id || m.ia_categoria_id, '— categoria da tua parte —', 'despesa');
+  var desc = h('input', { class: 'fn-in', value: '', placeholder: m.descricao });
+  var nTot = h('input', { class: 'fn-in', type: 'number', min: '2', step: '1', value: String(Math.max(2, ((m.partes || []).filter(function(x){ return x.pessoa_id; }).length || 1) + 1)), style: 'width:70px' });
+  var resumo = h('p', { class: 'fn-nota' });
+  function num(v){ var n = Number(String(v || '').replace(/\s/g, '').replace(',', '.')); return isFinite(n) ? n : 0; }
+  function atualizar(){
+    var soma = 0;
+    linhas.querySelectorAll('.fn-dv-v').forEach(function(i){ soma += num(i.value); });
+    var minha = Math.round((total - soma) * 100) / 100;
+    resumo.textContent = minha < -0.004 ? 'A parte dos outros passa o total (' + fnEur(total) + ').' : 'A tua parte: ' + fnEur(minha) + ' de ' + fnEur(total) + '. Só esta conta como despesa.';
+    resumo.style.color = minha < -0.004 ? 'var(--bad)' : '';
+  }
+  function linha(nome, valor){
+    var ni = h('input', { class: 'fn-in fn-dv-n', list: 'fn-dl-pessoas', value: nome || '', placeholder: 'Nome', style: 'flex:2 1 140px' });
+    var vi = h('input', { class: 'fn-in fn-dv-v', inputmode: 'decimal', value: valor != null ? String(valor.toFixed(2)).replace('.', ',') : '', placeholder: '0,00', style: 'flex:1 1 80px' });
+    vi.addEventListener('input', atualizar);
+    var row = h('div', { class: 'fn-acoes', style: 'margin-bottom:6px;flex-wrap:nowrap' }, [ni, vi,
+      h('button', { type: 'button', class: 'btn small', 'aria-label': 'Tirar', onclick: function(){ row.parentNode.removeChild(row); atualizar(); } }, '×')]);
+    linhas.appendChild(row);
+    return row;
+  }
+  function porIgual(){
+    var n = Math.max(2, Math.round(num(nTot.value)) || 2);
+    var cada = Math.floor(total / n * 100) / 100;
+    var rows = linhas.querySelectorAll('.fn-dv-n');
+    var nomes = []; rows.forEach(function(i){ nomes.push(i.value); });
+    clear(linhas);
+    for (var i = 0; i < n - 1; i++) linha(nomes[i] || '', cada);
+    atualizar();
+  }
+  var antes = (m.partes || []).filter(function(x){ return x.pessoa_id; });
+  if (antes.length) antes.forEach(function(x){ linha(x.pessoa, -x.valor); });
+  apiGestao('/api/financas/cc').then(function(c){
+    pessoas = c.pessoas.filter(function(x){ return x.ativo; });
+    pessoas.forEach(function(x){ lista.appendChild(h('option', { value: x.nome })); });
+  }, function(){});
+  fnJanela('Dividir a conta', [
+    h('p', { class: 'fn-nota' }, m.descricao + ' · ' + fnData(m.data) + ' · pagaste ' + fnEur(total) + '.'),
+    h('div', { class: 'fn-acoes', style: 'align-items:center' }, [h('span', null, 'Éramos'), nTot, fnBtn('Dividir por igual', porIgual, 'small')]),
+    h('div', { class: 'mono', style: 'margin-top:8px' }, 'Quem te deve e quanto'), lista, linhas,
+    fnBtn('+ Pessoa', function(){ linha('', null); }, 'small'),
+    fnCampo('A tua parte vai para', catSel),
+    fnCampo('Descrição nas contas correntes (opcional)', desc),
+    resumo,
+    h('p', { class: 'fn-nota' }, 'Escreve o nome de quem já está nas contas correntes, ou um nome novo: a pessoa é criada. Quando te devolverem, a transferência liga-se como reembolso.')
+  ], [{ txt: 'Guardar', pri: true, fn: function(){
+    var outros = [];
+    linhas.querySelectorAll('.fn-acoes').forEach(function(r){
+      var n = r.querySelector('.fn-dv-n').value.trim(), v = num(r.querySelector('.fn-dv-v').value);
+      if (!n && !v) return;
+      var ex = pessoas.filter(function(x){ return x.nome.toLowerCase() === n.toLowerCase(); })[0];
+      outros.push(ex ? { pessoa_id: ex.id, valor: v } : { nome: n, valor: v });
+    });
+    if (!outros.length) { fnAviso('Falta com quem dividir.'); return false; }
+    if (outros.some(function(o){ return !(o.valor > 0) || (!o.pessoa_id && !o.nome); })) { fnAviso('Cada pessoa precisa de nome e valor.'); return false; }
+    return fnApi('/api/financas/movimentos/' + m.id + '/partes', 'PUT', { outros: outros, categoria_id: catSel.value ? Number(catSel.value) : null, descricao: desc.value.trim() })
+      .then(function(r){ fnAviso('Dividido: a tua parte ' + fnEur(r.minha) + ', a receber ' + fnEur(r.outros) + '.'); fnMudou(); }, fnErro);
+  } }]);
+  if (!antes.length) porIgual(); else atualizar();
+}
+
+/* Uma entrada pode ser alguém a devolver a parte de uma conta dividida. */
+function fnPainelReembolso(p, m){
+  if (m.cc_pessoa_id) {
+    p.appendChild(h('div', { class: 'fn-caixa melhor', style: 'margin-top:6px' }, [h('b', null, (m.cc_origem === 'reembolso' ? 'Reembolso de ' : 'Acerto com ') + m.cc_pessoa),
+      h('small', { class: 'fn-muted' }, 'Abate no que a pessoa te devia. Não conta como receita.'),
+      h('div', { class: 'fn-acoes' }, [fnBtn('Desligar', function(){ fnApi('/api/financas/movimentos/' + m.id, 'PATCH', { cc_pessoa_id: null }).then(function(){ fnMudou(); }, fnErro); }, 'small')])]));
+    return;
+  }
+  p.appendChild(h('div', { class: 'mono', style: 'margin-top:6px' }, 'É alguém a devolver?'));
+  var cx = h('div', { class: 'fn-lista' }, [h('p', { class: 'fn-nota' }, 'A procurar…')]);
+  p.appendChild(cx);
+  apiGestao('/api/financas/movimentos/' + m.id + '/candidatos').then(function(r){
+    clear(cx);
+    if (!r.pessoas || !r.pessoas.length) { cx.appendChild(h('p', { class: 'fn-nota' }, 'Ninguém com contas por pagar bate com esta entrada. Se for um reembolso, escolhe a pessoa em «Conta corrente de» e guarda.')); return; }
+    r.pessoas.forEach(function(x, i){
+      cx.appendChild(h('div', { class: 'fn-caixa' + (i === 0 ? ' melhor' : ''), style: 'margin-bottom:6px' }, [
+        h('div', { class: 'fn-acoes', style: 'justify-content:space-between' }, [h('b', null, x.nome), h('span', { class: 'fn-pill ai' }, '✦ ' + Math.round(x.confianca * 100) + '%')]),
+        h('small', { class: 'fn-muted' }, 'Deve ' + fnEur(x.aberto) + ' · ' + x.motivo + '.'),
+        h('div', { class: 'fn-acoes' }, [fnBtn('É reembolso de ' + x.nome.split(' ')[0], function(){
+          fnApi('/api/financas/movimentos/' + m.id, 'PATCH', { cc_pessoa_id: x.pessoa_id }).then(function(){ fnAviso('Ligado.'); fnMudou(); }, fnErro); }, 'primary small')])]));
+    });
+  }, function(e){ clear(cx); cx.appendChild(h('p', { class: 'fn-nota' }, e.message)); });
+}
+
 function fnChaveDesc(s){
   return String(s || '').replace(/\d{3,}/g, ' ').replace(/\b(COMPRA|PAGAMENTO|TRF|DD|MB WAY|IMEDIATA)\b/gi, ' ').replace(/\s+/g, ' ').trim().split(' ').slice(0, 3).join(' ');
 }
