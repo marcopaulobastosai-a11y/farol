@@ -818,8 +818,9 @@ async function detalharMovimentos(ids, B, sug) {
             e.description AS despesa, (e.document_id IS NOT NULL) AS despesa_papel, e.splitwise_id::text AS despesa_splitwise,
             ccm.pessoa_id AS cc_pessoa_id, ccp.nome AS cc_pessoa, ccm.origem AS cc_origem,
             (SELECT json_agg(json_build_object('id', pt.id, 'valor', pt.valor, 'categoria_id', pt.categoria_id,
-                                               'pessoa_id', pt.pessoa_id, 'pessoa', cp2.nome) ORDER BY pt.id)
-               FROM fin_mov_partes pt LEFT JOIN fin_cc_pessoas cp2 ON cp2.id = pt.pessoa_id
+                                               'pessoa_id', pt.pessoa_id, 'pessoa', cp2.nome, 'partilha_id', pt.partilha_id,
+                                               'conta_id', pt.cc_conta_id, 'conta', ccx.nome) ORDER BY pt.id)
+               FROM fin_mov_partes pt LEFT JOIN fin_cc_pessoas cp2 ON cp2.id = pt.pessoa_id LEFT JOIN fin_cc_contas ccx ON ccx.id = pt.cc_conta_id
               WHERE pt.movimento_id = m.id) AS partes
        FROM fin_movimentos m
        LEFT JOIN expenses e ON e.id = m.expense_id
@@ -1378,7 +1379,13 @@ function instalar(app) {
     catch (e) { falha(res, e, 'a divisão'); }
   });
   app.delete('/api/financas/movimentos/:id(\\d+)/partes', async (req, res) => {
-    try { await cc.desfazerDivisao(Number(req.params.id)); res.json({ ok: true }); }
+    try {
+      /* Desfaz a conta partilhada inteira (e a despesa que o Farol pos no Splitwise). */
+      const fs = await all('SELECT DISTINCT partilha_id FROM fin_mov_partes WHERE movimento_id = $1 AND partilha_id IS NOT NULL', [Number(req.params.id)]);
+      for (const f of fs) await cc.apagarPartilha(f.partilha_id);
+      await cc.desfazerDivisao(Number(req.params.id));
+      res.json({ ok: true });
+    }
     catch (e) { falha(res, e, 'a divisão'); }
   });
 
