@@ -259,9 +259,9 @@ function fnMovDesenhar(zona, d, qs){
     var b2 = fnBtn('Mostrar todos', function(){ pedir(falta, b2); }, 'small');
     maisZona.appendChild(b1); maisZona.appendChild(b2);
   };
-  cartao.appendChild(h('div', { class: 'fn-scroll' }, [h('table', { class: 'fn-tab fn-movtab' }, [
-    h('colgroup', null, [h('col', { style: 'width:30px' }), h('col', { style: 'width:62px' }), h('col'), h('col', { style: 'width:118px' }), h('col', { style: 'width:250px' }), h('col', { style: 'width:130px' }), h('col', { style: 'width:170px' })]),
-    h('thead', null, [h('tr', null, [h('th', null, [todos]), h('th', null, 'Data'), h('th', null, 'Descrição'), h('th', { class: 'r' }, 'Valor'), h('th', null, 'Categoria'), h('th', null, 'Área'), h('th', null, 'Ligado a')])]),
+  cartao.appendChild(h('div', { class: 'fn-scroll' }, [h('table', { class: 'fn-tab fn-movtab', style: 'min-width:990px' }, [
+    h('colgroup', null, [h('col', { style: 'width:30px' }), h('col', { style: 'width:62px' }), h('col', { style: 'width:140px' }), h('col'), h('col', { style: 'width:118px' }), h('col', { style: 'width:240px' }), h('col', { style: 'width:120px' }), h('col', { style: 'width:160px' })]),
+    h('thead', null, [h('tr', null, [h('th', null, [todos]), h('th', null, 'Data'), h('th', null, 'Conta'), h('th', null, 'Descrição'), h('th', { class: 'r' }, 'Valor'), h('th', null, 'Categoria'), h('th', null, 'Área'), h('th', null, 'Ligado a')])]),
     tb])]));
   cartao.appendChild(maisZona);
   acrescentar(ms);
@@ -386,7 +386,8 @@ function fnLinhaMov(m, aoMarcar){
   var tr = h('tr', { class: 'clic', 'data-id': m.id, onclick: function(){ fnMovJanela(m); } }, [
     h('td', { onclick: function(e){ e.stopPropagation(); } }, [h('input', { type: 'checkbox', 'aria-label': 'Escolher', checked: !!FN.mov.sel[m.id], onchange: function(e){ FN.mov.sel[m.id] = e.target.checked; if (aoMarcar) aoMarcar(); else fnRender('financas'); } })]),
     h('td', { class: 'fn-n', style: 'font-size:.75rem;white-space:nowrap' }, fnData(m.data)),
-    h('td', { style: 'min-width:0' }, [h('span', { class: 'd', title: m.descricao }, m.descricao), h('small', { class: 'd2' }, (conta ? conta.nome : '') + (m.categoria_fonte === 'regra' ? ' · regra' : ''))]),
+    h('td', { title: conta ? conta.nome : '', style: 'font-size:.75rem;line-height:1.25' }, conta ? conta.nome : h('span', { class: 'fn-muted' }, '—')),
+    h('td', { style: 'min-width:0' }, [h('span', { class: 'd', title: m.descricao }, m.descricao), m.categoria_fonte === 'regra' ? h('small', { class: 'd2' }, 'categoria por regra') : null]),
     h('td', { class: 'r ' + (m.valor > 0 ? 'fn-good' : '') }, [fnEur(m.valor, true), fnMinhaParte(m)]),
     h('td', null, [cat]),
     h('td', { class: 'fn-area', title: fnCtxNome(ctx && ctx.id) }, ctx ? ctx.name : h('span', { class: 'fn-muted' }, '—')),
