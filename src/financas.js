@@ -217,10 +217,10 @@ async function categorizar(ids, opcoes) {
   const B = await base();
   const filtro = ids && ids.length ? 'AND m.id = ANY($1::int[])' : '';
   const pend = await all(
-    `SELECT m.id, m.conta_id, to_char(m.data,'YYYY-MM-DD') AS data, m.descricao, m.valor, m.ia_em
+    `SELECT m.id, m.conta_id, to_char(m.data,'YYYY-MM-DD') AS data, m.descricao, m.valor, m.ia_em,
+            (m.ia_categoria_id IS NOT NULL) AS tem_sugestao
        FROM fin_movimentos m WHERE m.categoria_id IS NULL ${filtro}
-        ${o.refazer ? '' : 'AND m.ia_categoria_id IS NULL'}
-      ORDER BY m.data DESC LIMIT 1500`, ids && ids.length ? [ids] : []);
+      ORDER BY m.data DESC LIMIT 3000`, ids && ids.length ? [ids] : []);
   if (!pend.length) return { regra: 0, sugestoes: 0, modelo: 0 };
 
   /* 1. Regras: escritas pelo Marco, aplicam-se logo. */
@@ -237,7 +237,10 @@ async function categorizar(ids, opcoes) {
                      context_id = COALESCE($2, context_id) WHERE id = $3`, [r.categoria_id, r.context_id, m.id]);
       await query('UPDATE fin_regras SET usos = usos + 1 WHERE id = $1', [r.id]);
       nRegra++;
-    } else resto.push(m);
+    } else if (o.refazer || !m.tem_sugestao) resto.push(m);
+    /* As regras valem sempre (passam a frente de uma sugestao antiga); o
+       resto so volta a ser sugerido quando ainda nao tinha sugestao ou
+       quando se pede para refazer. */
   }
 
   /* 2a. Transferencias entre contas proprias: o mesmo valor ao contrario,
@@ -286,7 +289,8 @@ async function categorizar(ids, opcoes) {
   /* Pequenas entradas de pessoas (MB Way, transferencias) nao vao ao modelo:
      sao quase sempre alguem a devolver dinheiro, e isso decide-se com a
      conta dividida, nao com uma categoria de receita. */
-  const paraModelo = resto.filter((m) => !sug[m.id] && !(Number(m.valor) > 0 && Number(m.valor) <= 300 && cc.pagador(m.descricao)));
+  const pessoalDe = (m) => !B.contaPor[m.conta_id] || B.contaPor[m.conta_id].pessoal;
+  const paraModelo = resto.filter((m) => !sug[m.id] && !(pessoalDe(m) && Number(m.valor) > 0 && Number(m.valor) <= 300 && cc.pagador(m.descricao)));
   if (CHAVE && paraModelo.length && o.modelo !== false) {
     const lista = B.cats.filter((c) => c.ativo).map((c) => c.id + ': ' + c.grupo + ' › ' + c.nome + ' (' + c.natureza + ')').join('\n');
     for (let i = 0; i < paraModelo.length; i += 40) {
@@ -945,7 +949,9 @@ function instalar(app) {
         partes: m.partes ? m.partes.map((p) => Object.assign(p, { valor: Number(p.valor) })) : null
       })).map((m) => Object.assign(m, { natureza: natureza(m, B) }));
       /* Entradas que podem ser alguem a devolver uma conta dividida. */
-      const entradas = lista.filter((m) => m.valor > 0 && !m.cc_pessoa_id && (!m.categoria_id || natureza(m, B) === 'receita'));
+      /* So nas contas pessoais: numa empresa, quem manda dinheiro e cliente. */
+      const entradas = lista.filter((m) => m.valor > 0 && !m.cc_pessoa_id && (!m.categoria_id || natureza(m, B) === 'receita') &&
+        B.contaPor[m.conta_id] && B.contaPor[m.conta_id].pessoal);
       if (entradas.length) {
         const ab = await cc.abertos();
         if (ab.length) entradas.forEach((m) => { const r = cc.reembolsoDe(m, ab); if (r.length) m.reembolso = r[0]; });
@@ -1043,15 +1049,19 @@ function instalar(app) {
 
   app.get('/api/financas/movimentos/:id(\\d+)/candidatos', async (req, res) => {
     try {
-      const m = (await all("SELECT id, to_char(data,'YYYY-MM-DD') AS data, descricao, valor FROM fin_movimentos WHERE id = $1", [req.params.id]))[0];
+      const m = (await all(`SELECT m.id, to_char(m.data,'YYYY-MM-DD') AS data, m.descricao, m.valor, c.pessoal
+                                FROM fin_movimentos m JOIN fin_contas c ON c.id = m.conta_id WHERE m.id = $1`, [req.params.id]))[0];
       if (!m) throw erro(404, 'Movimento não encontrado.');
+      /* Numa conta de empresa, uma entrada e de um cliente: nada de reembolsos. */
+      if (Number(m.valor) > 0 && !m.pessoal) return res.json({ candidatos: [], pessoas: [], empresa: true });
       if (Number(m.valor) > 0) {
         /* Uma entrada: quem pode estar a devolver, a conta de que pode ser a
            parte, e os pagamentos dos dias antes para escolher a mao. */
         const debitos = (await all(
           `SELECT m.id, to_char(m.data,'YYYY-MM-DD') AS data, m.descricao, m.valor,
                   EXISTS (SELECT 1 FROM fin_mov_partes p WHERE p.movimento_id = m.id) AS dividido
-             FROM fin_movimentos m WHERE m.valor < -($2::numeric) AND m.data BETWEEN $1::date - 21 AND $1::date + 1
+             FROM fin_movimentos m JOIN fin_contas c ON c.id = m.conta_id AND c.pessoal
+            WHERE m.valor < -($2::numeric) AND m.data BETWEEN $1::date - 21 AND $1::date + 1
             ORDER BY m.data DESC, m.id DESC LIMIT 25`, [m.data, Number(m.valor)])).map((d) => Object.assign(d, { valor: Number(d.valor) }));
         const sd = await cc.sugerirDivisoes([m]);
         return res.json({ candidatos: [], pessoas: cc.reembolsoDe(m, await cc.abertos()), pagador: cc.pagador(m.descricao),
