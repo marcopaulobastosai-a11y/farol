@@ -151,7 +151,7 @@ function fn_financas_movimentos(corpo){
   var qs = fnQs({ estado: FN.mov.estado, conta: FN.mov.conta, categoria: FN.mov.categoria, q: FN.mov.q, de: per.de, ate: per.ate, ambito: FN.ambito, area: FN.area, limite: 1500 });
   fnCarregar(corpo, apiGestao('/api/financas/movimentos?' + qs), function(d){
     var ms = d.movimentos;
-    var comSug = ms.filter(function(m){ return !m.categoria_id && m.ia_categoria_id; });
+    var comSug = ms.filter(function(m){ return !m.categoria_id && m.ia_categoria_id && !m.reembolso && !m.divisao; });
     if (comSug.length){
       corpo.appendChild(h('div', { class: 'fn-banner' }, [h('span', { class: 'fn-pill ai' }, '✦ IA'),
         h('div', { class: 'g' }, [h('b', null, comSug.length + (comSug.length === 1 ? ' movimento tem' : ' movimentos têm') + ' categoria sugerida'),
@@ -161,11 +161,11 @@ function fn_financas_movimentos(corpo){
             .then(function(r){ fnAviso(r.feitos + ' categorizados.'); fnMudou(); }, fnErro);
         }, 'primary small')]));
     }
-    var reemb = ms.filter(function(m){ return m.reembolso; });
+    var reemb = ms.filter(function(m){ return m.reembolso || m.divisao; });
     if (reemb.length && FN.mov.estado !== 'reembolsos'){
       corpo.appendChild(h('div', { class: 'fn-banner' }, [h('span', { class: 'fn-pill ai' }, '✦ Reembolsos'),
-        h('div', { class: 'g' }, [h('b', null, reemb.length + (reemb.length === 1 ? ' entrada parece' : ' entradas parecem') + ' alguém a devolver uma conta dividida'),
-          h('span', { class: 'fn-muted' }, ' · pelo nome na descrição e pelo valor das partes por pagar.')]),
+        h('div', { class: 'g' }, [h('b', null, reemb.length + (reemb.length === 1 ? ' entrada parece' : ' entradas parecem') + ' alguém a devolver a parte de uma conta'),
+          h('span', { class: 'fn-muted' }, ' · pelo nome de quem mandou e por um pagamento teu, dos dias antes, que é múltiplo exato do valor.')]),
         fnBtn('Ver', function(){ FN.mov.estado = 'reembolsos'; FN.mov.sel = {}; fnRender('financas'); }, 'small')]));
     }
     var linha = h('div', { class: 'fn-linha', style: 'align-items:flex-start' });
@@ -212,6 +212,8 @@ function fnLinhaMov(m){
   if (m.reembolso) lig.push(h('div', { class: 'fn-acoes' }, [h('span', { class: 'fn-pill ai', title: m.reembolso.motivo }, '✦ de ' + m.reembolso.nome + '?'),
     h('button', { type: 'button', class: 'btn small', onclick: function(e){ e.stopPropagation();
       fnApi('/api/financas/movimentos/' + m.id, 'PATCH', { cc_pessoa_id: m.reembolso.pessoa_id }).then(function(){ fnAviso('Reembolso de ' + m.reembolso.nome + '.'); fnMudou(); }, fnErro); } }, 'Sim')]));
+  else if (m.divisao) lig.push(h('div', { class: 'fn-acoes' }, [h('span', { class: 'fn-pill ai', title: fnTextoDivisao(m.divisao) }, '✦ parte de «' + m.divisao.descricao.slice(0, 18) + '»?'),
+    h('button', { type: 'button', class: 'btn small', onclick: function(e){ e.stopPropagation(); fnAceitarDivisao(m.id, m.divisao); } }, 'Sim')]));
   if (!lig.length && m.valor < 0 && m.natureza === 'despesa') lig.push(h('span', { class: 'fn-muted', style: 'font-size:.75rem' }, '—'));
   var conta = fnConta(m.conta_id);
   var tr = h('tr', { class: 'clic' + (FN.mov.aberto === m.id ? ' on' : ''), onclick: function(){ FN.mov.aberto = FN.mov.aberto === m.id ? null : m.id; fnRender('financas'); } }, [
@@ -398,6 +400,19 @@ function fnDividirJanela(m){
   if (!antes.length) porIgual(); else atualizar();
 }
 
+/* A explicação de uma sugestão de conta dividida. */
+function fnTextoDivisao(d){
+  var nomes = d.pagos.map(function(x){ return x.nome; });
+  var quem = nomes.length === 1 ? nomes[0] + ' mandou ' : nomes.slice(0, -1).join(', ') + ' e ' + nomes[nomes.length - 1] + ' mandaram ';
+  return quem + fnEur(d.parte) + (nomes.length > 1 ? ' cada' : '') + '. «' + d.descricao + '» (' + fnData(d.data) + ', ' + fnEur(d.total) + ') dá ' + fnEur(d.parte) + ' a dividir por ' + d.pessoas +
+    (d.juntar ? '; já estava dividido e junta-se ' + (nomes.length > 1 ? 'quem falta' : nomes[0]) + '.' : '.') +
+    (d.pessoas > nomes.length + 1 ? ' Falta(m) ' + (d.pessoas - nomes.length - 1) + ' por devolver: entram quando mandarem.' : '');
+}
+function fnAceitarDivisao(creditoId, d){
+  return fnApi('/api/financas/movimentos/' + creditoId + '/devolucao', 'POST', { debito_id: d.movimento_id, creditos: d.pagos.map(function(x){ return { id: x.id }; }) })
+    .then(function(r){ fnAviso('Dividido: a tua parte ' + fnEur(r.minha) + ' · ' + r.ligados + (r.ligados === 1 ? ' reembolso ligado.' : ' reembolsos ligados.')); fnMudou(); }, fnErro);
+}
+
 /* Uma entrada pode ser alguém a devolver a parte de uma conta dividida. */
 function fnPainelReembolso(p, m){
   if (m.cc_pessoa_id) {
@@ -411,14 +426,35 @@ function fnPainelReembolso(p, m){
   p.appendChild(cx);
   apiGestao('/api/financas/movimentos/' + m.id + '/candidatos').then(function(r){
     clear(cx);
-    if (!r.pessoas || !r.pessoas.length) { cx.appendChild(h('p', { class: 'fn-nota' }, 'Ninguém com contas por pagar bate com esta entrada. Se for um reembolso, escolhe a pessoa em «Conta corrente de» e guarda.')); return; }
-    r.pessoas.forEach(function(x, i){
+    if (r.divisao) {
+      cx.appendChild(h('div', { class: 'fn-caixa melhor', style: 'margin-bottom:6px' }, [
+        h('div', { class: 'fn-acoes', style: 'justify-content:space-between' }, [h('b', null, 'Parte de «' + r.divisao.descricao + '»'), h('span', { class: 'fn-pill ai' }, '✦ ' + Math.round(r.divisao.confianca * 100) + '%')]),
+        h('small', { class: 'fn-muted' }, fnTextoDivisao(r.divisao)),
+        h('div', { class: 'fn-acoes' }, [fnBtn('Dividir e ligar', function(){ fnAceitarDivisao(m.id, r.divisao); }, 'primary small')])]));
+    }
+    (r.pessoas || []).forEach(function(x, i){
       cx.appendChild(h('div', { class: 'fn-caixa' + (i === 0 ? ' melhor' : ''), style: 'margin-bottom:6px' }, [
         h('div', { class: 'fn-acoes', style: 'justify-content:space-between' }, [h('b', null, x.nome), h('span', { class: 'fn-pill ai' }, '✦ ' + Math.round(x.confianca * 100) + '%')]),
         h('small', { class: 'fn-muted' }, 'Deve ' + fnEur(x.aberto) + ' · ' + x.motivo + '.'),
         h('div', { class: 'fn-acoes' }, [fnBtn('É reembolso de ' + x.nome.split(' ')[0], function(){
           fnApi('/api/financas/movimentos/' + m.id, 'PATCH', { cc_pessoa_id: x.pessoa_id }).then(function(){ fnAviso('Ligado.'); fnMudou(); }, fnErro); }, 'primary small')])]));
     });
+    /* À mão: escolher o pagamento de que isto é a parte. */
+    if (r.debitos && r.debitos.length) {
+      var sd = h('select', { class: 'fn-sel' }, [h('option', { value: '' }, '— escolhe o pagamento —')].concat(r.debitos.map(function(d){
+        return h('option', { value: d.id }, fnData(d.data) + ' · ' + d.descricao.slice(0, 34) + ' · ' + fnEur(d.valor) + (d.dividido ? ' (já dividido)' : ''));
+      })));
+      var nm = h('input', { class: 'fn-in', value: r.pagador || '', placeholder: 'Quem mandou' });
+      cx.appendChild(h('div', { class: 'fn-caixa' }, [h('small', { class: 'fn-muted' }, (r.divisao || (r.pessoas && r.pessoas.length) ? 'Não é isso? ' : '') + 'É a parte de alguém numa conta que pagaste? Escolhe o pagamento: fica dividido e esta entrada liga-se como reembolso.'),
+        sd, nm, h('div', { class: 'fn-acoes' }, [fnBtn('Dividir e ligar', function(){
+          if (!sd.value) return fnAviso('Escolhe o pagamento.');
+          if (!nm.value.trim()) return fnAviso('Falta quem mandou.');
+          fnApi('/api/financas/movimentos/' + m.id + '/devolucao', 'POST', { debito_id: Number(sd.value), creditos: [{ id: m.id, nome: nm.value.trim() }] })
+            .then(function(x){ fnAviso('Dividido: a tua parte ' + fnEur(x.minha) + '.'); fnMudou(); }, fnErro);
+        }, 'small')])]));
+    } else if (!r.divisao && !(r.pessoas && r.pessoas.length)) {
+      cx.appendChild(h('p', { class: 'fn-nota' }, 'Nada bate com esta entrada. Se for alguém a acertar contas, escolhe a pessoa em «Conta corrente de» e guarda.'));
+    }
   }, function(e){ clear(cx); cx.appendChild(h('p', { class: 'fn-nota' }, e.message)); });
 }
 
