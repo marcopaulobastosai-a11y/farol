@@ -6,7 +6,7 @@
  * o area-tarefas.js desenha-os como sempre, e aqui só se esconde a caixa dele
  * quando se está noutro separador.
  *
- *   Finanças:   Resumo · Movimentos · Orçamentos · Análise · Contas correntes
+ *   Finanças:   Resumo · Movimentos · Orçamentos · Análise · Contas correntes · Contas partilhadas · Pessoas
  *               · Categorias & IA · Tarefas & papéis
  *   Património: Visão geral · Contas · Bens & dívidas · Tarefas & papéis
  *
@@ -36,7 +36,7 @@ var FN = {
 function fnGuardar(){ try { localStorage.setItem('fnEstado', JSON.stringify({ aba: FN.aba, ambito: FN.ambito })); } catch (e) {} }
 
 var FN_ABAS = {
-  financas: [['resumo','Resumo'],['movimentos','Movimentos'],['orcamentos','Orçamentos'],['analise','Análise'],['cc','Contas correntes'],['categorias','Categorias & IA'],['area','Tarefas & papéis']],
+  financas: [['resumo','Resumo'],['movimentos','Movimentos'],['orcamentos','Orçamentos'],['analise','Análise'],['cc','Contas correntes'],['partilhadas','Contas partilhadas'],['pessoas','Pessoas'],['categorias','Categorias & IA'],['area','Tarefas & papéis']],
   patrimonio: [['visao','Visão geral'],['contas','Contas'],['bens','Bens & dívidas'],['area','Tarefas & papéis']]
 };
 
