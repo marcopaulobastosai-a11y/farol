@@ -87,6 +87,18 @@ CREATE INDEX IF NOT EXISTS fin_mov_proj_idx ON fin_movimentos (project_id) WHERE
 -- origem e a de destino, e o dinheiro nao conta duas vezes.
 ALTER TABLE fin_movimentos ADD COLUMN IF NOT EXISTS par_id INTEGER REFERENCES fin_movimentos(id) ON DELETE SET NULL;
 CREATE INDEX IF NOT EXISTS fin_mov_par_idx ON fin_movimentos (par_id) WHERE par_id IS NOT NULL;
+-- Transferencia para (ou de) uma conta cujo outro lado nao esta no Farol (o
+-- cartao cujo extrato ainda nao veio, o cartao da Sofia, as poupancas das
+-- meninas): fica a conta, sem o movimento.
+ALTER TABLE fin_movimentos ADD COLUMN IF NOT EXISTS para_conta_id INTEGER REFERENCES fin_contas(id) ON DELETE SET NULL;
+-- O texto que, nos movimentos das outras contas, quer dizer «para esta conta»
+-- (um por linha: o numero do contrato do cartao, a referencia da poupanca).
+ALTER TABLE fin_contas ADD COLUMN IF NOT EXISTS identificadores TEXT;
+-- De quem e o movimento: uma ou varias pessoas do agregado (person_id fica
+-- com a primeira, para o que ainda so conhece uma).
+ALTER TABLE fin_movimentos ADD COLUMN IF NOT EXISTS person_ids INTEGER[];
+UPDATE fin_movimentos SET person_ids = ARRAY[person_id] WHERE person_id IS NOT NULL AND person_ids IS NULL;
+CREATE INDEX IF NOT EXISTS fin_mov_pessoas_idx ON fin_movimentos USING GIN (person_ids);
 
 -- Regras: «se a descricao contem X (e o valor esta entre A e B, e a conta e
 -- C) entao categoria Y». Aplicam-se antes da IA e sem perguntar.
