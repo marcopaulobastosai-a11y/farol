@@ -2163,7 +2163,9 @@ if (_aeTfFechar){
  * As sub-areas no menu (26 set)
  *
  * Cada area com sub-areas mostra-as no menu, por baixo dela, com uma seta
- * para recolher (comecam abertas). Carregar numa sub-area abre o ecra da
+ * para as mostrar. Comecam recolhidas (3 out, pedido do Marco): quem quiser
+ * ver as de uma area abre-as na seta, e essa escolha fica no browser.
+ * Carregar numa sub-area abre o ecra da
  * area ja filtrado por ela - e o mesmo filtro «Onde» do ecra, nao um
  * segundo: mudar la muda o realce aqui, e vice-versa. Carregar na area em
  * si mostra-a inteira.
@@ -2248,7 +2250,7 @@ function aeNavMontar(){
     }
     caixa = el('div', 'ae-nsubs');
     caixa.dataset.chave = chave;
-    caixa.hidden = AE_NAV_FECHADO[a.view] === true;
+    caixa.hidden = AE_NAV_FECHADO[a.view] !== false;
     seta.classList.toggle('fechado', caixa.hidden);
     seta.title = caixa.hidden ? 'Mostrar as sub-áreas' : 'Recolher as sub-áreas';
     subs.forEach(function(s){
