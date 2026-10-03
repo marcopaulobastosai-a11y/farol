@@ -118,7 +118,13 @@ var FN_CSS =
   '.fn-acoes .btn.small,.fn-li .btn.small,.fn-tab .btn.small,.fn-caixa .btn.small,.fn-banner .btn.small{margin-left:0}' +
   '.fn-nota{font-size:.75rem;color:var(--muted);margin:0}' +
   '.fn-spark{display:block}' +
-  '@media (max-width:720px){.fn-big{font-size:1.7rem}.fn-tab .d{max-width:200px}}';
+  '.fn-aler{opacity:.55;transition:opacity .15s;pointer-events:none}' +
+  '.fn-mod.largo{width:min(780px,100%)}.fn-movdet{display:flex;flex-direction:column;gap:10px}' +
+  '.fn-movtab{table-layout:fixed;min-width:860px}.fn-movtab td{overflow:hidden}.fn-movtab .d{max-width:100%}' +
+  '.fn-movtab .d2{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}' +
+  '.fn-movtab td.r{font-size:.875rem;font-weight:500}.fn-movtab .fn-area{font-size:.75rem;white-space:nowrap;text-overflow:ellipsis}' +
+  '.fn-movtab .fn-pill{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block;vertical-align:middle}' +
+  '@media (max-width:720px){.fn-big{font-size:1.7rem}.fn-tab .d{max-width:200px}.fn-movtab .d{max-width:100%}}';
 
 /* ---------------- utilitários ---------------- */
 function fnEur(v, sinal){
@@ -190,6 +196,9 @@ function fnFiltro(){ return { ambito: FN.ambito, area: FN.area, mes: FN.mes }; }
 
 /* Depois de gravar: esquece o que estava lido e volta a desenhar. */
 function fnMudou(){
+  /* Uma mudança feita na janela de um movimento fecha-a: a lista por baixo
+     volta a ler-se com o que mudou. */
+  if (FN.movJanela) { FN.movJanela.fechar(); FN.movJanela = null; }
   FN.cache = {}; FN.base = null;
   fnRender();
 }
@@ -410,15 +419,21 @@ function fnRender(qual){
     /* Só se pede ao servidor o que está à vista. */
     if (qual && qual !== v) return;
     if (!qual && fnVistaAtiva() !== v) return;
-    clear(corpo);
-    corpo.appendChild(h('p', { class: 'fn-nota' }, 'A ler…'));
-    fnBase().then(function(){
+    /* Enquanto se lê, fica o ecrã que lá estava, esbatido: não pisca nem
+       salta para o topo. Com a base já lida, desenha-se logo. */
+    var desenhar = function(){
       try {
+        corpo.classList.remove('fn-aler');
         clear(corpo);
         var fnDesenho = window['fn_' + v + '_' + aba];
         if (typeof fnDesenho === 'function') fnDesenho(corpo);
       } catch (e) { console.error('[farol] finanças ' + v + '/' + aba, e); clear(corpo); corpo.appendChild(fnVazio('Este ecrã falhou a desenhar.', e.message)); }
-    }, function(e){
+    };
+    if (FN.base) { desenhar(); return; }
+    if (corpo.firstChild) corpo.classList.add('fn-aler');
+    else corpo.appendChild(h('p', { class: 'fn-nota' }, 'A ler…'));
+    fnBase().then(desenhar, function(e){
+      corpo.classList.remove('fn-aler');
       clear(corpo); corpo.appendChild(fnVazio('Não foi possível ler as finanças.', e.message, [fnBtn('Tentar outra vez', function(){ fnMudou(); })]));
     });
   });
