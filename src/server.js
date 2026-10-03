@@ -556,7 +556,7 @@ app.get('/api/gestao/projetos/:id', async (req, res) => {
       : [];
     const alvos = projeto.tipo === 'programa' ? filhos.map((f) => f.id) : [id];
 
-    const [membros, tarefas_, documentos, despesas, dependentes, pai] = await Promise.all([
+    const [membros, tarefas_, documentos, despesas, dependentes, pai, movimentos] = await Promise.all([
       all('SELECT person_id, member_role FROM project_members WHERE project_id = $1', [id]),
       alvos.length ? all(
         `SELECT t.id, t.title, t.status, t.tipo, t.priority, t.owner_id, t.done, t.tags, t.project_id,
@@ -580,7 +580,16 @@ app.get('/api/gestao/projetos/:id', async (req, res) => {
             WHERE depends_on_id = $1 AND origin = 'real' ORDER BY sort, id`, [id]),
       projeto.parent_id
         ? all('SELECT id, name, status FROM projects WHERE id = $1', [projeto.parent_id])
-        : []
+        : [],
+      /* Os movimentos do banco postos neste projeto (o que entrou e o que
+         saiu). Sem as Finanças instaladas, nao ha nenhum. */
+      alvos.length ? all(
+        `SELECT m.id, to_char(m.data,'YYYY-MM-DD') AS data, m.descricao, m.valor::float8 AS valor, m.project_id,
+                c.nome AS conta, k.nome AS categoria, k.natureza
+           FROM fin_movimentos m JOIN fin_contas c ON c.id = m.conta_id
+           LEFT JOIN fin_categorias k ON k.id = m.categoria_id
+          WHERE m.project_id = ANY($1::int[])
+          ORDER BY m.data DESC, m.id DESC`, [alvos]).catch(() => []) : []
     ]);
     projeto.members = membros.map((m) => ({ person_id: m.person_id, member_role: m.member_role }));
     filhos.forEach((f) => {
@@ -590,7 +599,7 @@ app.get('/api/gestao/projetos/:id', async (req, res) => {
     });
     res.json({
       projeto, tarefas: tarefas_, documentos, despesas, dependentes,
-      filhos, pai: pai[0] || null
+      filhos, pai: pai[0] || null, movimentos
     });
   } catch (err) {
     console.error('[farol] GET projeto:', err.message);
