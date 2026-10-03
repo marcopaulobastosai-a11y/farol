@@ -129,10 +129,11 @@ function fnContaJanela(c){
   var ativo = h('input', { type: 'checkbox', checked: c ? c.ativo : true });
   var saldo = h('input', { class: 'fn-in', inputmode: 'decimal', placeholder: 'opcional' });
   var em = h('input', { class: 'fn-in', type: 'date', value: fnHoje() });
+  var idents = h('textarea', { class: 'fn-in', rows: 2, placeholder: 'ex.: PREST.55046103770' }, c ? (c.identificadores || '') : '');
   tipo.addEventListener('change', function(){ if (tipo.value === 'empresa') pes.checked = false; });
   var bts = [{ txt: c ? 'Guardar' : 'Criar', pri: true, fn: function(){
     if (!nome.value.trim()) { fnAviso('Falta o nome.'); return false; }
-    var corpo = { nome: nome.value.trim(), tipo: tipo.value, instituicao: inst.value, context_id: area.value ? Number(area.value) : null, pessoal: pes.checked };
+    var corpo = { nome: nome.value.trim(), tipo: tipo.value, instituicao: inst.value, context_id: area.value ? Number(area.value) : null, pessoal: pes.checked, identificadores: idents.value.trim() };
     if (c) corpo.ativo = ativo.checked;
     var p = c ? fnApi('/api/financas/contas/' + c.id, 'PATCH', corpo).then(function(){ return c.id; }) : fnApi('/api/financas/contas', 'POST', corpo).then(function(r){ return r.id; });
     return p.then(function(id){
@@ -150,7 +151,9 @@ function fnContaJanela(c){
     h('label', { class: 'fn-check' }, [pes, 'Conta pessoal (as das empresas ficam fora do património pessoal)']),
     c ? h('label', { class: 'fn-check' }, [ativo, 'Ativa']) : null,
     h('div', { class: 'fn-campos' }, [fnCampo(c ? 'Novo saldo (opcional)' : 'Saldo (opcional)', saldo), fnCampo('Em', em)]),
-    h('p', { class: 'fn-nota' }, 'Se o extrato trouxer a coluna do saldo, não é preciso escrevê-lo.')
+    h('p', { class: 'fn-nota' }, 'Se o extrato trouxer a coluna do saldo, não é preciso escrevê-lo.'),
+    fnCampo('Identificadores (um por linha)', idents),
+    h('p', { class: 'fn-nota' }, 'O texto que aparece nos movimentos das outras contas quando o dinheiro vai para esta (o número do contrato do cartão, a referência da poupança). Esses movimentos ficam ligados a esta conta sozinhos, também os que vierem depois.')
   ], bts);
 }
 function fnSaldoJanela(c){
