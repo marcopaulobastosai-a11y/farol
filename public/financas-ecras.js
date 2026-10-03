@@ -141,6 +141,9 @@ function fn_financas_movimentos(corpo){
     sp.value = FN.mov.periodo; sp.addEventListener('change', function(){ var antes = FN.mov.periodo; FN.mov.periodo = sp.value; FN.mov.sel = {}; FN.mov.mostrar = 0;
       if ((antes === 'tudo') !== (sp.value === 'tudo')) fnRender('financas'); else mudar(); });
     f.appendChild(sp);
+    if (FN.mov.projeto) f.appendChild(h('span', { class: 'fn-pill tr', style: 'display:inline-flex;align-items:center;gap:6px;padding:4px 10px' }, [
+      'Projeto: ' + (fnProjetoNome(FN.mov.projeto) || FN.mov.projeto),
+      h('button', { type: 'button', class: 'btn small', 'aria-label': 'Tirar o filtro do projeto', style: 'padding:0 6px;min-height:0', onclick: function(){ FN.mov.projeto = ''; mudar(); } }, '×')]));
     var qi = h('input', { class: 'fn-sel', type: 'search', placeholder: 'Procurar descrição ou valor', value: FN.mov.q, 'aria-label': 'Procurar', style: 'flex:1 1 180px' });
     var tmr = null;
     qi.addEventListener('input', function(){ clearTimeout(tmr); tmr = setTimeout(function(){ if (FN.mov.q !== qi.value.trim()) { FN.mov.q = qi.value.trim(); FN.mov.sel = {}; FN.mov.mostrar = 0; fnMovLista(zona); } }, 350); });
@@ -160,7 +163,23 @@ function fn_financas_movimentos(corpo){
 var FN_MOV_PAG = 200;
 function fnMovQs(){
   var per = fnPeriodoMov();
-  return fnQs({ estado: FN.mov.estado, conta: FN.mov.conta, categoria: FN.mov.categoria, q: FN.mov.q, de: per.de, ate: per.ate, ambito: FN.ambito, area: FN.area });
+  return fnQs({ estado: FN.mov.estado, conta: FN.mov.conta, categoria: FN.mov.categoria, projeto: FN.mov.projeto || '', q: FN.mov.q, de: per.de, ate: per.ate, ambito: FN.ambito, area: FN.area });
+}
+/* A lista dos projetos, para pôr um movimento num (o casamento, a casa nova).
+   Os programas ficam de fora: guardam projetos, não movimentos. */
+function fnProjetos(){
+  return ((window.G && G.projects) || []).filter(function(p){ return p.tipo !== 'programa'; });
+}
+function fnProjetoNome(id){ var p = fnProjetos().filter(function(x){ return x.id === Number(id); })[0]; return p ? p.name : ''; }
+function fnSelProjetos(valor, vazio){
+  var s = h('select', { class: 'fn-sel' }, [h('option', { value: '' }, vazio || '— sem projeto —')]);
+  var ps = fnProjetos();
+  var abertos = ps.filter(function(p){ return p.status !== 'concluido' && p.status !== 'cancelado'; });
+  var fechados = ps.filter(function(p){ return abertos.indexOf(p) < 0; });
+  abertos.forEach(function(p){ s.appendChild(h('option', { value: p.id }, p.name)); });
+  if (fechados.length) s.appendChild(h('optgroup', { label: 'Fechados' }, fechados.map(function(p){ return h('option', { value: p.id }, p.name); })));
+  if (valor) s.value = String(valor);
+  return s;
 }
 function fnMovLista(zona){
   var qs = fnMovQs();
@@ -371,6 +390,7 @@ function fnLinhaMov(m, aoMarcar){
   cat = fnCatNaLinha(m, cat.classList.contains('fn-acoes') ? Array.prototype.slice.call(cat.childNodes) : [cat]);
   var lig = [];
   if (m.expense_id) lig.push(h('span', { class: 'fn-pill good', title: m.despesa || '' }, (m.despesa_papel ? 'papel · ' : 'despesa · ') + (m.despesa || '').slice(0, 24)));
+  if (m.project_id) lig.push(h('span', { class: 'fn-pill', title: 'Projeto: ' + (m.projeto || '') }, 'projeto · ' + (m.projeto || fnProjetoNome(m.project_id))));
   if (m.cc_pessoa) lig.push(h('span', { class: 'fn-pill tr' }, (m.cc_origem === 'reembolso' ? 'reembolso · ' : 'c/c · ') + m.cc_pessoa));
   var outros = (m.partes || []).filter(function(p){ return p.pessoa_id; });
   if (outros.length) lig.push(h('span', { class: 'fn-pill tr', title: outros.map(function(p){ return p.pessoa + ' ' + fnEur(-p.valor); }).join(' · ') },
@@ -407,6 +427,7 @@ function fnBarraLote(ids, ms, limpar){
   var sc = fnSelCategorias('', 'Categoria…');
   var debs = (ms || []).filter(function(m){ return FN.mov.sel[m.id] && m.valor < 0; });
   var sa = fnSelAreas('', 'Área…');
+  var spj = fnSelProjetos('', 'Projeto…');
   return h('div', { class: 'fn-barra', style: 'padding:8px;border-bottom:1px solid var(--line)' }, [
     h('b', null, ids.length + ' escolhidos'), sc,
     fnBtn('Categorizar', function(){ if (!sc.value) return fnAviso('Escolhe a categoria.');
@@ -414,6 +435,9 @@ function fnBarraLote(ids, ms, limpar){
     sa,
     fnBtn('Pôr na área', function(){
       fnApi('/api/financas/movimentos/lote', 'POST', { ids: ids, context_id: sa.value ? Number(sa.value) : null }).then(function(r){ FN.mov.sel = {}; fnAviso(r.feitos + ' arrumados.'); fnMudou(); }, fnErro); }, 'small'),
+    spj,
+    fnBtn('Pôr no projeto', function(){
+      fnApi('/api/financas/movimentos/lote', 'POST', { ids: ids, project_id: spj.value ? Number(spj.value) : null }).then(function(r){ FN.mov.sel = {}; fnAviso(r.feitos + (spj.value ? ' postos no projeto.' : ' tirados do projeto.')); fnMudou(); }, fnErro); }, 'small'),
     debs.length ? fnBtn('Dividir com… (' + debs.length + ')', function(){ fnDividirGrupoJanela(debs); }, 'small') : null,
     fnBtn('Aceitar sugestões', function(){
       fnApi('/api/financas/movimentos/lote', 'POST', { ids: ids, aceitar: true }).then(function(r){ FN.mov.sel = {}; fnAviso(r.feitos + ' categorizados.'); fnMudou(); }, fnErro); }, 'small'),
@@ -437,6 +461,7 @@ function fnPainelMov(p, m, emJanela){
 
   var sc = fnSelCategorias(m.categoria_id || m.ia_categoria_id);
   var sa = fnSelAreas(m.context_id);
+  var spj = fnSelProjetos(m.project_id);
   var sp = h('select', { class: 'fn-sel' }, [h('option', { value: '' }, '— nenhuma —')]);
   var nota = h('input', { class: 'fn-in', value: m.nota || '', placeholder: 'Nota' });
   var regra = h('input', { type: 'checkbox' });
@@ -446,12 +471,13 @@ function fnPainelMov(p, m, emJanela){
     if (m.cc_pessoa_id) sp.value = String(m.cc_pessoa_id);
   }, function(){});
   p.appendChild(h('div', { class: 'fn-campos' }, [fnCampo('Categoria' + (!m.categoria_id && m.ia_categoria_id ? ' (sugerida)' : ''), sc), fnCampo('Área', sa)]));
-  p.appendChild(fnCampo('Conta corrente de', sp));
+  p.appendChild(h('div', { class: 'fn-campos' }, [fnCampo('Projeto', spj), fnCampo('Conta corrente de', sp)]));
   p.appendChild(fnCampo('Nota', nota));
   p.appendChild(h('label', { class: 'fn-check' }, [regra, 'Criar regra: quando a descrição tiver']));
   p.appendChild(padrao);
   p.appendChild(h('div', { class: 'fn-acoes' }, [fnBtn('Guardar', function(){
     var corpo = { categoria_id: sc.value ? Number(sc.value) : null, context_id: sa.value ? Number(sa.value) : null, nota: nota.value,
+      project_id: spj.value ? Number(spj.value) : null,
       cc_pessoa_id: sp.value ? Number(sp.value) : null, aceite: !m.categoria_id && m.ia_categoria_id && String(m.ia_categoria_id) === sc.value };
     if (regra.checked) { corpo.criar_regra = true; corpo.regra_padrao = padrao.value; }
     fnApi('/api/financas/movimentos/' + m.id, 'PATCH', corpo).then(function(){ fnAviso('Guardado.'); if (corpo.criar_regra) fnMudou(); else fnMovAtualizar(m.id); }, fnErro);
