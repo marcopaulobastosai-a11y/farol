@@ -128,6 +128,13 @@ var FN_CSS =
   '.fn-dq span:last-child{overflow:hidden;text-overflow:ellipsis}.fn-dq .ib-av{width:22px;height:22px;font-size:.625rem;flex:none}' +
   '.fn-dq:hover{border-color:var(--line);background:var(--ground)}.fn-dq.vazio{color:var(--muted);font-size:.75rem;padding:2px 8px;opacity:.55}' +
   'tr:hover .fn-dq.vazio{opacity:1}' +
+  '.fn-movtab tr.fn-tocada td{background:color-mix(in srgb, var(--accent) 11%, transparent);font-weight:600}' +
+  '.fn-movtab tr.fn-tocada td:first-child{box-shadow:inset 3px 0 0 var(--accent)}' +
+  '.fn-movtab tr.fn-tocada{animation:fnPisca 1.4s ease-out 1}' +
+  '@keyframes fnPisca{0%{background:color-mix(in srgb, var(--accent) 38%, transparent)}100%{background:transparent}}' +
+  '.fn-movtab td.fn-saldo{font-size:.8125rem;color:var(--ink-2);font-variant-numeric:tabular-nums}.fn-movtab td.fn-saldo.calc{color:var(--muted)}' +
+  '.fn-movtab .fn-area.da-conta{color:var(--muted);font-style:italic}' +
+  '.fn-dq-avs{display:inline-flex}.fn-dq-avs .ib-av + .ib-av{margin-left:-7px;box-shadow:0 0 0 2px var(--surface)}' +
   '@media (max-width:720px){.fn-big{font-size:1.7rem}.fn-tab .d{max-width:200px}.fn-movtab .d{max-width:100%}}';
 
 /* ---------------- utilitários ---------------- */
@@ -190,7 +197,16 @@ function fnAviso(msg){ if (typeof toast === 'function') toast(msg); }
 
 function fnApi(url, metodo, corpo){
   var o = metodo ? { method: metodo, headers: { 'Content-Type': 'application/json' }, body: corpo ? JSON.stringify(corpo) : '{}' } : undefined;
-  return apiGestao(url, o);
+  return apiGestao(url, o).then(function(r){ if (metodo && metodo !== 'GET') fnTocou(url, corpo); return r; });
+}
+/* Os movimentos em que se acabou de mexer ficam marcados na lista (fundo e
+   letra mais forte), para se ver onde se esteve. */
+function fnTocou(url, corpo){
+  FN.tocados = FN.tocados || {};
+  var m = /\/api\/financas\/movimentos\/(\d+)/.exec(url);
+  if (m) FN.tocados[Number(m[1])] = true;
+  var b = corpo || {};
+  [].concat(b.ids || [], b.movimentos || [], b.pares ? [].concat.apply([], b.pares) : [], b.saida ? [b.saida, b.entrada] : []).forEach(function(id){ if (id) FN.tocados[Number(id)] = true; });
 }
 function fnQs(o){
   return Object.keys(o).filter(function(k){ return o[k] !== '' && o[k] != null; })
