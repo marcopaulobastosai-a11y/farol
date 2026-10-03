@@ -206,7 +206,7 @@ function fn_financas_cc(corpo){
     ps.sort(function(a, b){ return Math.abs(b.saldo) - Math.abs(a.saldo); }).forEach(function(p){
       var grupos = (p.por_grupo || []).map(function(g){ return h('span', { class: 'fn-pill', style: 'margin:1px' }, g.nome + ' ' + fnEur(g.saldo, true)); });
       tb.appendChild(h('tr', { class: 'clic' + (FN.ccAberta === p.id ? ' on' : ''), onclick: function(){ FN.ccAberta = FN.ccAberta === p.id ? null : p.id; fnRender('financas'); } }, [
-        h('td', null, [h('b', { style: 'font-weight:500' }, p.nome), h('small', { style: 'display:block' }, p.splitwise_id ? 'Splitwise' + (p.saldo_tu ? ' + à mão' : '') : 'à mão')]),
+        h('td', null, [h('b', { style: 'font-weight:500' }, p.nome), h('small', { style: 'display:block' }, p.splitwise_id ? 'Splitwise' + (p.saldo_tu ? ' + contas no Farol' : '') : 'no Farol')]),
         h('td', null, grupos.length ? grupos : h('span', { class: 'fn-muted' }, '—')),
         h('td', { style: 'font-size:.75rem' }, p.ultimo ? fnData(p.ultimo) : '—'),
         h('td', { class: 'r ' + (p.saldo > 0.005 ? 'fn-good' : p.saldo < -0.005 ? 'fn-bad' : '') }, Math.abs(p.saldo) < 0.005 ? 'acertado' : fnEur(p.saldo, true)),
@@ -216,7 +216,7 @@ function fn_financas_cc(corpo){
     var cartao = h('div', { class: 'card largo', style: 'padding:6px 10px' });
     if (!ps.length) cartao.appendChild(fnVazio('Ainda ninguém.', d.splitwise ? 'Carrega em «Ler o Splitwise agora», ou junta uma pessoa à mão.' : 'Junta as pessoas com quem divides dinheiro.'));
     else cartao.appendChild(h('div', { class: 'fn-scroll' }, [h('table', { class: 'fn-tab', style: 'min-width:600px' }, [h('thead', null, [h('tr', null, [h('th', null, 'Pessoa'), h('th', null, 'Por grupo'), h('th', null, 'Último'), h('th', { class: 'r' }, 'Saldo'), h('th')])]), tb])]));
-    cartao.appendChild(h('p', { class: 'fn-nota', style: 'padding:8px' }, 'Saldo positivo: a pessoa deve-te. Negativo: deves tu. Nas pessoas do Splitwise o saldo é o do Splitwise, mais o que lançares aqui à mão.'));
+    cartao.appendChild(h('p', { class: 'fn-nota', style: 'padding:8px' }, 'Saldo positivo: a pessoa deve-te. Negativo: deves tu. Nas pessoas do Splitwise o saldo é o do Splitwise, mais as contas divididas no Farol e o que lançares aqui à mão.'));
     linha.appendChild(cartao);
     var painel = h('div', { class: 'card fn-painel' });
     var ab = ps.filter(function(p){ return p.id === FN.ccAberta; })[0];
@@ -250,9 +250,9 @@ function fnPainelCc(p, pessoa){
     if (!r.movimentos.length) lista.appendChild(h('p', { class: 'fn-nota' }, 'Sem movimentos.'));
     r.movimentos.slice(0, 200).forEach(function(m){
       lista.appendChild(h('div', { class: 'fn-li' }, [h('span', { class: 'fn-n fn-muted', style: 'width:52px;font-size:.75rem' }, fnData(m.data)),
-        h('div', { class: 'g' }, [m.descricao, h('small', null, [m.origem === 'splitwise' ? 'Splitwise' + (m.grupo ? ' · ' + m.grupo : '') + (m.total ? ' · total ' + fnEur(m.total) : '') : m.origem === 'banco' ? 'do banco' : 'à mão', m.pagamento ? ' · pagamento' : ''].join(''))]),
+        h('div', { class: 'g' }, [m.descricao, h('small', null, [m.origem === 'splitwise' ? 'Splitwise' + (m.grupo ? ' · ' + m.grupo : '') + (m.total ? ' · total ' + fnEur(m.total) : '') : m.origem === 'banco' ? 'do banco' : m.origem === 'partilha' ? 'conta dividida' + (m.total ? ' · total ' + fnEur(m.total) : '') : m.origem === 'reembolso' ? 'reembolso, do banco' : 'à mão', m.pagamento ? ' · pagamento' : ''].join(''))]),
         h('span', { class: 'fn-n ' + (m.valor > 0 ? 'fn-good' : 'fn-bad') }, fnEur(m.valor, true)),
-        m.origem !== 'splitwise' ? h('button', { type: 'button', class: 'btn small', 'aria-label': 'Apagar', onclick: function(){ fnApi('/api/financas/cc/mov/' + m.id, 'DELETE').then(function(){ FN.cache = {}; fnRender('financas'); }, fnErro); } }, '×') : null]));
+        m.origem !== 'splitwise' && m.origem !== 'partilha' ? h('button', { type: 'button', class: 'btn small', 'aria-label': 'Apagar', onclick: function(){ fnApi('/api/financas/cc/mov/' + m.id, 'DELETE').then(function(){ FN.cache = {}; fnRender('financas'); }, fnErro); } }, '×') : null]));
     });
   }, function(e){ clear(lista); lista.appendChild(h('p', { class: 'fn-nota' }, e.message)); });
 }
