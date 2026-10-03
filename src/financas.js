@@ -813,6 +813,8 @@ async function detalharMovimentos(ids, B, sug) {
     `SELECT m.id, m.conta_id, to_char(m.data,'YYYY-MM-DD') AS data, m.descricao, m.valor, m.saldo, m.categoria_id, m.categoria_fonte,
             m.context_id, m.person_id, m.expense_id, m.ia_categoria_id, m.ia_confianca, m.ia_fonte, m.nota, m.origem,
             m.project_id, pj.name AS projeto,
+            m.par_id, pm.conta_id AS par_conta_id, to_char(pm.data,'YYYY-MM-DD') AS par_data,
+            pe.name AS pessoa_nome,
             e.description AS despesa, (e.document_id IS NOT NULL) AS despesa_papel, e.splitwise_id::text AS despesa_splitwise,
             ccm.pessoa_id AS cc_pessoa_id, ccp.nome AS cc_pessoa, ccm.origem AS cc_origem,
             (SELECT json_agg(json_build_object('id', pt.id, 'valor', pt.valor, 'categoria_id', pt.categoria_id,
@@ -824,6 +826,8 @@ async function detalharMovimentos(ids, B, sug) {
        LEFT JOIN fin_cc_mov ccm ON ccm.movimento_id = m.id
        LEFT JOIN fin_cc_pessoas ccp ON ccp.id = ccm.pessoa_id
        LEFT JOIN projects pj ON pj.id = m.project_id
+       LEFT JOIN fin_movimentos pm ON pm.id = m.par_id
+       LEFT JOIN people pe ON pe.id = m.person_id
       WHERE m.id = ANY($1::int[])`, [ids]);
   const por = {};
   rows.forEach((m) => {
@@ -838,6 +842,78 @@ async function detalharMovimentos(ids, B, sug) {
     por[m.id] = m;
   });
   return ids.map((id) => por[id]).filter(Boolean);
+}
+
+/* ---------------- transferencias entre contas ---------------- */
+/* Sinais de que o dinheiro vai para uma conta do proprio Marco (o nome dele,
+   o Revolut, o Moey, a poupanca, um deposito, o pagamento do cartao, a
+   Cupula). Uma transferencia a outra pessoa nao conta: um -20 para o Carlos
+   e um +20 de um amigo no mesmo dia sao so coincidencia. */
+const TRANSF = /(marco paulo|marco bastos|benef iguais|revolut|moey|poupan\w*|dep[oó]sito|liquida\w*|constitui\w*|carregamento|apple pay|para a conta|da conta|cupula arejada|^pagamento \d|^prest\.|transferencia p\.p\.)/i;
+
+/* Os pares possiveis: o mesmo valor ao contrario, noutra conta, entre 3 dias
+   antes e 6 depois (o cartao e o banco lancam em dias diferentes). Cada
+   movimento entra num par so; quando ha dois pares igualmente bons, fica
+   marcado como duvidoso. */
+async function paresCandidatos(B, soId) {
+  const ms = (await all(
+    `SELECT m.id, m.conta_id, to_char(m.data,'YYYY-MM-DD') AS data, m.descricao, m.valor, m.categoria_id
+       FROM fin_movimentos m
+      WHERE m.par_id IS NULL
+        AND NOT EXISTS (SELECT 1 FROM fin_cc_mov c WHERE c.movimento_id = m.id)
+        AND NOT EXISTS (SELECT 1 FROM fin_mov_partes p WHERE p.movimento_id = m.id)
+      ORDER BY m.data, m.id`)).map((m) => Object.assign(m, { valor: Number(m.valor) }));
+  const por = new Map();
+  ms.forEach((m) => { const k = Math.round(Math.abs(m.valor) * 100); if (!por.has(k)) por.set(k, []); por.get(k).push(m); });
+  const natT = (m) => m.categoria_id && ['transferencia', 'financiamento'].includes((B.catPor[m.categoria_id] || {}).natureza);
+  const cands = [];
+  for (const lista of por.values()) {
+    const saidas = lista.filter((m) => m.valor < 0), entradas = lista.filter((m) => m.valor > 0);
+    for (const s of saidas) for (const e of entradas) {
+      if (s.conta_id === e.conta_id) continue;
+      if (soId && s.id !== soId && e.id !== soId) continue;
+      const dias = Math.round((new Date(e.data) - new Date(s.data)) / 86400000);
+      if (dias < -3 || dias > 6) continue;
+      const t1 = TRANSF.test(s.descricao), t2 = TRANSF.test(e.descricao), t3 = natT(s) || natT(e);
+      if (!t1 && !t2 && !t3) continue;
+      const conf = Math.min(0.99, cent(0.7 - 0.04 * Math.abs(dias) + (t1 ? 0.12 : 0) + (t2 ? 0.12 : 0) + (t3 ? 0.08 : 0)));
+      cands.push({ saida: s, entrada: e, dias, conf, ambos: t1 && t2 });
+    }
+  }
+  cands.sort((a, b) => b.conf - a.conf || Math.abs(a.dias) - Math.abs(b.dias));
+  if (soId) return cands.slice(0, 10);
+  const usados = new Set(), out = [];
+  for (const c of cands) {
+    if (usados.has(c.saida.id) || usados.has(c.entrada.id)) continue;
+    c.duvidoso = cands.some((x) => x !== c && Math.abs(x.conf - c.conf) < 0.001 &&
+      (x.saida.id === c.saida.id || x.entrada.id === c.entrada.id) && !usados.has(x.saida.id) && !usados.has(x.entrada.id));
+    usados.add(c.saida.id); usados.add(c.entrada.id);
+    out.push(c);
+  }
+  return out;
+}
+
+/* Liga uma saida a uma entrada. Quem ainda nao tem categoria fica em «Entre
+   contas» (ou «Pagamento do cartao», se um dos lados for um cartao). */
+async function ligarPar(B, saidaId, entradaId) {
+  const ms = await all('SELECT id, conta_id, valor, categoria_id, par_id FROM fin_movimentos WHERE id = ANY($1::int[])', [[saidaId, entradaId]]);
+  const s = ms.find((m) => m.id === Number(saidaId)), e = ms.find((m) => m.id === Number(entradaId));
+  if (!s || !e) throw erro(404, 'Movimento não encontrado.');
+  if (s.conta_id === e.conta_id) throw erro(400, 'Os dois movimentos são da mesma conta.');
+  if (Math.abs(Number(s.valor) + Number(e.valor)) > 0.005) throw erro(400, 'Os valores não batem (um tem de sair e o outro entrar, com o mesmo valor).');
+  const entreContas = B.cats.find((c) => c.natureza === 'transferencia' && /entre contas/i.test(c.nome));
+  const pagCartao = B.cats.find((c) => c.natureza === 'transferencia' && /cart/i.test(c.nome));
+  const cartao = [B.contaPor[s.conta_id], B.contaPor[e.conta_id]].some((c) => c && c.tipo === 'cartao');
+  const cat = (cartao && pagCartao ? pagCartao : entreContas);
+  /* Quem ja estava ligado a outro deixa de estar. */
+  await query('UPDATE fin_movimentos SET par_id = NULL WHERE par_id = ANY($1::int[])', [[s.id, e.id]]);
+  await query('UPDATE fin_movimentos SET par_id = $1 WHERE id = $2', [e.id, s.id]);
+  await query('UPDATE fin_movimentos SET par_id = $1 WHERE id = $2', [s.id, e.id]);
+  if (cat) {
+    await query(`UPDATE fin_movimentos SET categoria_id = $1, categoria_fonte = 'par', categoria_em = now(), ia_categoria_id = NULL
+                  WHERE id = ANY($2::int[]) AND categoria_id IS NULL`, [cat.id, [s.id, e.id]]);
+  }
+  return { saida: s.id, entrada: e.id };
 }
 
 /* ---------------- rotas ---------------- */
@@ -966,6 +1042,7 @@ function instalar(app) {
       if (q.categoria === 'nenhuma') w.push('m.categoria_id IS NULL');
       else if (q.categoria) add('m.categoria_id = ?', Number(q.categoria));
       if (q.projeto) add('m.project_id = ?', Number(q.projeto));
+      if (q.pessoa) add('m.person_id = ?', Number(q.pessoa));
       if (q.q) {
         /* Procura no descritivo e, se o texto parecer um valor, no montante. */
         const num = String(q.q).replace(/\s/g, '').replace(',', '.');
@@ -1103,6 +1180,7 @@ function instalar(app) {
       if (b.categoria_id !== undefined) { vals.push(b.categoria_id || null); sets.push('categoria_id = $' + vals.length, "categoria_fonte = 'tu'", 'categoria_em = now()'); }
       if (b.context_id !== undefined) { vals.push(b.context_id || null); sets.push('context_id = $' + vals.length); }
       if (b.project_id !== undefined) { vals.push(b.project_id || null); sets.push('project_id = $' + vals.length); }
+      if (b.person_id !== undefined) { vals.push(b.person_id || null); sets.push('person_id = $' + vals.length); }
       if (!sets.length) return res.json({ feitos: 0 });
       const r = await all('UPDATE fin_movimentos SET ' + sets.join(', ') + ' WHERE id = ANY($1::int[]) RETURNING id', vals);
       res.json({ feitos: r.length });
@@ -1112,6 +1190,55 @@ function instalar(app) {
   app.delete('/api/financas/movimentos/:id(\\d+)', async (req, res) => {
     try { await query('DELETE FROM fin_movimentos WHERE id = $1', [req.params.id]); res.json({ ok: true }); }
     catch (e) { falha(res, e, 'o movimento'); }
+  });
+
+  /* Transferencias entre contas: os pares sugeridos, ligar e desligar. */
+  app.get('/api/financas/pares/sugeridos', async (req, res) => {
+    try {
+      const B = await base();
+      const ps = await paresCandidatos(B);
+      const nome = (id) => (B.contaPor[id] || {}).nome || '';
+      res.json({ pares: ps.map((p) => ({
+        saida: Object.assign({}, p.saida, { conta: nome(p.saida.conta_id) }),
+        entrada: Object.assign({}, p.entrada, { conta: nome(p.entrada.conta_id) }),
+        dias: p.dias, confianca: p.conf, duvidoso: Boolean(p.duvidoso), certo: Boolean(!p.duvidoso && p.conf >= 0.85)
+      })) });
+    } catch (e) { falha(res, e, 'as transferências'); }
+  });
+
+  app.get('/api/financas/movimentos/:id(\\d+)/pares', async (req, res) => {
+    try {
+      const B = await base();
+      const id = Number(req.params.id);
+      const nome = (cid) => (B.contaPor[cid] || {}).nome || '';
+      const ps = await paresCandidatos(B, id);
+      res.json({ pares: ps.map((p) => {
+        const outro = p.saida.id === id ? p.entrada : p.saida;
+        return Object.assign({}, outro, { conta: nome(outro.conta_id), dias: p.dias, confianca: p.conf });
+      }) });
+    } catch (e) { falha(res, e, 'as transferências'); }
+  });
+
+  /* Liga um par ({ saida, entrada }) ou varios ({ pares: [[saida, entrada], ...] }). */
+  app.post('/api/financas/pares', async (req, res) => {
+    try {
+      const B = await base();
+      const b = req.body || {};
+      const lista = b.pares && b.pares.length ? b.pares : [[b.saida, b.entrada]];
+      let feitos = 0; const erros = [];
+      for (const [s, e] of lista) {
+        try { await ligarPar(B, Number(s), Number(e)); feitos++; } catch (x) { erros.push(x.message); }
+      }
+      res.json({ feitos, erros });
+    } catch (e) { falha(res, e, 'a transferência'); }
+  });
+
+  app.delete('/api/financas/movimentos/:id(\\d+)/par', async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      await query('UPDATE fin_movimentos SET par_id = NULL WHERE id = $1 OR par_id = $1', [id]);
+      res.json({ ok: true });
+    } catch (e) { falha(res, e, 'a transferência'); }
   });
 
   app.get('/api/financas/movimentos/:id(\\d+)/candidatos', async (req, res) => {
