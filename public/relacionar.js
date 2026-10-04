@@ -68,6 +68,7 @@
     ['escritura', 'Escritura'], ['cpcv', 'CPCV / contrato-promessa'], ['contrato', 'Contrato'],
     ['caderneta', 'Caderneta predial'], ['certidao', 'Certid\u00e3o'], ['planta', 'Planta / projeto'],
     ['licenca', 'Licen\u00e7a / alvar\u00e1'], ['seguro', 'Ap\u00f3lice de seguro'],
+    ['registo', 'Registo / DUA'], ['inspecao', 'Inspe\u00e7\u00e3o'],
     ['fatura', 'Fatura'], ['comprovativo', 'Comprovativo'], ['recibo', 'Recibo'],
     ['declaracao', 'Declara\u00e7\u00e3o'], ['cartao', 'Cart\u00e3o / identifica\u00e7\u00e3o'],
     ['proposta', 'Proposta / or\u00e7amento'], ['correspondencia', 'Correspond\u00eancia'], ['outro', 'Outro']
