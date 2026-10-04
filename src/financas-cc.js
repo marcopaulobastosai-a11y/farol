@@ -941,6 +941,13 @@ async function guardarPartilha(b) {
     await cli.query('ROLLBACK').catch(() => {});
     throw e;
   } finally { cli.release(); }
+  /* Ja dividida no Splitwise (pela despesa do Farol): liga-se a essa despesa,
+     nao se cria outra. */
+  if (b.splitwise_existente && typeof b.splitwise_existente === 'object') {
+    const g = {};
+    Object.keys(b.splitwise_existente).forEach((k) => { g[k] = { expense_id: Number(b.splitwise_existente[k]), criada: false, assinatura: null }; });
+    await query(`UPDATE fin_partilhas SET splitwise = COALESCE(splitwise, '{}'::jsonb) || $2::jsonb WHERE id = $1`, [pid, JSON.stringify(g)]);
+  }
   let sw = { criadas: 0, existentes: 0, atualizadas: 0, apagadas: 0, erros: [] };
   try { sw = await partilhaNoSplitwise(pid); } catch (e) { sw.erros.push(e.message); }
   return { id: pid, minha, outros: cent(total - minha), total, pessoas: linhas.length, splitwise: sw };
@@ -1179,7 +1186,68 @@ async function juntarPessoas(deId, paraId) {
   return { ok: true, id: para.id };
 }
 
+/* Uma despesa do Splitwise, para se ver no Farol: quem pagou, quanto e de
+   cada um, o grupo. As pessoas aparecem com o nome que tem no Farol. */
+async function despesaSplitwise(id) {
+  const j = await splitwise.pedir('/get_expense/' + Number(id));
+  const e = j && j.expense;
+  if (!e) throw erro(404, 'O Splitwise não encontrou essa despesa.');
+  const eu = Number((await splitwise.quemSou()).id);
+  const ids = (e.users || []).map((u) => Number(u.user_id || (u.user && u.user.id)));
+  const ps = await all('SELECT id, nome, splitwise_id::text AS sw FROM fin_cc_pessoas WHERE splitwise_id = ANY($1::bigint[])', [ids]);
+  const grupo = Number(e.group_id || 0);
+  const conta = grupo ? (await all('SELECT id, nome FROM fin_cc_contas WHERE splitwise_grupo_id = $1', [grupo]))[0] : null;
+  return {
+    id: Number(e.id), descricao: e.description, data: String(e.date || '').slice(0, 10), total: cent(e.cost), moeda: e.currency_code,
+    grupo: grupo || null, grupo_nome: conta ? conta.nome : (grupo ? 'Grupo ' + grupo : 'Sem grupo'), conta_id: conta ? conta.id : null,
+    apagada: Boolean(e.deleted_at), pagamento: Boolean(e.payment),
+    pessoas: (e.users || []).map((u) => {
+      const uid = Number(u.user_id || (u.user && u.user.id));
+      const p = ps.find((x) => Number(x.sw) === uid);
+      return { splitwise_id: uid, eu: uid === eu, pessoa_id: p ? p.id : null,
+        nome: uid === eu ? 'Eu' : (p ? p.nome : nomeDe(u.user || { id: uid })), pagou: cent(u.paid_share), deve: cent(u.owed_share) };
+    })
+  };
+}
+
+/* Conta so a minha parte do movimento, como a despesa do Splitwise diz: fica
+   uma despesa partilhada ligada a ela (sem criar outra no Splitwise). */
+async function partilhaDaDespesaSplitwise(movimentoId, expenseId, categoriaId) {
+  const d = await despesaSplitwise(expenseId);
+  const m = (await all('SELECT id, valor, categoria_id FROM fin_movimentos WHERE id = $1', [movimentoId]))[0];
+  if (!m) throw erro(404, 'Movimento não encontrado.');
+  if (d.apagada) throw erro(400, 'Essa despesa foi apagada no Splitwise.');
+  const total = cent(-Number(m.valor));
+  if (Math.abs(d.total - total) > 0.005) throw erro(400, 'No Splitwise a despesa é de ' + d.total.toFixed(2).replace('.', ',') + ' € e o movimento de ' + total.toFixed(2).replace('.', ',') + ' €.');
+  const minha = cent((d.pessoas.find((x) => x.eu) || {}).deve || 0);
+  const linhas = [];
+  const existente = {};
+  for (const x of d.pessoas.filter((y) => !y.eu && y.deve > 0.005)) {
+    let pid = x.pessoa_id;
+    if (!pid) pid = (await all(
+      `INSERT INTO fin_cc_pessoas (nome, splitwise_id) VALUES ($1, $2)
+       ON CONFLICT (splitwise_id) DO UPDATE SET nome = fin_cc_pessoas.nome RETURNING id`, [x.nome, x.splitwise_id]))[0].id;
+    let contaId = d.conta_id;
+    if (!d.grupo) contaId = await contaDireta(pid);
+    if (d.grupo && !contaId) throw erro(409, 'O grupo «' + d.grupo_nome + '» ainda não foi lido do Splitwise: carrega em «Ler o Splitwise agora» nas contas correntes.');
+    await query('INSERT INTO fin_cc_membros (conta_id, pessoa_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [contaId, pid]);
+    linhas.push({ pessoa_id: pid, valor: x.deve, conta_id: contaId, splitwise: true });
+    existente[contaId] = d.id;
+  }
+  if (!linhas.length) throw erro(400, 'No Splitwise esta despesa não está dividida com ninguém.');
+  const atual = (await all('SELECT partilha_id FROM fin_mov_partes WHERE movimento_id = $1 AND partilha_id IS NOT NULL LIMIT 1', [m.id]))[0];
+  return guardarPartilha({ id: atual ? atual.partilha_id : null, movimentos: [m.id], minha, metodo: 'valores', descricao: d.descricao,
+    categoria_id: categoriaId || m.categoria_id, linhas, splitwise_existente: existente });
+}
+
 function instalarContas(app, falha) {
+  app.get('/api/financas/splitwise/despesas/:id(\\d+)', async (req, res) => {
+    try { res.json({ despesa: await despesaSplitwise(req.params.id) }); } catch (e) { falha(res, e, 'a despesa do Splitwise'); }
+  });
+  app.post('/api/financas/movimentos/:id(\\d+)/partilha-splitwise', async (req, res) => {
+    try { res.json(await partilhaDaDespesaSplitwise(Number(req.params.id), (req.body || {}).expense_id, (req.body || {}).categoria_id)); }
+    catch (e) { falha(res, e, 'a despesa partilhada'); }
+  });
   app.get('/api/financas/cc/contas/:id(\\d+)', async (req, res) => {
     try {
       const id = Number(req.params.id);
@@ -1262,4 +1330,4 @@ function instalarContas(app, falha) {
 
 module.exports = { instalar, arrancar, sincronizar, resumo, saldoTotalEm, ligarMovimento,
   dividir, desfazerDivisao, categoriaDaMinhaParte, abertos, reembolsoDe, pagador, resolverPessoa, sugerirDivisoes,
-  contasEmAberto, novaComEntrada, registarAcerto, organizarContas, garantirCabecalhos, guardarPartilha, apagarPartilha, listarPartilhas, contaDireta, lerContas };
+  contasEmAberto, novaComEntrada, registarAcerto, despesaSplitwise, partilhaDaDespesaSplitwise, organizarContas, garantirCabecalhos, guardarPartilha, apagarPartilha, listarPartilhas, contaDireta, lerContas };
