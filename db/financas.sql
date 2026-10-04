@@ -99,6 +99,10 @@ ALTER TABLE fin_contas ADD COLUMN IF NOT EXISTS identificadores TEXT;
 ALTER TABLE fin_movimentos ADD COLUMN IF NOT EXISTS person_ids INTEGER[];
 UPDATE fin_movimentos SET person_ids = ARRAY[person_id] WHERE person_id IS NOT NULL AND person_ids IS NULL;
 CREATE INDEX IF NOT EXISTS fin_mov_pessoas_idx ON fin_movimentos USING GIN (person_ids);
+-- A tarefa do movimento: o pagamento que ele pagou (tarefa -> despesa ->
+-- movimento) ou uma tarefa qualquer a que diz respeito.
+ALTER TABLE fin_movimentos ADD COLUMN IF NOT EXISTS task_id INTEGER REFERENCES tasks(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS fin_mov_task_idx ON fin_movimentos (task_id) WHERE task_id IS NOT NULL;
 
 -- Regras: «se a descricao contem X (e o valor esta entre A e B, e a conta e
 -- C) entao categoria Y». Aplicam-se antes da IA e sem perguntar.
