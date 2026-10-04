@@ -18,7 +18,6 @@ var TITLES = {
 };
 
 var D = null;              // payload da API
-var calState = { selected: null, active: {} };
 
 function $(id){ return document.getElementById(id); }
 function el(tag, cls, text){
@@ -180,7 +179,9 @@ function renderHoje(){
   var today = D.meta.today;
   var agenda = $('agendaHoje');
   clear(agenda);
-  var todays = D.events.filter(function(e){ return e.day === today; });
+  /* O tempo so «ocupado» (o calendario do trabalho) nao e um compromisso
+     para mostrar aqui: a Agenda ja o desenha. */
+  var todays = D.events.filter(function(e){ return e.day === today && !e.ocupado; });
   todays.forEach(function(e){
     agenda.appendChild(agendaItem(e));
   });
@@ -201,187 +202,8 @@ function agendaItem(e){
 }
 
 /* ---------------- AGENDA ---------------- */
-function renderAgendaShell(){
-  var head = $('calHead');
-  clear(head);
-  DIAS_CURTO.forEach(function(d){ head.appendChild(el('span', null, d)); });
-
-  var f = $('whoFilter');
-  clear(f);
-  D.calendars.forEach(function(c){
-    calState.active[c.code] = calState.active[c.code] !== false;
-    var b = el('button', 'chip');
-    b.type = 'button';
-    b.dataset.who = c.code;
-    var i = el('i');
-    i.style.background = c.color;
-    b.appendChild(i);
-    b.appendChild(document.createTextNode(c.name));
-    b.addEventListener('click', function(){
-      calState.active[c.code] = !calState.active[c.code];
-      b.classList.toggle('off', !calState.active[c.code]);
-      renderMonth(); renderDay(); renderUpcoming(); renderLoad();
-    });
-    f.appendChild(b);
-  });
-
-  $('calMonth').textContent = D.meta.month_label || '';
-  $('calNote').textContent = D.notes.agenda_nota || '';
-  $('loadLabel').textContent = D.meta.week_label || '';
-
-  /* Esta lista lia when_label/when_level, campos que a consulta ja nao devolve:
-     mostrava quarenta e cinco tracos. Passa a usar a mesma conta de urgencia
-     do painel Hoje, e so o que ainda esta a tempo de ser decidido. */
-  var dec = $('decisions');
-  clear(dec);
-  var decide = (D.attention || []).filter(function(a){
-    var n = diasAte(a.quando);
-    return n === null || n >= 0;
-  });
-  decide.forEach(function(a){
-    var u = urgencia(diasAte(a.quando), a.origem);
-    var r = el('div', 'row');
-    r.appendChild(pill(u.texto || dataCurta(a.quando), u.nivel));
-    var g = el('div', 'grow');
-    g.appendChild(el('span', 't', a.title));
-    if (a.detail) g.appendChild(el('span', 's', a.detail));
-    r.appendChild(g);
-    /* A mesma linha que o Hoje mostra abre a mesma janela: a lista chama-se
-       «a precisar de decisao» e agora deixa mesmo decidir sem sair daqui. */
-    if (typeof avAbrir === 'function'){
-      r.style.cursor = 'pointer';
-      r.tabIndex = 0;
-      r.setAttribute('role', 'button');
-      r.addEventListener('click', function(){ avAbrir(a); });
-      r.addEventListener('keydown', function(e){
-        if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); avAbrir(a); }
-      });
-    }
-    dec.appendChild(r);
-  });
-  if (!decide.length){
-    dec.appendChild(el('p', 'empty', 'Nada a decidir com data marcada.'));
-  }
-}
-function eventsOf(dayKey){
-  return D.events.filter(function(e){ return e.day === dayKey && calState.active[e.calendar]; });
-}
-function renderMonth(){
-  var grid = $('calGrid');
-  clear(grid);
-  var parts = (D.meta.month || D.meta.today).split('-');
-  var year = +parts[0], month = +parts[1] - 1;
-  var first = new Date(year, month, 1);
-  var start = mondayOf(first);
-  var total = 0;
-
-  for (var i = 0; i < 42; i++){
-    var dt = addDays(start, i);
-    var key = iso(dt);
-    var evs = eventsOf(key);
-    if (dt.getMonth() === month) total += evs.length;
-
-    var cell = el('button', 'day');
-    cell.type = 'button';
-    cell.dataset.key = key;
-    if (dt.getMonth() !== month) cell.classList.add('out');
-    if (key === D.meta.today) cell.classList.add('today');
-    if (key === calState.selected) cell.classList.add('sel');
-    cell.appendChild(el('span', 'n', String(dt.getDate())));
-    evs.slice(0, 3).forEach(function(e){
-      var r = el('span', 'ce');
-      var dot = el('i');
-      dot.style.background = calColor(e.calendar);
-      r.appendChild(dot);
-      r.appendChild(el('span', null, e.title));
-      cell.appendChild(r);
-    });
-    if (evs.length > 3) cell.appendChild(el('span', 'more', '+' + (evs.length - 3)));
-    cell.addEventListener('click', function(){
-      calState.selected = this.dataset.key;
-      renderMonth(); renderDay();
-    });
-    grid.appendChild(cell);
-  }
-  $('calCount').textContent = total + ' eventos';
-}
-function renderDay(){
-  var dt = parseDay(calState.selected);
-  $('dayTitle').textContent = DIAS[(dt.getDay()+6)%7] + ', ' + dt.getDate() + ' de ' + MESES[dt.getMonth()];
-  var evs = eventsOf(calState.selected);
-  $('dayCount').textContent = evs.length ? evs.length + (evs.length === 1 ? ' evento' : ' eventos') : 'livre';
-  var list = $('dayList');
-  clear(list);
-  if (!evs.length){
-    var li = el('li');
-    var b = el('div', 'body');
-    b.style.color = 'var(--muted)';
-    b.textContent = 'Nada marcado.';
-    li.appendChild(b);
-    list.appendChild(li);
-    return;
-  }
-  evs.forEach(function(e){
-    var li = el('li');
-    li.appendChild(el('time', null, e.at || '—'));
-    var body = el('div', 'body');
-    body.appendChild(el('b', null, e.title));
-    body.appendChild(el('span', 'who', calName(e.calendar)));
-    li.appendChild(body);
-    list.appendChild(li);
-  });
-}
-function renderUpcoming(){
-  var ul = $('upcoming');
-  clear(ul);
-  var from = parseDay(D.meta.today), to = addDays(from, 21);
-  var evs = D.events.filter(function(e){
-    var d = parseDay(e.day);
-    return calState.active[e.calendar] && d >= from && d <= to;
-  });
-  evs.forEach(function(e){
-    var dt = parseDay(e.day);
-    var li = el('li', e.day === D.meta.today ? 'is-today' : '');
-    li.appendChild(el('span', 'dt', DIAS_CURTO[(dt.getDay()+6)%7] + ' ' + dt.getDate() + ' ' + MESES[dt.getMonth()].slice(0,3) + (e.at ? ' · ' + e.at : '')));
-    var ce = el('span', 'ce');
-    var dot = el('i');
-    dot.style.background = calColor(e.calendar);
-    ce.appendChild(dot);
-    ce.appendChild(el('span', null, e.title));
-    li.appendChild(ce);
-    var who = pill(calName(e.calendar));
-    who.classList.add('who');
-    li.appendChild(who);
-    ul.appendChild(li);
-  });
-  $('upCount').textContent = evs.length + ' eventos';
-}
-function renderLoad(){
-  var ul = $('load');
-  clear(ul);
-  var start = mondayOf(parseDay(D.meta.today));
-  var end = addDays(start, 6);
-  var counts = {};
-  D.events.forEach(function(e){
-    var d = parseDay(e.day);
-    if (d >= start && d <= end) counts[e.calendar] = (counts[e.calendar] || 0) + 1;
-  });
-  var max = Math.max.apply(null, Object.keys(counts).map(function(k){ return counts[k]; }).concat([1]));
-  D.calendars.forEach(function(c){
-    var n = counts[c.code] || 0;
-    if (!n) return;
-    var li = el('li');
-    li.appendChild(el('span', null, c.name));
-    li.appendChild(el('span', 'amt', n + (n === 1 ? ' compromisso' : ' compromissos')));
-    var bar = el('div', 'bar');
-    var fill = el('span');
-    fill.style.width = Math.round(n / max * 100) + '%';
-    fill.style.background = c.color;
-    bar.appendChild(fill);
-    li.appendChild(bar);
-    ul.appendChild(li);
-  });
-}
+/* A Agenda vive em agenda.js desde 4 out: oito vistas, filtros por pessoa,
+   area e tipo, e o Google de cada pessoa. */
 
 /* ---------------- FAMÍLIA ---------------- */
 /* O ecra da Familia e igual ao das outras areas e e desenhado pelo
@@ -1097,10 +919,8 @@ function renderAll(){
   $('ownerMeta').textContent = 'Agregado · ' + D.people.length + ' pessoas';
   $('pageSub').textContent = D.meta.today_label || '';
 
-  calState.selected = calState.selected || D.meta.today;
   renderHoje();
-  renderAgendaShell();
-  renderMonth(); renderDay(); renderUpcoming(); renderLoad();
+  if (typeof agRender === 'function') agRender();
   renderDocumentos();
 }
 
@@ -1265,6 +1085,8 @@ function renderGestao(){
      apareciam ao mudar de filtro. */
   if (D && D.documents) renderDocumentos();
   if (typeof tfRender === 'function') tfRender();
+  /* A Agenda mostra as tarefas com data e a bandeja das que nao tem. */
+  if (typeof agRender === 'function') agRender();
 }
 
 
