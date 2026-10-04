@@ -120,6 +120,25 @@ var FN_CSS =
   '.fn-spark{display:block}' +
   '.fn-aler{opacity:.55;transition:opacity .15s;pointer-events:none}' +
   '.fn-mod.largo{width:min(780px,100%)}.fn-movdet{display:flex;flex-direction:column;gap:10px}' +
+  /* O detalhe de um item abre numa folha a direita, como o das tarefas. */
+  '.fn-ov.folha{padding:0;justify-content:flex-end;align-items:stretch;overflow:hidden;background:rgba(15,23,32,.28)}' +
+  '.fn-ov.folha .fn-mod{width:min(27rem,100vw);height:100%;max-height:100dvh;border-radius:0;border:0;border-left:1px solid var(--line);' +
+  'box-shadow:-20px 0 60px -30px rgba(0,0,0,.45);overflow:auto;gap:12px;padding:14px 18px 0;animation:fnFolha .18s ease}' +
+  '.fn-ov.folha .fn-mod.largo{width:min(36rem,100vw)}' +
+  '.fn-ov.folha .fn-mod > .acoes{position:sticky;bottom:0;margin-top:auto;background:var(--surface);border-top:1px solid var(--line);padding:10px 0 12px}' +
+  '.fn-folha-top{display:flex;gap:10px;align-items:flex-start;justify-content:space-between}' +
+  '.fn-folha-top h3{margin:0;font-size:1.1rem}.fn-folha-top .btn{flex:0 0 auto}' +
+  '@keyframes fnFolha{from{transform:translateX(16px);opacity:.4}to{transform:none;opacity:1}}' +
+  '@media (max-width:620px){.fn-ov.folha .fn-mod .fn-campos{grid-template-columns:1fr}}' +
+  /* As perguntas do movimento: escondidas ate a resposta ser sim. */
+  '.fn-perg{border:1px solid var(--line);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:8px}' +
+  '.fn-perg.sim{border-color:color-mix(in srgb,var(--accent) 45%,var(--line))}' +
+  '.fn-perg-l{display:flex;gap:10px;align-items:center;justify-content:space-between}' +
+  '.fn-perg-l .g{display:flex;flex-direction:column;min-width:0;gap:2px}.fn-perg-l b{font-weight:500;font-size:.9rem}' +
+  '.fn-sn-g{display:inline-flex;border:1px solid var(--line);border-radius:999px;overflow:hidden;flex:0 0 auto}' +
+  '.fn-sn{border:0;background:none;padding:4px 12px;font:inherit;font-size:.8125rem;color:var(--muted);cursor:pointer}' +
+  '.fn-sn.on{background:var(--accent-soft);color:var(--accent-ink);font-weight:500}' +
+  '.fn-perg-d:empty,.fn-perg-c:empty{display:none!important}.fn-perg-c{display:flex;flex-direction:column;gap:8px}' +
   '.fn-movtab{table-layout:fixed;min-width:860px}.fn-movtab td{overflow:hidden}.fn-movtab .d{max-width:100%}' +
   '.fn-movtab .d2{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}' +
   '.fn-movtab td.r{font-size:.875rem;font-weight:500}.fn-movtab .fn-area{font-size:.75rem;white-space:nowrap;text-overflow:ellipsis}' +
@@ -278,11 +297,24 @@ var FN_TIPOS = [['ordem','À ordem'],['cartao','Cartão de crédito'],['poupanca
 function fnTipoNome(t){ for (var i = 0; i < FN_TIPOS.length; i++) if (FN_TIPOS[i][0] === t) return FN_TIPOS[i][1]; return t; }
 
 /* ---------------- janela ---------------- */
-function fnJanela(titulo, corpo, botoes){
-  var ov = h('div', { class: 'fn-ov' });
-  var mod = h('div', { class: 'fn-mod', role: 'dialog', 'aria-modal': 'true', 'aria-label': titulo });
-  var fechar = function(){ if (ov.parentNode) ov.parentNode.removeChild(ov); };
-  mod.appendChild(h('h3', null, titulo));
+/* o.folha: o detalhe de um item abre numa folha a direita (como as tarefas);
+   o.largo: mais larga, para os detalhes com muitos campos. */
+function fnJanela(titulo, corpo, botoes, o){
+  o = o || {};
+  var ov = h('div', { class: 'fn-ov' + (o.folha ? ' folha' : '') });
+  var mod = h('div', { class: 'fn-mod' + (o.largo ? ' largo' : ''), role: 'dialog', 'aria-modal': 'true', 'aria-label': titulo });
+  var esc = function(e){
+    if (e.key !== 'Escape' || !ov.parentNode) return;
+    var ovs = document.querySelectorAll('.fn-ov');
+    if (ovs[ovs.length - 1] !== ov) return;
+    e.stopPropagation(); fechar();
+  };
+  var fechar = function(){ if (ov.parentNode) ov.parentNode.removeChild(ov); document.removeEventListener('keydown', esc, true); };
+  if (o.folha) {
+    mod.appendChild(h('div', { class: 'fn-folha-top' }, [h('h3', null, titulo),
+      h('button', { type: 'button', class: 'btn small', 'aria-label': 'Fechar', title: 'Fechar', onclick: fechar }, '×')]));
+    document.addEventListener('keydown', esc, true);
+  } else mod.appendChild(h('h3', null, titulo));
   [].concat(corpo).forEach(function(c){ if (c) mod.appendChild(c); });
   var ac = h('div', { class: 'acoes' });
   (botoes || []).forEach(function(b){
@@ -293,12 +325,13 @@ function fnJanela(titulo, corpo, botoes){
     }, b.pri ? 'primary' : ''));
   });
   ac.appendChild(fnBtn(botoes && botoes.length ? 'Cancelar' : 'Fechar', fechar));
-  mod.appendChild(ac);
+  /* Na folha, sem botões próprios, a cruz chega: não se põe um rodapé só com «Fechar». */
+  if (!(o.folha && !(botoes && botoes.length))) mod.appendChild(ac);
   ov.appendChild(mod);
   ov.addEventListener('click', function(e){ if (e.target === ov) fechar(); });
-  ov.addEventListener('keydown', function(e){ if (e.key === 'Escape') fechar(); });
+  if (!o.folha) ov.addEventListener('keydown', function(e){ if (e.key === 'Escape') fechar(); });
   document.body.appendChild(ov);
-  var f = mod.querySelector('input, select, textarea'); if (f) setTimeout(function(){ f.focus(); }, 30);
+  var f = o.folha ? null : mod.querySelector('input, select, textarea'); if (f) setTimeout(function(){ f.focus(); }, 30);
   return { fechar: fechar };
 }
 function fnCampo(rot, ctrl){ return h('label', { class: 'fn-campo' }, [h('span', null, rot), ctrl]); }
