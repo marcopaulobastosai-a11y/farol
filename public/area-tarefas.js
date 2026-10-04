@@ -1767,8 +1767,12 @@ function aeRenderArea(a){
      Vive no financas-patrimonio.js. */
   if (umaSub) {
     var fichaBem = a.view === 'patrimonio' && typeof fnFichaBem === 'function' ? fnFichaBem(umaSub)
-      : (a.view === 'casa' && typeof fnLigacaoBem === 'function' ? fnLigacaoBem(umaSub) : null);
+      : (a.view === 'casa' && typeof fnLigacaoBem === 'function' ? fnLigacaoBem(umaSub)
+      /* Na Familia: a vida das pessoas da sub-area (familia.js), ou o quadro
+         dos Sonhos - esse ocupa o ecra: os cartoes de baixo nao fazem falta. */
+      : (a.view === 'familia' && typeof fmSubArea === 'function' ? fmSubArea(umaSub) : null));
     if (fichaBem) alvo.appendChild(fichaBem);
+    if (fichaBem && fichaBem.getAttribute('data-so')) { if (kpis.parentNode) kpis.parentNode.removeChild(kpis); return; }
   }
 
   var MAXT = 40;
