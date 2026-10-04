@@ -492,8 +492,11 @@ function fiDados(pai, p, dependentes, google) {
 }
 
 /* ---------------- o calendario Google ---------------- */
-/* Cada pessoa liga a conta dela e o calendario dela entra na Agenda. O Farol
-   so pede licenca para LER; o que se corrige, corrige-se no Google. */
+/* Cada pessoa liga a conta dela e o calendario dela entra na Agenda. Desde
+   4 out o Farol pede tambem licenca para ESCREVER, mas so mexe no que e seu:
+   as copias dos eventos marcados no Farol. Os eventos que nasceram no Google
+   corrigem-se no Google. Quem ligou antes so deu licenca para ler: o botao
+   «Deixar escrever» volta a pedir, com as duas. */
 function fiQuando(ms) {
   var n = Number(ms || 0);
   if (!n) return 'ainda não foi lido';
@@ -523,6 +526,10 @@ function fiGoogle(p, g) {
   var linha = [fiQuando(g.lido_ms), g.proximos ? g.proximos + ' a chegar' : null].filter(Boolean).join('  ·  ');
   caixa.appendChild(el('small', null, linha));
   if (g.erro) caixa.appendChild(el('small', 'mau', g.erro));
+  caixa.appendChild(el('small', null, g.escrever
+    ? 'Lê e escreve: os eventos do Farol com esta pessoa podem ir para o calendário dela.'
+    : 'Só lê. Para o Farol pôr eventos no calendário desta pessoa, carrega em «Deixar escrever».'));
+  if (g.extra) caixa.appendChild(el('small', null, g.extra + (g.extra === 1 ? ' calendário a mais' : ' calendários a mais') + ' na Agenda.'));
 
   var actualizar = el('button', null, 'Actualizar');
   actualizar.type = 'button';
@@ -542,10 +549,77 @@ function fiGoogle(p, g) {
       .then(function () { toast('Google desligado.'); fiRecarregar(true); })
       .catch(function (e) { toast(e.message || 'Não foi possível desligar.'); fiRecarregar(false); });
   };
+  var cals = el('button', null, 'Calendários');
+  cals.type = 'button';
+  cals.title = 'Escolher que calendários desta conta entram na Agenda, e quais só como «ocupado»';
+  cals.onclick = function () { fiCalendarios(p); };
   botoes.appendChild(actualizar);
+  botoes.appendChild(cals);
+  if (!g.escrever) {
+    var esc = el('button', null, 'Deixar escrever');
+    esc.type = 'button';
+    esc.title = 'Volta à Google para dar licença ao Farol de pôr eventos neste calendário';
+    esc.onclick = function () { location.href = '/api/google/ligar?pessoa=' + p.id; };
+    botoes.appendChild(esc);
+  }
   botoes.appendChild(desligar);
   caixa.appendChild(botoes);
   return caixa;
+}
+
+/* Os calendarios da conta: o principal entra sempre; os outros entram
+   completos, so como «ocupado» (o do trabalho) ou nao entram. */
+function fiCalendarios(p) {
+  var velho = document.getElementById('fiCalDlg');
+  if (velho) velho.remove();
+  var dlg = el('dialog', 'folha');
+  dlg.id = 'fiCalDlg';
+  dlg.style.cssText = 'border:none;border-radius:14px;padding:0;width:min(520px,calc(100% - 2rem));background:transparent';
+  var c = el('div');
+  c.style.cssText = 'background:var(--surface);border-radius:14px;padding:18px 20px;display:flex;flex-direction:column;gap:10px;max-height:88vh;overflow:auto';
+  c.appendChild(el('h3', null, 'Calendários de ' + p.name));
+  var dica = el('p', null, 'O principal entra sempre. «Só ocupado» mostra que a hora está tomada sem dizer o que é — serve para o calendário do trabalho.');
+  dica.style.cssText = 'margin:0;font-size:.8125rem;color:var(--muted)';
+  c.appendChild(dica);
+  var lista = el('div'); lista.textContent = 'A pedir a lista à Google…';
+  c.appendChild(lista);
+  var fim = el('div'); fim.style.cssText = 'display:flex;justify-content:flex-end';
+  var fechar = el('button', 'btn small', 'Fechar'); fechar.type = 'button';
+  fechar.onclick = function () { dlg.close(); dlg.remove(); fiRecarregar(true); };
+  fim.appendChild(fechar); c.appendChild(fim);
+  dlg.appendChild(c);
+  dlg.addEventListener('cancel', function () { setTimeout(function () { dlg.remove(); fiRecarregar(true); }, 0); });
+  document.body.appendChild(dlg);
+  dlg.showModal();
+
+  apiGestao('/api/google/calendarios?pessoa=' + p.id).then(function (r) {
+    clear(lista);
+    (r.calendarios || []).forEach(function (cal) {
+      var linha = el('div');
+      linha.style.cssText = 'display:flex;align-items:center;gap:10px;padding:7px 0;border-top:1px solid var(--line-soft)';
+      var cor = el('i'); cor.style.cssText = 'width:10px;height:10px;border-radius:3px;flex:none;background:' + (cal.cor || 'var(--c3)');
+      var nome = el('span', null, cal.nome + (cal.principal ? ' · principal' : ''));
+      nome.style.cssText = 'flex:1;min-width:0;font-size:.875rem;overflow:hidden;text-overflow:ellipsis';
+      linha.appendChild(cor); linha.appendChild(nome);
+      if (cal.principal) {
+        linha.appendChild(el('small', null, 'completo'));
+      } else {
+        var s = el('select');
+        [['fora', 'Não entra'], ['completo', 'Completo'], ['ocupado', 'Só ocupado']].forEach(function (o) { s.appendChild(new Option(o[1], o[0])); });
+        s.value = cal.modo || 'fora';
+        s.onchange = function () {
+          s.disabled = true;
+          fiGooglePedir('/api/google/calendarios', { pessoa: p.id, cal_id: cal.id, nome: cal.nome, modo: s.value })
+            .then(function () { toast(s.value === 'fora' ? cal.nome + ' saiu da Agenda.' : cal.nome + ' entrou na Agenda.'); })
+            .catch(function (e) { toast(e.message || 'Não foi possível gravar.'); })
+            .then(function () { s.disabled = false; });
+        };
+        linha.appendChild(s);
+      }
+      lista.appendChild(linha);
+    });
+    if (!lista.childNodes.length) lista.textContent = 'A Google não devolveu calendários.';
+  }).catch(function (e) { lista.textContent = e.message || 'Não foi possível pedir a lista.'; });
 }
 
 function fiGooglePedir(url, corpo) {
