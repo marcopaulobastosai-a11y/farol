@@ -332,8 +332,6 @@ function fnMovAtualizar(id){
 /* Na janela do movimento: a que está ligado, ou os candidatos para ligar. */
 function fnPainelPar(p, m){
   if (m.valor === 0) return;
-  var t = h('div', { class: 'mono', style: 'margin-top:6px' }, 'Entre contas');
-  p.appendChild(t);
   if (m.par_id){
     var pc = fnConta(m.par_conta_id);
     p.appendChild(h('div', { class: 'fn-caixa melhor' }, [
@@ -408,13 +406,10 @@ function fnParesJanela(ps){
   var ovs = document.querySelectorAll('.fn-ov'); var mod = ovs.length ? ovs[ovs.length - 1].querySelector('.fn-mod') : null; if (mod) mod.classList.add('largo');
 }
 
-/* O detalhe de um movimento abre numa janela por cima da lista. */
+/* O detalhe de um movimento abre numa folha a direita, como as tarefas. */
 function fnMovJanela(m){
   var corpo = h('div', { class: 'fn-movdet' });
-  var j = fnJanela((m.valor > 0 ? 'Entrada' : 'Saída') + ' · ' + fnData(m.data), [corpo], []);
-  var ovs = document.querySelectorAll('.fn-ov');
-  var mod = ovs.length ? ovs[ovs.length - 1].querySelector('.fn-mod') : null;
-  if (mod) mod.classList.add('largo');
+  var j = fnJanela((m.valor > 0 ? 'Entrada' : 'Saída') + ' · ' + fnData(m.data), [corpo], [], { folha: true, largo: true });
   FN.movJanela = j;
   fnPainelMov(corpo, m, true);
   return j;
@@ -654,6 +649,9 @@ function fnPainelMov(p, m, emJanela){
   p.appendChild(fnCampo('Projeto', spj));
   p.appendChild(h('div', { class: 'fn-campo' }, [h('span', null, 'De quem é (agregado) · uma ou mais pessoas'), spe]));
   p.appendChild(fnCampo('Nota', nota));
+  /* A regra só aparece quando se pede. */
+  padrao.style.display = 'none';
+  regra.addEventListener('change', function(){ padrao.style.display = regra.checked ? '' : 'none'; if (regra.checked) padrao.focus(); });
   p.appendChild(h('label', { class: 'fn-check' }, [regra, 'Criar regra: quando a descrição tiver']));
   p.appendChild(padrao);
   p.appendChild(h('div', { class: 'fn-acoes' }, [fnBtn('Guardar', function(){
@@ -667,19 +665,100 @@ function fnPainelMov(p, m, emJanela){
       var depois = corpo.criar_regra ? fnMudou() : fnMovAtualizar(m.id);
       if (mudouCat) Promise.resolve(depois).then(function(){ fnSemelhantes(m, corpo.categoria_id); });
     }, fnErro);
-  }, 'primary small'), fnBtn('Apagar movimento', function(){
+  }, 'primary small')]));
+
+  if (m.valor !== 0) fnPerguntasMov(p, m);
+  p.appendChild(h('div', { class: 'fn-acoes', style: 'justify-content:flex-end;margin-top:6px' }, [fnBtn('Apagar movimento', function(){
     fnJanela('Apagar este movimento?', [h('p', null, m.descricao + ' · ' + fnEur(m.valor))], [{ txt: 'Apagar', pri: true, fn: function(){
       return fnApi('/api/financas/movimentos/' + m.id, 'DELETE').then(function(){ FN.mov.aberto = null; fnMudou(); }, fnErro); } }]);
   }, 'small')]));
+}
 
-  fnPainelPar(p, m);
-  /* Uma transferência entre contas tuas não se partilha nem é despesa. */
-  if (m.par_id || m.para_conta_id) return;
-  if (m.valor === 0) return;
-  fnPainelTarefa(p, m);
-  fnPainelPartilhas(p, m);
-  if (m.valor > 0) return;
-  p.appendChild(h('div', { class: 'mono', style: 'margin-top:6px' }, 'Despesa no Farol'));
+/* Uma pergunta do movimento: fechada (Não) até se responder Sim. Abre
+   sozinha quando já há alguma coisa ligada; fechada, pode mostrar uma dica
+   (uma sugestão forte, com o botão para a aceitar). */
+function fnPergunta(p, o){
+  var corpo = h('div', { class: 'fn-perg-c' });
+  var dica = h('div', { class: 'fn-perg-d' });
+  var bNao = h('button', { type: 'button', class: 'fn-sn' }, 'Não');
+  var bSim = h('button', { type: 'button', class: 'fn-sn' }, 'Sim');
+  var desenhado = false;
+  var sec = h('div', { class: 'fn-perg' }, [
+    h('div', { class: 'fn-perg-l' }, [h('div', { class: 'g' }, [h('b', null, o.titulo), o.resumo ? h('small', { class: 'fn-muted' }, o.resumo) : null]), h('div', { class: 'fn-sn-g' }, [bNao, bSim])]),
+    dica, corpo]);
+  var por = function(v){
+    bSim.classList.toggle('on', v); bNao.classList.toggle('on', !v);
+    sec.classList.toggle('sim', v);
+    corpo.style.display = v ? '' : 'none';
+    dica.style.display = v ? 'none' : '';
+    if (v && !desenhado) { desenhado = true; o.desenhar(corpo); }
+  };
+  bNao.onclick = function(){ por(false); };
+  bSim.onclick = function(){ por(true); };
+  p.appendChild(sec);
+  por(Boolean(o.sim));
+  return { dica: dica, abrir: function(){ por(true); }, aberta: function(){ return bSim.classList.contains('on'); } };
+}
+/* A dica de uma pergunta fechada: «✦ Parece …» com os botões. */
+function fnDica(q, texto, pct, botoes){
+  clear(q.dica);
+  q.dica.appendChild(h('div', { class: 'fn-acoes', style: 'justify-content:space-between;flex-wrap:nowrap;align-items:flex-start' }, [
+    h('small', null, [h('span', { class: 'fn-pill ai', style: 'margin-right:6px' }, '✦' + (pct != null ? ' ' + Math.round(pct * 100) + '%' : '')), texto]),
+    h('div', { class: 'fn-acoes', style: 'flex:0 0 auto' }, botoes)]));
+}
+
+/* As três perguntas do movimento. Uma transferência entre contas tuas não se
+   partilha nem é despesa: respondida essa, as outras não aparecem. */
+function fnPerguntasMov(p, m){
+  var transf = Boolean(m.par_id || m.para_conta_id);
+  var pc = m.par_id ? fnConta(m.par_conta_id) : m.para_conta_id ? fnConta(m.para_conta_id) : null;
+  var q1 = fnPergunta(p, { titulo: m.valor < 0 ? 'Foi para outra conta tua?' : 'Veio de outra conta tua?', sim: transf,
+    resumo: transf ? (m.valor < 0 ? 'Para ' : 'De ') + (pc ? pc.nome : 'outra conta') + ' · não conta como despesa nem receita' : null,
+    desenhar: function(c){ fnPainelPar(c, m); } });
+  if (transf) return;
+  apiGestao('/api/financas/movimentos/' + m.id + '/pares').then(function(r){
+    var o = (r.pares || [])[0];
+    if (!o || o.confianca < 0.6 || q1.aberta()) return;
+    fnDica(q1, 'Parece ' + (m.valor < 0 ? 'ir para ' : 'vir de ') + o.conta + ' (' + fnData(o.data) + ').', o.confianca, [
+      fnBtn('Ligar', function(){
+        var par = m.valor < 0 ? { saida: m.id, entrada: o.id } : { saida: o.id, entrada: m.id };
+        fnApi('/api/financas/pares', 'POST', par).then(function(x){ if (x.erros && x.erros.length) return fnAviso(x.erros[0]); fnAviso('Ligado.'); fnMudou(); }, fnErro);
+      }, 'primary small'), fnBtn('Ver', function(){ q1.abrir(); }, 'small')]);
+  }, function(){});
+
+  /* Pagamento: a tarefa (cadeia única tarefa → despesa → movimento) e, se não
+     for de nenhuma tarefa, a despesa do Farol. */
+  var t = m.tarefa;
+  var resumo2 = t ? (t.tipo === 'pagamento' ? 'Pagamento: ' : 'Tarefa: ') + t.title : m.expense_id ? 'Despesa: ' + (m.despesa || 'do Farol') : null;
+  var q2 = fnPergunta(p, { titulo: m.valor < 0 ? 'Pagou uma tarefa ou despesa?' : 'É de uma tarefa?', sim: Boolean(t || m.expense_id), resumo: resumo2,
+    desenhar: function(c){ fnPainelTarefa(c, m); if (m.valor < 0 && !(t && t.expense_id && t.expense_id === m.expense_id)) fnPainelDespesa(c, m); } });
+  if (!t && !m.expense_id) apiGestao('/api/financas/movimentos/' + m.id + '/tarefas').then(function(r){
+    var x = (r.sugestoes || [])[0];
+    if (!x || x.score < 0.8 || q2.aberta()) return;
+    var pag = x.tipo === 'pagamento', paga = Boolean(x.paid_on) || x.status === 'concluida';
+    fnDica(q2, (m.valor < 0 ? 'Parece pagar «' : 'Parece ser de «') + x.title + '» (' + (x.porque || []).join(' · ') + ').', x.score, [
+      fnBtn(pag && !paga ? 'Ligar e marcar paga' : 'Ligar', function(){ fnLigarTarefa(m, x.id); }, 'primary small'), fnBtn('Ver', function(){ q2.abrir(); }, 'small')]);
+  }, function(){});
+
+  /* Partilhas e acertos. */
+  var outros = (m.partes || []).filter(function(x){ return x.pessoa_id; });
+  var tem3 = Boolean(outros.length || m.cc_pessoa_id || (m.valor < 0 && m.despesa_splitwise));
+  var resumo3 = outros.length ? 'Dividido com ' + outros.map(function(x){ return (x.pessoa || '').split(' ')[0]; }).join(', ')
+    : m.cc_pessoa_id ? (m.valor > 0 ? 'Acerto · ' : 'Empréstimo devolvido · ') + m.cc_pessoa
+    : m.valor < 0 && m.despesa_splitwise ? 'Dividida no Splitwise' : null;
+  var q3 = fnPergunta(p, { titulo: m.valor < 0 ? 'É partilhado ou um acerto com alguém?' : 'É alguém a pagar-te (acerto ou reembolso)?', sim: tem3, resumo: resumo3,
+    desenhar: function(c){ fnPainelPartilhas(c, m); } });
+  if (!tem3 && m.reembolso) fnDica(q3, 'Parece um reembolso de ' + m.reembolso.nome + '.', null, [
+    fnBtn('Sim, é', function(){ fnApi('/api/financas/movimentos/' + m.id, 'PATCH', { cc_pessoa_id: m.reembolso.pessoa_id }).then(function(){ fnAviso('Reembolso de ' + m.reembolso.nome + '.'); fnMudou(); }, fnErro); }, 'primary small'),
+    fnBtn('Ver', function(){ q3.abrir(); }, 'small')]);
+  else if (!tem3 && m.divisao) fnDica(q3, 'Parece a parte de «' + m.divisao.descricao + '».', m.divisao.confianca, [
+    fnBtn('Dividir e ligar', function(){ fnAceitarDivisao(m.id, m.divisao); }, 'primary small'), fnBtn('Ver', function(){ q3.abrir(); }, 'small')]);
+}
+
+/* Sem tarefa: a despesa do Farol que este movimento pagou (ligar a uma que
+   já existe, ou criá-la). */
+function fnPainelDespesa(p, m){
+  p.appendChild(h('div', { class: 'mono', style: 'margin-top:4px' }, m.tarefa ? 'Despesa do Farol' : 'Se não é de nenhuma tarefa · despesa do Farol'));
   if (m.expense_id){
     p.appendChild(h('div', { class: 'fn-caixa melhor' }, [h('b', null, m.despesa || 'Despesa'),
       h('small', { class: 'fn-muted' }, (m.despesa_papel ? 'Com papel na caixa. ' : '') + (m.despesa_splitwise ? 'Dividida no Splitwise.' : '')),
@@ -708,7 +787,6 @@ function fnPainelMov(p, m, emJanela){
    movimento) ou uma tarefa a que diz respeito. Ligar a um pagamento por
    pagar marca-o pago com a data e o valor do banco. */
 function fnPainelTarefa(p, m){
-  p.appendChild(h('div', { class: 'mono', style: 'margin-top:6px' }, 'Tarefa'));
   var t = m.tarefa;
   if (t) {
     var pag = t.tipo === 'pagamento';
@@ -960,7 +1038,6 @@ function fnSemelhantes(m, catId){
    Saída: despesa partilhada, paguei por um amigo, ou empréstimo que devolvo.
    Entrada: acerto de contas (alguém a pagar-te o que devia). */
 function fnPainelPartilhas(p, m){
-  p.appendChild(h('div', { class: 'mono', style: 'margin-top:6px' }, 'Partilhas e acertos'));
   var outros = (m.partes || []).filter(function(x){ return x.pessoa_id; });
   if (outros.length){
     var minha = (m.partes || []).filter(function(x){ return !x.pessoa_id; });
@@ -1358,7 +1435,7 @@ function fnOrcJanela(l){
   if (l) bts.push({ txt: 'Apagar', fn: function(){ return fnApi('/api/financas/orcamentos/' + l.id, 'DELETE').then(function(){ fnMudou(); }, fnErro); } });
   fnJanela(l ? 'Orçamento · ' + l.nome : 'Novo orçamento', [fnCampo('Categoria', cat), h('div', { class: 'fn-campos' }, [fnCampo('Por mês', v), l ? null : fnCampo('Desde', de)]),
     h('label', { class: 'fn-check' }, [ac, 'Acumula: o que sobra (ou falta) passa para o mês seguinte']),
-    h('p', { class: 'fn-nota' }, 'Uma categoria de transferência (PPR, poupança) vira meta de poupança: conta o que lá se pôs.')], bts);
+    h('p', { class: 'fn-nota' }, 'Uma categoria de transferência (PPR, poupança) vira meta de poupança: conta o que lá se pôs.')], bts, { folha: true });
 }
 
 /* ======================= ANÁLISE ======================= */
