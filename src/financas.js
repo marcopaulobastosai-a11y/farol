@@ -926,6 +926,10 @@ function pontuarTarefa(m, t, naArea) {
   const vals = [t.paid_amount, t.amount].filter((x) => x != null && x > 0);
   if (vals.some((x) => Math.abs(x - v) < 0.006)) { s += 0.45; porque.push('mesmo valor'); }
   else if (v && vals.some((x) => Math.abs(x - v) / v <= 0.05)) { s += 0.2; porque.push('valor parecido'); }
+  else if (v && vals.some((x) => x > v && Math.round(x / v) <= 4 && Math.abs(x / v - Math.round(x / v)) < 0.001)) {
+    const n = Math.round(vals.find((x) => x > v && Math.abs(x / v - Math.round(x / v)) < 0.001) / v);
+    s += 0.3; porque.push('1/' + n + ' do valor (paga em ' + n + ' partes)');
+  }
   const d = ' ' + norm(m.descricao) + ' ';
   const pal = [...new Set(norm((t.payee || '') + ' ' + t.title).split(' ').filter((w) => w.length >= 4 && !PALAVRAS_VAZIAS.has(w)))];
   const achadas = pal.filter((w) => d.includes(' ' + w + ' '));
@@ -964,11 +968,17 @@ async function tarefasDoMovimento(m, B, o) {
             t.amount::float AS amount, t.paid_amount::float AS paid_amount, (t.repeat_rule IS NOT NULL) AS repete,
             (SELECT COUNT(*)::int FROM task_documents td WHERE td.task_id = t.id) AS docs,
             (SELECT mm.id FROM fin_movimentos mm WHERE mm.id <> $1
-                AND (mm.task_id = t.id OR (t.expense_id IS NOT NULL AND mm.expense_id = t.expense_id)) LIMIT 1) AS outro_mov
+                AND (mm.task_id = t.id OR (t.expense_id IS NOT NULL AND mm.expense_id = t.expense_id)) LIMIT 1) AS outro_mov,
+            (SELECT COALESCE(SUM(-mm.valor), 0)::float FROM fin_movimentos mm WHERE mm.id <> $1
+                AND (mm.task_id = t.id OR (t.expense_id IS NOT NULL AND mm.expense_id = t.expense_id))) AS ja_pago
        FROM tasks t WHERE ${w.join(' AND ')}
       ORDER BY COALESCE(t.paid_on, t.due_on) DESC NULLS LAST, t.id DESC LIMIT 400`, p);
   const daArea = m.ctx ? new Set(areasDe(B, m.ctx)) : new Set();
   rows.forEach((t) => {
+    /* Paga em várias transferências (as poupanças da Sofia e da Maria, 50 +
+       50): enquanto falta valor, a tarefa continua a poder ser deste. */
+    const alvo = Number(t.paid_amount || t.amount || 0);
+    if (t.outro_mov && alvo && alvo - t.ja_pago - Math.abs(m.valor) > -0.006) { t.falta = cent(alvo - t.ja_pago); t.outro_mov = null; }
     Object.assign(t, pontuarTarefa(m, t, daArea.has(t.context_id)));
     t.area = (B.ctxPor[t.context_id] || {}).name || null;
   });
@@ -995,7 +1005,7 @@ async function despesasDaTarefa(t) {
     `SELECT e.id, e.description, e.amount::float AS amount, to_char(e.spent_on,'YYYY-MM-DD') AS spent_on, e.merchant,
             (e.document_id IS NOT NULL) AS papel, e.splitwise_id::text AS splitwise
        FROM expenses e
-      WHERE e.id = $1 OR (e.note = 'pago em ' || $2 AND e.spent_on = $3::date AND e.context_id IS NOT DISTINCT FROM $4)
+      WHERE e.id = $1 OR ((e.note = 'pago em ' || $2 OR e.description = $2) AND e.spent_on = $3::date AND e.context_id IS NOT DISTINCT FROM $4)
       ORDER BY e.id`, [t.expense_id, t.title, t.paid_on, t.context_id]);
 }
 async function umaDespesa(id) {
@@ -1009,13 +1019,28 @@ async function ligarTarefa(movId, taskId, escolha) {
   const m = await movParaTarefa(movId);
   if (!m) throw erro(404, 'Movimento não encontrado.');
   const t = (await all(
-    `SELECT id, tipo, title, status, to_char(paid_on,'YYYY-MM-DD') AS paid_on, expense_id, context_id, series_id
+    `SELECT id, tipo, title, status, to_char(paid_on,'YYYY-MM-DD') AS paid_on, expense_id, context_id, series_id,
+            amount::float AS amount, paid_amount::float AS paid_amount
        FROM tasks WHERE id = $1 AND origin = 'real'`, [taskId]))[0];
   if (!t) throw erro(404, 'Tarefa não encontrada.');
-  const outro = (await all(
-    `SELECT id FROM fin_movimentos WHERE id <> $1 AND (task_id = $2 OR ($3::int IS NOT NULL AND expense_id = $3)) LIMIT 1`,
-    [m.id, t.id, t.expense_id]))[0];
-  if (outro) throw erro(409, 'Esta tarefa já está ligada a outro movimento.');
+  const outros = await all(
+    `SELECT id, valor::float AS valor FROM fin_movimentos WHERE id <> $1 AND (task_id = $2 OR ($3::int IS NOT NULL AND expense_id = $3))`,
+    [m.id, t.id, t.expense_id]);
+  if (outros.length) {
+    /* Paga em partes (duas transferências para um pagamento): cabe enquanto a
+       soma dos movimentos não passa o valor da tarefa. */
+    const alvo = Number(t.paid_amount || t.amount || 0);
+    const soma = outros.reduce((x, o) => x - o.valor, 0) + Math.abs(m.valor);
+    if (!alvo || soma - alvo > 0.006) throw erro(409, 'Esta tarefa já está ligada a outro movimento.');
+    await query('UPDATE fin_movimentos SET task_id = $2 WHERE id = $1', [m.id, t.id]);
+    const e = await despesasDaTarefa(t);
+    if (!m.expense_id && e.length) {
+      const usadas = new Set((await all('SELECT expense_id FROM fin_movimentos WHERE expense_id = ANY($1::int[])', [e.map((x) => x.id)])).map((x) => x.expense_id));
+      const livre = e.find((x) => !usadas.has(x.id) && Math.abs(x.amount - Math.abs(m.valor)) < 0.006);
+      if (livre) await query('UPDATE fin_movimentos SET expense_id = $2 WHERE id = $1', [m.id, livre.id]);
+    }
+    return { task_id: t.id, pago: false, parte: true };
+  }
 
   if (t.tipo !== 'pagamento') {
     await query('UPDATE fin_movimentos SET task_id = $2 WHERE id = $1', [m.id, t.id]);
@@ -1060,6 +1085,32 @@ async function ligarTarefa(movId, taskId, escolha) {
   else if (!te && me) await query('UPDATE tasks SET expense_id = $2 WHERE id = $1', [t.id, me]);
   await query('UPDATE fin_movimentos SET task_id = $2 WHERE id = $1', [m.id, t.id]);
   return { task_id: t.id, pago: false, apagadas };
+}
+
+/* Vários movimentos para uma tarefa só (um pagamento feito em várias
+   transferências): o primeiro paga-a com a soma e a data do último; os outros
+   juntam-se como partes. */
+async function ligarTarefaGrupo(ids, taskId, escolha) {
+  ids = [...new Set(ids.map(Number).filter(Boolean))];
+  if (ids.length < 2) return ligarTarefa(ids[0], taskId, escolha);
+  const ms = (await Promise.all(ids.map(movParaTarefa))).filter(Boolean);
+  if (ms.length !== ids.length) throw erro(404, 'Movimento não encontrado.');
+  const t = (await all(`SELECT id, tipo, status, paid_on, amount::float AS amount FROM tasks WHERE id = $1 AND origin = 'real'`, [taskId]))[0];
+  if (!t) throw erro(404, 'Tarefa não encontrada.');
+  ms.sort((a, b) => (a.data < b.data ? 1 : a.data > b.data ? -1 : b.id - a.id));
+  const soma = cent(ms.reduce((x, m) => x - m.valor, 0));
+  if (t.tipo === 'pagamento' && !t.paid_on && t.status !== 'concluida') {
+    if (ms.some((m) => m.valor >= 0)) throw erro(400, 'Um pagamento liga-se a movimentos que saíram da conta.');
+    /* Por pagar: paga-se com a soma de todos e a data do mais recente. */
+    await require('./tarefas').pagar(t.id, { paid_on: ms[0].data, paid_amount: soma, payment_method: 'transferência', criar_despesa: !ms.some((m) => m.expense_id) });
+    const inst = (await all(
+      `SELECT id FROM tasks WHERE (id = $1 OR series_id = $1) AND paid_on = $2::date ORDER BY (id <> $1) DESC, id DESC LIMIT 1`, [t.id, ms[0].data]))[0] || { id: t.id };
+    for (const m of ms) await ligarTarefa(m.id, inst.id, escolha);
+    return { task_id: inst.id, pago: true, movimentos: ms.length };
+  }
+  let r = null;
+  for (const m of ms) r = await ligarTarefa(m.id, t.id, escolha);
+  return Object.assign({}, r, { movimentos: ms.length });
 }
 
 /* Os pares movimento -> pagamento que quase de certeza vao juntos (mesmo
@@ -1855,7 +1906,8 @@ function instalar(app) {
   app.post('/api/financas/movimentos/:id(\\d+)/tarefa', async (req, res) => {
     try {
       const b = req.body || {};
-      res.json(await ligarTarefa(Number(req.params.id), Number(b.task_id), b.despesa || null));
+      const grupo = Array.isArray(b.movimentos) ? [Number(req.params.id)].concat(b.movimentos) : null;
+      res.json(grupo ? await ligarTarefaGrupo(grupo, Number(b.task_id), b.despesa || null) : await ligarTarefa(Number(req.params.id), Number(b.task_id), b.despesa || null));
     } catch (e) {
       if (e.conflito) return res.status(409).json({ error: e.message, conflito: e.conflito });
       falha(res, e, 'a tarefa');
