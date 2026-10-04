@@ -819,6 +819,8 @@ async function detalharMovimentos(ids, B, sug) {
             (SELECT json_agg(px.name ORDER BY array_position(m.person_ids, px.id)) FROM people px WHERE px.id = ANY(m.person_ids)) AS pessoas_nomes,
             e.description AS despesa, (e.document_id IS NOT NULL) AS despesa_papel, e.splitwise_id::text AS despesa_splitwise,
             ccm.pessoa_id AS cc_pessoa_id, ccp.nome AS cc_pessoa, ccm.origem AS cc_origem,
+            ccm.conta_id AS cc_conta_id, ccc.nome AS cc_conta, (ccc.pessoa_direta_id IS NOT NULL) AS cc_conta_direta,
+            ccm.sw_pagamento_id::text AS cc_sw_pagamento, ccm.sw_criado AS cc_sw_criado,
             (SELECT json_agg(json_build_object('id', pt.id, 'valor', pt.valor, 'categoria_id', pt.categoria_id,
                                                'pessoa_id', pt.pessoa_id, 'pessoa', cp2.nome, 'partilha_id', pt.partilha_id,
                                                'conta_id', pt.cc_conta_id, 'conta', ccx.nome) ORDER BY pt.id)
@@ -828,6 +830,7 @@ async function detalharMovimentos(ids, B, sug) {
        LEFT JOIN expenses e ON e.id = m.expense_id
        LEFT JOIN fin_cc_mov ccm ON ccm.movimento_id = m.id
        LEFT JOIN fin_cc_pessoas ccp ON ccp.id = ccm.pessoa_id
+       LEFT JOIN fin_cc_contas ccc ON ccc.id = ccm.conta_id
        LEFT JOIN projects pj ON pj.id = m.project_id
        LEFT JOIN fin_movimentos pm ON pm.id = m.par_id
        LEFT JOIN people pe ON pe.id = m.person_id
