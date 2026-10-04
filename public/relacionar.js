@@ -592,7 +592,9 @@
 
     function desenhar() {
       var arq = estado.tipo === 'arquivo';
-      busca.hidden = arq; filtros.hidden = arq; papelLinha.hidden = arq; lista.hidden = arq; criarBox.hidden = arq;
+      /* display e nao hidden: as linhas sao flex no CSS e o flex ganha ao
+         atributo hidden. */
+      [busca, filtros, papelLinha, lista, criarBox].forEach(function (x) { x.style.display = arq ? 'none' : ''; });
       clear(arquivoBox);
       desenharTipos();
       if (arq) arquivoBox.appendChild(relBlocoArquivo(doc, estado, depois));
