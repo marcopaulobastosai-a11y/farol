@@ -179,7 +179,7 @@ function fnContaJanela(c){
     h('p', { class: 'fn-nota' }, 'Se o extrato trouxer a coluna do saldo, não é preciso escrevê-lo.'),
     fnCampo('Identificadores (um por linha)', idents),
     h('p', { class: 'fn-nota' }, 'O texto que aparece nos movimentos das outras contas quando o dinheiro vai para esta (o número do contrato do cartão, a referência da poupança). Esses movimentos ficam ligados a esta conta sozinhos, também os que vierem depois.')
-  ], bts);
+  ], bts, { folha: true });
 }
 function fnSaldoJanela(c){
   var s = h('input', { class: 'fn-in', inputmode: 'decimal', placeholder: '0,00' });
@@ -237,7 +237,7 @@ function fnBemJanela(b){
   fnJanela(b ? b.nome : 'Novo bem ou dívida', [h('div', { class: 'fn-campos' }, [fnCampo('Nome', nome), fnCampo('É', lado), fnCampo('Classe', classe)]),
     h('div', { class: 'fn-campos' }, [fnCampo('Valor (ou o que falta pagar)', valor), fnCampo('Valor de', em)]),
     h('div', { class: 'fn-campos' }, [fnCampo('Prestação mensal', prest), fnCampo('Acaba em', termina)]),
-    fnCampo('Nota', nota), fnCampo('Área (onde ficam os papéis deste bem)', area), linhaNova, h('label', { class: 'fn-check' }, [pes, 'Pessoal'])], bts);
+    fnCampo('Nota', nota), fnCampo('Área (onde ficam os papéis deste bem)', area), linhaNova, h('label', { class: 'fn-check' }, [pes, 'Pessoal'])], bts, { folha: true });
 }
 
 /* ======================= CONTAS CORRENTES ======================= */
@@ -385,7 +385,7 @@ function fnContaCcJanela(c, d){
     if (!corpo.nome) { fnAviso('Falta o nome.'); return false; }
     var q = c ? fnApi('/api/financas/cc/contas/' + c.id, 'PATCH', corpo) : fnApi('/api/financas/cc/contas', 'POST', corpo).then(function(r){ FN.ccConta = r.id; });
     return q.then(function(){ FN.cache = {}; fnRender('financas'); }, fnErro);
-  } }]);
+  } }], { folha: true });
 }
 
 /* ======================= CONTAS PARTILHADAS ======================= */
@@ -503,7 +503,25 @@ function fnPartilhaAbrir(movs, partilha, cc){
   function linha(o){
     var eu = !!o.eu;
     var on = h('input', { type: 'checkbox', checked: o.on !== false, 'aria-label': 'Entra na divisão' });
-    var ni = eu ? h('b', { style: 'flex:2 1 150px;font-weight:500' }, 'Eu') : h('input', { class: 'fn-in fn-pt-n', list: 'fn-dl-pt', value: o.nome || '', placeholder: 'Nome', style: 'flex:2 1 150px' });
+    var ni = eu ? h('b', { style: 'flex:2 1 150px;font-weight:500' }, 'Eu') : h('input', { class: 'fn-in fn-pt-n', list: 'fn-dl-pt', value: o.nome || '', placeholder: 'Nome da pessoa nova', style: 'flex:1 1 auto' });
+    /* Quem entra escolhe-se das pessoas do Farol (Finanças › Pessoas); uma
+       pessoa nova escreve-se à mão e fica criada ao guardar. */
+    var psel = null, quem = ni;
+    if (!eu) {
+      var nomes = pessoas.map(function(x){ return x.nome; });
+      psel = h('select', { class: 'fn-sel fn-pt-p', style: 'flex:1 1 auto' }, [h('option', { value: '' }, '— escolhe a pessoa —')]
+        .concat(pessoas.slice().sort(function(a, b){ return a.nome.localeCompare(b.nome); }).map(function(x){ return h('option', { value: x.nome }, x.nome + (x.splitwise_id ? '' : ' · só no Farol')); }))
+        .concat(o.nome && nomes.indexOf(o.nome) < 0 ? [h('option', { value: o.nome }, o.nome)] : [])
+        .concat([h('option', { value: '__nova' }, 'Outra pessoa (nova)…')]));
+      psel.value = o.nome || '';
+      ni.style.display = 'none';
+      psel.addEventListener('change', function(){
+        if (psel.value === '__nova') { ni.value = ''; ni.style.display = ''; ni.focus(); }
+        else { ni.style.display = 'none'; ni.value = psel.value; }
+        ni.dispatchEvent(new Event('change'));
+      });
+      quem = h('div', { style: 'flex:2 1 150px;display:flex;flex-direction:column;gap:4px;min-width:0' }, [psel, ni]);
+    }
     var ei = h('input', { class: 'fn-in fn-pt-e', inputmode: 'decimal', value: o.entrada != null ? String(o.entrada).replace('.', ',') : '', style: 'flex:0 1 84px;min-width:64px' });
     var cs = eu ? h('span', { style: 'flex:2 1 160px' }) : h('select', { class: 'fn-sel fn-pt-c', style: 'flex:2 1 160px' });
     var vd = h('b', { class: 'fn-n', style: 'flex:0 0 92px;text-align:right;font-weight:500' });
@@ -528,7 +546,25 @@ function fnPartilhaAbrir(movs, partilha, cc){
         var v = calcular(), rs = rows(), soma = 0;
         rs.forEach(function(r, i){ if (!r._eu && r._cs.value === cs.value) soma += v[i]; });
         fnSwDespesasJanela(m0, null, null, { conta_id: Number(cs.value.slice(2)), valor: soma / 100, escolher: function(d){
-          rs.forEach(function(r){ if (!r._eu && r._cs.value === cs.value) { r._sw = { id: d.id, descricao: d.descricao, data: d.data, valor: d.outros || d.total }; r._mostrarSw(); } });
+          /* A divisão desta linha passa a ser a da despesa escolhida (ex.: a
+             Mónica com metade de 23,34 €), e a parte que sobra é a minha. */
+          mudarMetodo('valores');
+          var rs2 = rows(), daqui = rs2.filter(function(r){ return !r._eu && r._cs.value === cs.value; });
+          var outrosD = d.pessoas.filter(function(x){ return !x.eu; });
+          daqui.forEach(function(r){
+            var nm = r._ni.value.trim().toLowerCase();
+            var x = outrosD.filter(function(y){ return String(y.nome || '').toLowerCase() === nm; })[0] || (daqui.length === 1 && outrosD.length === 1 ? outrosD[0] : null);
+            var val = x ? x.deve : (daqui.length === 1 ? d.outros : null);
+            if (val != null) { r._ei.value = txt(val); r._on.checked = true; }
+            r._sw = { id: d.id, descricao: d.descricao, data: d.data, valor: val != null ? val : d.outros };
+            r._mostrarSw();
+          });
+          var euR = rs2.filter(function(r){ return r._eu; })[0];
+          if (euR) {
+            var outrosC = rs2.filter(function(r){ return !r._eu && r._on.checked; }).reduce(function(t, r){ return t + Math.round(num(r._ei.value) * 100); }, 0);
+            euR._on.checked = true; euR._ei.value = txt(Math.max(0, T - outrosC) / 100);
+          }
+          atualizar();
         } });
       });
       if (o.l && o.l.splitwise_despesa) est.textContent = o.l.splitwise_despesa.criada ? 'Despesa criada pelo Farol no Splitwise.' : 'Ligada a uma despesa que já estava no Splitwise.';
@@ -536,7 +572,7 @@ function fnPartilhaAbrir(movs, partilha, cc){
     }
     on.addEventListener('change', atualizar);
     ei.addEventListener('input', atualizar);
-    var row = h('div', { class: 'fn-acoes fn-pt-l', style: 'margin-bottom:4px;flex-wrap:wrap;align-items:center' }, [on, ni, ei, cs, swb, vd,
+    var row = h('div', { class: 'fn-acoes fn-pt-l', style: 'margin-bottom:4px;flex-wrap:wrap;align-items:center' }, [on, quem, ei, cs, swb, vd,
       eu ? h('span', { style: 'width:30px' }) : h('button', { type: 'button', class: 'btn small', 'aria-label': 'Tirar', onclick: function(){ row.parentNode.removeChild(row); atualizar(); } }, '×'),
       est.textContent ? est : null, swInfo]);
     row._eu = eu; row._on = on; row._ni = ni; row._ei = ei; row._cs = cs; row._vd = vd; row._sw = null; row._mostrarSw = mostrarSw;
@@ -686,7 +722,7 @@ function fnPartilhaAbrir(movs, partilha, cc){
     resumo,
     fnCampo('A minha parte vai para', catSel),
     h('p', { class: 'fn-nota' }, 'A conta de cada pessoa: «Só no Farol» fica na conta corrente dela aqui, e o reembolso liga-se quando chegar ao banco. Numa conta do Splitwise, o Farol lança lá a despesa, mas primeiro procura se já lá está (mesmo valor, mesmas pessoas, perto da data) e, se estiver, só a liga. Para escolheres tu a que já lá está, carrega em «Já lá está…» na linha (cada linha pode ir para uma despesa diferente).')
-  ], botoes);
+  ], botoes, { folha: true, largo: true });
   var mods = document.querySelectorAll('.fn-mod'); if (mods.length) mods[mods.length - 1].classList.add('largo');
   atualizar();
 }
@@ -871,7 +907,15 @@ function fnPainelPessoa(p, pessoa, d){
     h('b', { class: 'fn-n ' + (pessoa.saldo > 0 ? 'fn-good' : pessoa.saldo < 0 ? 'fn-bad' : '') }, fnEur(pessoa.saldo, true))]));
   p.appendChild(h('div', { class: 'fn-acoes' }, [fnBtn('Editar', function(){ fnPessoaCcJanela(pessoa); }, 'small'),
     fnBtn('Juntar com…', function(){ fnJuntarJanela(pessoa, d); }, 'small'),
-    !pessoa.splitwise_id && !pessoa.n ? fnBtn('Apagar', function(){ fnApi('/api/financas/cc/pessoas/' + pessoa.id, 'DELETE').then(function(){ FN.ccPessoa = null; recarregar(); }, fnErro); }, 'small') : null]));
+    /* Arquivar: quem só entrou numa conta pontual sai da lista das ativas
+       (continua em «Escondidas», com tudo o que tinha). */
+    fnBtn(pessoa.ativo ? 'Arquivar' : 'Voltar a mostrar', function(){
+      fnApi('/api/financas/cc/pessoas/' + pessoa.id, 'PATCH', { ativo: !pessoa.ativo }).then(function(){ fnAviso(pessoa.ativo ? pessoa.nome + ' arquivada (está em «Escondidas»).' : pessoa.nome + ' voltou às ativas.'); if (pessoa.ativo) FN.ccPessoa = null; recarregar(); }, fnErro);
+    }, 'small'),
+    !pessoa.splitwise_id && !pessoa.n && !pessoa.n_partilhas ? fnBtn('Apagar', function(){
+      fnJanela('Apagar ' + pessoa.nome + '?', [h('p', null, 'Não tem movimentos nem contas partilhadas: sai do Farol.')], [{ txt: 'Apagar', pri: true, fn: function(){
+        return fnApi('/api/financas/cc/pessoas/' + pessoa.id, 'DELETE').then(function(){ FN.ccPessoa = null; recarregar(); }, fnErro); } }]);
+    }, 'small') : pessoa.splitwise_id && !pessoa.n && !pessoa.n_partilhas ? h('small', { class: 'fn-muted' }, 'Vem do Splitwise: arquiva-se (apagada, voltava na próxima leitura).') : null]));
   p.appendChild(h('div', { class: 'mono' }, 'Contas correntes'));
   p.appendChild(h('div', { class: 'fn-lista' }, (pessoa.contas_correntes || []).length ? pessoa.contas_correntes.map(function(c){
     return h('div', { class: 'fn-li clic', style: 'cursor:pointer', onclick: function(){ FN.ccConta = c.id; FN.ccEstado = 'todas'; FN.ccTipo = 'todas'; FN.aba.financas = 'cc'; fnGuardar(); fnRender('financas'); } },
@@ -927,7 +971,7 @@ function fnPessoaCcJanela(p){
     if (p) corpo.ativo = ativo.checked;
     var q = p ? fnApi('/api/financas/cc/pessoas/' + p.id, 'PATCH', corpo) : fnApi('/api/financas/cc/pessoas', 'POST', corpo).then(function(r){ FN.ccPessoa = r.id; });
     return q.then(function(){ FN.cache = {}; fnRender('financas'); }, fnErro);
-  } }]);
+  } }], { folha: true });
 }
 
 /* ======================= CATEGORIAS & IA ======================= */
@@ -1029,7 +1073,7 @@ function fnCatJanela(c){
       [{ txt: 'Apagar', pri: true, fn: function(){ return fnApi('/api/financas/categorias/' + c.id + (para.value ? '?para=' + para.value : ''), 'DELETE').then(function(){ fnMudou(); }, fnErro); } }]);
   } });
   fnJanela(c ? c.grupo + ' › ' + c.nome : 'Nova categoria', [dl, h('div', { class: 'fn-campos' }, [fnCampo('Grupo', grupo), fnCampo('Nome', nome)]), h('div', { class: 'fn-campos' }, [fnCampo('Natureza', nat), fnCampo('Só na área', area)]),
-    h('label', { class: 'fn-check' }, [fixa, 'Custo fixo (renda, prestações, subscrições)']), c ? h('label', { class: 'fn-check' }, [ativo, 'Ativa']) : null], bts);
+    h('label', { class: 'fn-check' }, [fixa, 'Custo fixo (renda, prestações, subscrições)']), c ? h('label', { class: 'fn-check' }, [ativo, 'Ativa']) : null], bts, { folha: true });
 }
 
 function fnRegraJanela(r){
@@ -1050,5 +1094,5 @@ function fnRegraJanela(r){
   if (r) bts.push({ txt: 'Apagar', fn: function(){ return fnApi('/api/financas/regras/' + r.id, 'DELETE').then(function(){ fnMudou(); }, fnErro); } });
   fnJanela(r ? 'Regra' : 'Nova regra', [fnCampo('Se a descrição tem', padrao), fnCampo('Então a categoria é', cat),
     h('div', { class: 'fn-campos' }, [fnCampo('Valor mínimo', vmin), fnCampo('Valor máximo', vmax)]), h('div', { class: 'fn-campos' }, [fnCampo('Conta', conta), fnCampo('E a área passa a', area)]),
-    r ? h('label', { class: 'fn-check' }, [ativo, 'Ativa']) : null, h('p', { class: 'fn-nota' }, 'Maiúsculas e acentos não contam. Ao criar, aplica-se logo aos movimentos que ainda não têm categoria.')], bts);
+    r ? h('label', { class: 'fn-check' }, [ativo, 'Ativa']) : null, h('p', { class: 'fn-nota' }, 'Maiúsculas e acentos não contam. Ao criar, aplica-se logo aos movimentos que ainda não têm categoria.')], bts, { folha: true });
 }
