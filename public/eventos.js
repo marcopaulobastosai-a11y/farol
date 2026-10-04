@@ -362,7 +362,7 @@ function evJanela(ev, opts){
   var novo = !ev;
   var e = ev || {};
 
-  var dlg = el('dialog', 'evj');
+  var dlg = el('dialog', 'evj folha');
   dlg.id = 'evjDlg';
   var c = el('div', 'evj-c');
   dlg.appendChild(c);
