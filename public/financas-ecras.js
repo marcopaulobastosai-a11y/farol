@@ -482,7 +482,10 @@ function fnLinhaMov(m, aoMarcar){
   cat = fnCatNaLinha(m, cat.classList.contains('fn-acoes') ? Array.prototype.slice.call(cat.childNodes) : [cat]);
   var lig = [];
   var tf = m.tarefa;
-  if (tf && tf.tipo === 'pagamento' && m.expense_id && tf.expense_id === m.expense_id)
+  /* Pago por este movimento: a despesa é a da tarefa (num pagamento em
+     partes, cada movimento fica com a do seu comprovativo). */
+  var pagoAqui = tf && tf.tipo === 'pagamento' && (tf.ligada ? Boolean(tf.paid_on) : Boolean(m.expense_id && tf.expense_id === m.expense_id));
+  if (pagoAqui)
     lig.push(h('span', { class: 'fn-pill good', title: 'Pagamento: ' + tf.title + ' · despesa: ' + (m.despesa || '') }, 'pago · ' + tf.title.slice(0, 24)));
   else {
     if (m.expense_id) lig.push(h('span', { class: 'fn-pill good', title: m.despesa || '' }, (m.despesa_papel ? 'papel · ' : 'despesa · ') + (m.despesa || '').slice(0, 24)));
@@ -735,7 +738,7 @@ function fnPerguntasMov(p, m){
   var t = m.tarefa;
   var resumo2 = t ? (t.tipo === 'pagamento' ? 'Pagamento: ' : 'Tarefa: ') + t.title : m.expense_id ? 'Despesa: ' + (m.despesa || 'do Farol') : null;
   var q2 = fnPergunta(p, { titulo: m.valor < 0 ? 'Pagou uma tarefa ou despesa?' : 'É de uma tarefa?', sim: Boolean(t || m.expense_id), resumo: resumo2,
-    desenhar: function(c){ fnPainelTarefa(c, m); if (m.valor < 0 && !(t && t.expense_id && t.expense_id === m.expense_id)) fnPainelDespesa(c, m); } });
+    desenhar: function(c){ fnPainelTarefa(c, m); if (m.valor < 0 && !(t && t.tipo === 'pagamento' && (t.ligada ? t.paid_on : t.expense_id && t.expense_id === m.expense_id))) fnPainelDespesa(c, m); } });
   if (!t && !m.expense_id) apiGestao('/api/financas/movimentos/' + m.id + '/tarefas').then(function(r){
     var x = (r.sugestoes || [])[0];
     if (!x || x.score < 0.8 || q2.aberta()) return;
@@ -799,7 +802,7 @@ function fnPainelTarefa(p, m){
     p.appendChild(h('div', { class: 'fn-caixa melhor' }, [
       h('div', { class: 'fn-acoes', style: 'justify-content:space-between' }, [h('b', null, t.title), h('span', { class: 'fn-pill ' + (pag ? 'good' : 'tr') }, pag ? 'pagamento' : 'tarefa')]),
       h('small', { class: 'fn-muted' }, [est, t.docs ? t.docs + (t.docs === 1 ? ' papel' : ' papéis') : null,
-        pag && t.expense_id && t.expense_id === m.expense_id ? 'com a despesa da tarefa' : null,
+        pag && m.expense_id && (t.expense_id === m.expense_id || t.ligada) ? 'com a despesa da tarefa' + (m.despesa ? ' («' + m.despesa + '»)' : '') : null,
         t.ligada ? null : 'ligada pela despesa'].filter(Boolean).join(' · ')),
       h('div', { class: 'fn-acoes' }, [
         fnBtn('Abrir a tarefa', function(){ fnAbrirTarefa(t.id); }, 'small'),
