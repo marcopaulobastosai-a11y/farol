@@ -86,6 +86,9 @@ CREATE INDEX IF NOT EXISTS fin_mov_proj_idx ON fin_movimentos (project_id) WHERE
 -- apontam uma para a outra (par_id dos dois lados). Assim sabe-se a conta de
 -- origem e a de destino, e o dinheiro nao conta duas vezes.
 ALTER TABLE fin_movimentos ADD COLUMN IF NOT EXISTS par_id INTEGER REFERENCES fin_movimentos(id) ON DELETE SET NULL;
+-- O nome que o Marco da ao movimento. A descricao do extrato fica como esta
+-- (e por ela que se reconhece a linha no banco); o titulo e o que se le.
+ALTER TABLE fin_movimentos ADD COLUMN IF NOT EXISTS titulo TEXT;
 CREATE INDEX IF NOT EXISTS fin_mov_par_idx ON fin_movimentos (par_id) WHERE par_id IS NOT NULL;
 -- Transferencia para (ou de) uma conta cujo outro lado nao esta no Farol (o
 -- cartao cujo extrato ainda nao veio, o cartao da Sofia, as poupancas das
