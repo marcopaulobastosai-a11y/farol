@@ -211,6 +211,18 @@ var AE_CSS =
   '.ae-pag > header{display:flex;align-items:baseline;gap:10px;margin-bottom:6px}' +
   '.ae-emp > .stack{margin:0}' +
     '@container (max-width:980px){.ae-main{grid-template-columns:minmax(0,1fr)}}' +
+  /* 4 out: num bem de Patrimonio, os cartoes a 3/4 e os papeis a 1/4. */
+  '.ae-bem{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,1fr);gap:14px;align-items:start}' +
+  '.ae-bem-esq{display:flex;flex-direction:column;gap:14px;min-width:0}' +
+  '.ae-bem-docs{position:sticky;top:14px;max-height:calc(100vh - 28px);overflow:auto}' +
+  '.ae-bem-docs .ae-wh{cursor:default}' +
+  '.ae-bem-docs .ae-wh:hover{background:none}' +
+  '.ae-bem-docs .ae-doc{padding:8px 14px}' +
+  '.ae-bem-docs .ae-doc > div{flex:1;min-width:0;overflow-wrap:anywhere}' +
+  '.ae-bem-docs .ae-doc a{font-size:.8rem !important}' +
+  '.ae-bem-docs .ae-doc .mono{font-size:.68rem;color:var(--muted)}' +
+  '.ae-porler{color:var(--warn) !important}' +
+    '@container (max-width:980px){.ae-bem{grid-template-columns:minmax(0,1fr)}.ae-bem-docs{position:static;max-height:none}}' +
   '.ae-tipo{flex:none;width:22px;height:22px;border-radius:6px;display:flex;align-items:center;justify-content:center;margin-top:-1px}' +
   '.ae-tipo.pag{background:var(--warn-soft);color:var(--warn)}' +
   '.ae-tipo.tar{background:var(--accent-soft);color:var(--accent-ink)}' +
@@ -1738,15 +1750,25 @@ function aeRenderArea(a){
     return;
   }
   box.appendChild(barra);
-  box.appendChild(kpis);
+  /* Numa sub-area de Patrimonio (um bem) os cartoes ficam a 3/4 e o quarto
+     da direita lista os papeis dela, sem ser preciso abrir os Documentos. */
+  var umaSub = escolhidas.length === 1 && /^\d+$/.test(escolhidas[0].k) ? Number(escolhidas[0].k) : null;
+  var alvo = box;
+  if (umaSub && a.view === 'patrimonio') {
+    var bemG = el('div', 'ae-bem');
+    alvo = el('div', 'ae-bem-esq');
+    bemG.appendChild(alvo);
+    bemG.appendChild(aeDocsLado(docsAqui, alvoNome, function(){ aeAbrirPagina(a, 'documentos', alvoId); }));
+    box.appendChild(bemG);
+  }
+  alvo.appendChild(kpis);
   /* Uma sub-area de Patrimonio e um bem: por cima dos cartoes, a ficha dele.
      Na sub-area da Casa onde se vive num imovel, a ligacao para essa ficha.
      Vive no financas-patrimonio.js. */
-  if (escolhidas.length === 1 && /^\d+$/.test(escolhidas[0].k)) {
-    var umaSub = Number(escolhidas[0].k);
+  if (umaSub) {
     var fichaBem = a.view === 'patrimonio' && typeof fnFichaBem === 'function' ? fnFichaBem(umaSub)
       : (a.view === 'casa' && typeof fnLigacaoBem === 'function' ? fnLigacaoBem(umaSub) : null);
-    if (fichaBem) box.appendChild(fichaBem);
+    if (fichaBem) alvo.appendChild(fichaBem);
   }
 
   var MAXT = 40;
@@ -1868,7 +1890,43 @@ function aeRenderArea(a){
       aeRodape(card, 'Abrir os Projetos', function(){ show('projetos'); });
     }
   }));
-  box.appendChild(main);
+  alvo.appendChild(main);
+}
+
+/* A coluna dos papeis de um bem: todos os documentos da sub-area, os por ler
+   primeiro e depois do mais recente para tras, cada um a abrir o ficheiro. */
+function aeDocsLado(docs, nome, abrir){
+  var card = el('div', 'card ae-w ae-bem-docs');
+  var hd = el('div', 'ae-wh');
+  var ic = el('span', 'ae-wi documentos');
+  ic.innerHTML = aeIcone(AE_I.documentos, 15);
+  hd.appendChild(ic);
+  hd.appendChild(el('span', 'ae-wt', 'Documentos'));
+  if (docs.length) hd.appendChild(el('span', 'ae-wn', String(docs.length)));
+  card.appendChild(hd);
+  if (!docs.length) {
+    card.appendChild(el('p', 'ae-vazio', 'Ainda não há papéis em ' + nome + '. Arruma-os aqui em Relacionar › Área / projeto.'));
+  } else {
+    var data = function(d){ return String(d.issued_on || d.valid_on || d.created_at || '').slice(0, 10); };
+    docs.slice().sort(function(x, y){
+      if (!x.lido !== !y.lido) return x.lido ? 1 : -1;
+      var dx = data(x), dy = data(y);
+      if (dx !== dy) return dx < dy ? 1 : -1;
+      return String(x.name).localeCompare(String(y.name), 'pt');
+    }).forEach(function(d){
+      var r = aeLinhaDoc(d);
+      var lnk = r.querySelector('a');
+      if (lnk && !d.lido && typeof marcarLido === 'function') lnk.addEventListener('click', function(){ marcarLido(d, true); });
+      if (!d.lido) {
+        var g = r.firstChild;
+        g.appendChild(document.createElement('br'));
+        g.appendChild(el('small', 'ae-porler', 'por ler'));
+      }
+      card.appendChild(r);
+    });
+  }
+  aeRodape(card, 'Abrir nos Documentos', abrir);
+  return card;
 }
 
 
