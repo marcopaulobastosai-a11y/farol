@@ -610,6 +610,7 @@ function fnBarraLote(ids, ms, limpar){
       fnApi('/api/financas/movimentos/lote', 'POST', { ids: ids, project_id: spj.value ? Number(spj.value) : null }).then(function(r){ FN.mov.sel = {}; fnAviso(r.feitos + (spj.value ? ' postos no projeto.' : ' tirados do projeto.')); fnMudou(); }, fnErro); }, 'small'),
     fnBtn('De quem…', function(){ fnEscolherPessoa(ids, null); }, 'small'),
     debs.length ? fnBtn('Partilhar… (' + debs.length + ')', function(){ fnPartilhaJanela(debs); }, 'small') : null,
+    debs.length > 1 ? fnBtn('Tarefa… (' + debs.length + ')', function(){ fnTarefaDeVarios(debs); }, 'small') : null,
     fnBtn('Aceitar sugestões', function(){
       fnApi('/api/financas/movimentos/lote', 'POST', { ids: ids, aceitar: true }).then(function(r){ FN.mov.sel = {}; fnAviso(r.feitos + ' categorizados.'); fnMudou(); }, fnErro); }, 'small'),
     fnBtn('Apagar', function(){
@@ -828,7 +829,7 @@ function fnPainelTarefa(p, m){
     cx.appendChild(iaBox);
   }, function(e){ clear(cx); cx.appendChild(h('p', { class: 'fn-nota' }, e.message)); });
 }
-function fnCartaoTarefa(m, t, melhor, antes){
+function fnCartaoTarefa(m, t, melhor, antes, grupo){
   var pag = t.tipo === 'pagamento';
   var paga = Boolean(t.paid_on) || t.status === 'concluida';
   var valor = t.paid_amount != null ? t.paid_amount : t.amount;
@@ -837,24 +838,28 @@ function fnCartaoTarefa(m, t, melhor, antes){
   var pct = t.ia ? '✦ IA ' + Math.round(t.ia.confianca * 100) + '%' : (t.score ? '✦ ' + Math.round(t.score * 100) + '%' : null);
   return h('div', { class: 'fn-caixa' + (melhor ? ' melhor' : ''), style: 'margin-bottom:6px' }, [
     h('div', { class: 'fn-acoes', style: 'justify-content:space-between' }, [h('b', null, t.title), pct ? h('span', { class: 'fn-pill ai' }, pct) : null]),
-    h('small', { class: 'fn-muted' }, [pag ? 'pagamento' : 'tarefa', t.area, quando, valor != null ? fnEur(valor) : null, t.payee, t.repete ? 'repete' : null,
+    h('small', { class: 'fn-muted' }, [pag ? 'pagamento' : 'tarefa', t.area, quando, valor != null ? fnEur(valor) : null, t.falta != null ? 'já tem ' + fnEur(t.ja_pago) + ' de outro movimento, falta ' + fnEur(t.falta) : null, t.payee, t.repete ? 'repete' : null,
       t.docs ? t.docs + (t.docs === 1 ? ' papel' : ' papéis') : null].filter(Boolean).join(' · ')),
     porque ? h('small', { class: 'fn-nota', style: 'display:block' }, porque) : null,
     t.outro_mov ? h('small', { class: 'fn-muted' }, 'Já está ligada a outro movimento.') :
       h('div', { class: 'fn-acoes' }, [
-        fnBtn(pag && !paga ? 'Ligar e marcar paga' : 'Ligar', function(){ if (antes) antes(); fnLigarTarefa(m, t.id); }, (melhor ? 'primary ' : '') + 'small'),
+        fnBtn((pag && !paga ? 'Ligar e marcar paga' : 'Ligar') + (grupo && grupo.length > 1 ? ' (' + grupo.length + ' movimentos)' : t.falta != null ? ' (parte)' : ''), function(){ if (antes) antes(); fnLigarTarefa(m, t.id, null, grupo); }, (melhor ? 'primary ' : '') + 'small'),
         fnBtn('Abrir', function(){ fnAbrirTarefa(t.id); }, 'small')])]);
 }
 /* Ligar; se a tarefa e o movimento têm cada um a sua despesa, pergunta-se
    qual fica (não se conta duas vezes). */
-function fnLigarTarefa(m, tid, escolha){
-  return fetch('/api/financas/movimentos/' + m.id + '/tarefa', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ task_id: tid, despesa: escolha || null }) })
+function fnLigarTarefa(m, tid, escolha, grupo){
+  var outrosG = (grupo || []).map(function(x){ return x.id; }).filter(function(id){ return id !== m.id; });
+  return fetch('/api/financas/movimentos/' + m.id + '/tarefa', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ task_id: tid, despesa: escolha || null, movimentos: outrosG.length ? outrosG : undefined }) })
     .then(function(r){
       return r.json().catch(function(){ return {}; }).then(function(j){
         if (r.status === 409 && j.conflito) { fnConflitoDespesas(m, tid, j.conflito); return; }
+        if (outrosG.length) outrosG.forEach(function(id){ fnTocou('/api/financas/movimentos/' + id); });
         if (!r.ok) throw new Error(j.error || 'Não foi possível ligar.');
         fnTocou('/api/financas/movimentos/' + m.id);
-        fnAviso(j.pago ? 'Ligada e marcada paga a ' + fnData(m.data) + ' (' + fnEur(Math.abs(m.valor)) + ').' : 'Ligada.' + (j.apagadas ? ' A despesa a mais saiu.' : ''));
+        fnAviso(j.movimentos > 1 ? j.movimentos + ' movimentos ligados à tarefa' + (j.pago ? ' (marcada paga com a soma).' : '.') :
+          j.parte ? 'Ligada como parte do pagamento.' :
+          j.pago ? 'Ligada e marcada paga a ' + fnData(m.data) + ' (' + fnEur(Math.abs(m.valor)) + ').' : 'Ligada.' + (j.apagadas ? ' A despesa a mais saiu.' : ''));
         /* As tarefas do ecrã das Tarefas ficam a par (uma paga mudou). */
         apiGestao('/api/gestao').then(function(d){ window.G = d; }, function(){});
         fnMudou();
@@ -875,7 +880,7 @@ function fnConflitoDespesas(m, tid, c){
     { txt: 'Ficam as duas', fn: function(){ fnLigarTarefa(m, tid, 'ambas'); } }]);
 }
 /* Escolher entre as tarefas de uma área (por omissão, a do movimento). */
-function fnTarefasJanela(m, r0){
+function fnTarefasJanela(m, r0, grupo){
   var q = h('input', { class: 'fn-in', placeholder: 'Procurar pelo nome ou a quem se paga' });
   var sa = fnSelAreas(r0.area ? r0.area.id : '', '— todas as áreas —');
   var st = h('select', { class: 'fn-sel' }, [h('option', { value: 'pagamentos' }, 'Pagamentos'), h('option', { value: 'todas' }, 'Pagamentos e tarefas')]);
@@ -885,7 +890,7 @@ function fnTarefasJanela(m, r0){
   var desenhar = function(ts){
     clear(lista);
     if (!ts.length) { lista.appendChild(h('p', { class: 'fn-nota' }, 'Nenhuma tarefa com estes filtros.')); return; }
-    ts.forEach(function(t){ lista.appendChild(fnCartaoTarefa(m, t, false, function(){ j.fechar(); })); });
+    ts.forEach(function(t, i){ lista.appendChild(fnCartaoTarefa(m, t, Boolean(grupo) && i === 0, function(){ j.fechar(); }, grupo)); });
   };
   var vez = 0;
   var ler = function(){
@@ -900,11 +905,19 @@ function fnTarefasJanela(m, r0){
   var espera;
   q.addEventListener('input', function(){ clearTimeout(espera); espera = setTimeout(ler, 300); });
   [sa, st, se].forEach(function(s){ s.addEventListener('change', ler); });
-  j = fnJanela('Tarefas · ' + m.descricao.slice(0, 40), [
-    h('p', { class: 'fn-nota' }, fnData(m.data) + ' · ' + fnEur(m.valor, true) + '. Primeiro as que mais se parecem com o movimento.'),
+  var somaG = grupo ? grupo.reduce(function(t, x){ return t + x.valor; }, 0) : m.valor;
+  j = fnJanela(grupo && grupo.length > 1 ? 'Tarefa de ' + grupo.length + ' movimentos' : 'Tarefas · ' + m.descricao.slice(0, 40), [
+    h('p', { class: 'fn-nota' }, (grupo && grupo.length > 1 ? grupo.map(function(x){ return fnData(x.data) + ' ' + fnEur(x.valor, true); }).join(' + ') + ' = ' + fnEur(somaG, true) + '. Ficam todos ligados à mesma tarefa (paga em partes).'
+      : fnData(m.data) + ' · ' + fnEur(m.valor, true) + '.') + ' Primeiro as que mais se parecem com o movimento.'),
     q, h('div', { class: 'fn-campos' }, [fnCampo('Área', sa), fnCampo('Tipo', st), fnCampo('Estado', se)]), lista], []);
   desenhar(r0.tarefas || []);
   var ovs = document.querySelectorAll('.fn-ov'); var mod = ovs.length ? ovs[ovs.length - 1].querySelector('.fn-mod') : null; if (mod) mod.classList.add('largo');
+}
+/* Vários movimentos para a mesma tarefa (ex.: as duas transferências das
+   poupanças das meninas, um pagamento de 100 € feito em 50 + 50). */
+function fnTarefaDeVarios(movs){
+  var m = movs.slice().sort(function(a, b){ return a.data < b.data ? 1 : -1; })[0];
+  apiGestao('/api/financas/movimentos/' + m.id + '/tarefas?tipo=todas&area=todas').then(function(r){ fnTarefasJanela(m, r, movs); }, fnErro);
 }
 /* Abre o detalhe da tarefa numa folha por cima (aviso.js), fechando antes as
    janelas das Finanças. Sem folha, salta-se para o ecrã das Tarefas. */
