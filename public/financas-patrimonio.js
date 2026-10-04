@@ -521,7 +521,7 @@ function fnPartilhaAbrir(movs, partilha, cc){
   var m0 = movs[0] || {};
   var metodo = partilha ? (partilha.metodo === 'amigo' ? 'valores' : partilha.metodo || 'valores') : 'iguais';
   var ent = (partilha && partilha.entradas) || { p: {} };
-  var desc = h('input', { class: 'fn-in', value: partilha ? partilha.descricao : (movs.length === 1 ? m0.descricao : ''), placeholder: movs.length > 1 ? 'Ex.: Ubers do fim de semana' : '' });
+  var desc = h('input', { class: 'fn-in', value: partilha ? partilha.descricao : (movs.length === 1 ? fnMovNome(m0) : ''), placeholder: movs.length > 1 ? 'Ex.: Ubers do fim de semana' : '' });
   var catSel = fnSelCategorias((partilha && partilha.categoria_id) || m0.categoria_id || m0.ia_categoria_id || '', '— categoria da minha parte —', 'despesa');
   var linhas = h('div', { class: 'fn-pt-linhas' });
   var lista = h('datalist', { id: 'fn-dl-pt' }, pessoas.map(function(p){ return h('option', { value: p.nome }); }));
@@ -711,7 +711,7 @@ function fnPartilhaAbrir(movs, partilha, cc){
   if (metodo === 'valores') rows().forEach(function(r){ if (r._ei.value) r._ei.value = txt(num(r._ei.value)); });
 
   var lst = movs.length > 1 ? h('div', { class: 'fn-lista', style: 'max-height:130px;overflow:auto;margin-bottom:6px' }, movs.map(function(m){
-    return h('div', { class: 'fn-li' }, [h('span', { class: 'fn-n fn-muted', style: 'width:52px;font-size:.75rem' }, fnData(m.data)), h('div', { class: 'g' }, m.descricao), h('span', { class: 'fn-n' }, fnEur(-m.valor))]);
+    return h('div', { class: 'fn-li' }, [h('span', { class: 'fn-n fn-muted', style: 'width:52px;font-size:.75rem' }, fnData(m.data)), h('div', { class: 'g' }, fnMovNome(m)), h('span', { class: 'fn-n' }, fnEur(-m.valor))]);
   })) : null;
   var botoes = [{ txt: 'Guardar', pri: true, fn: function(){
     var rs = rows(), v = calcular();
@@ -744,7 +744,7 @@ function fnPartilhaAbrir(movs, partilha, cc){
   } });
   var jp = fnJanela(partilha ? 'Despesa partilhada' : 'Despesa partilhada · ' + (movs.length > 1 ? movs.length + ' pagamentos' : 'dividir'), [
     lst,
-    h('p', { class: 'fn-nota' }, (movs.length === 1 ? m0.descricao + ' · ' + fnData(m0.data) + ' · ' : '') + 'pagaste ' + fnEur(total) + '.'),
+    h('p', { class: 'fn-nota' }, (movs.length === 1 ? fnMovNome(m0) + ' · ' + fnData(m0.data) + ' · ' : '') + 'pagaste ' + fnEur(total) + '.'),
     fnCampo('Descrição', desc),
     h('div', { class: 'fn-acoes', style: 'flex-wrap:wrap;gap:6px;margin:4px 0' }, [h('span', { class: 'fn-muted', style: 'font-size:.8125rem' }, 'Atalhos:'),
       fnBtn('Tudo eu (100%)', tudoEu, 'small'), fnBtn('50/50', meias, 'small'), fnBtn('Tudo de outra pessoa', tudoOutro, 'small'),
@@ -806,7 +806,7 @@ function fnSwDespesasJanela(m, categoria, fecharPai, o){
   j = fnJanela('Já está no Splitwise', [
     h('p', { class: 'fn-nota' }, o.escolher
       ? 'Só as despesas desta conta do Splitwise. A linha tem ' + fnEur(o.valor) + ': bate a que tem essa parte dos outros (ou esse total). Ao guardar, esta linha liga-se a ela e no Splitwise não se cria nada.'
-      : (movs.length > 1 ? movs.length + ' pagamentos · ' : m.descricao + ' · ' + fnData(m.data) + ' · ') + fnEur(tot) + '. Escolhe a despesa do Splitwise: as pessoas e as partes vêm de lá. Primeiro as do mesmo valor.'),
+      : (movs.length > 1 ? movs.length + ' pagamentos · ' : fnMovNome(m) + ' · ' + fnData(m.data) + ' · ') + fnEur(tot) + '. Escolhe a despesa do Splitwise: as pessoas e as partes vêm de lá. Primeiro as do mesmo valor.'),
     q, lista], []);
   var mods = document.querySelectorAll('.fn-mod'); if (mods.length) mods[mods.length - 1].classList.add('largo');
   ler();
@@ -834,7 +834,7 @@ function fnAmigoJanela(m){
     var nm = h('input', { class: 'fn-in', list: 'fn-dl-amigo', placeholder: 'Nome' });
     var lista = h('datalist', { id: 'fn-dl-amigo' }, pessoas.map(function(p){ return h('option', { value: p.nome }); }));
     var cs = h('select', { class: 'fn-sel' });
-    var desc = h('input', { class: 'fn-in', value: m.descricao });
+    var desc = h('input', { class: 'fn-in', value: fnMovNome(m) });
     var swCx = h('div', { style: 'display:none;margin:.4rem 0' });
     var escolhida = null, vez = 0, j;
 
@@ -909,7 +909,7 @@ function fnAmigoJanela(m){
     nm.addEventListener('change', function(){ fnOpcoesContaCc(cc, cs, porNome(nm.value), cs.value); swLer(); });
     cs.addEventListener('change', swLer);
     j = fnJanela('Paguei por alguém', [
-      h('p', { class: 'fn-nota' }, m.descricao + ' · ' + fnData(m.data) + ' · ' + fnEur(-m.valor) + '. É tudo dessa pessoa: não conta como despesa tua, e fica a dever-to.'),
+      h('p', { class: 'fn-nota' }, fnMovNome(m) + ' · ' + fnData(m.data) + ' · ' + fnEur(-m.valor) + '. É tudo dessa pessoa: não conta como despesa tua, e fica a dever-to.'),
       fnCampo('Quem', nm), lista, fnCampo('Fica na conta', cs), swCx, fnCampo('Descrição', desc),
       h('p', { class: 'fn-nota' }, 'Fica nas contas partilhadas. Numa conta do Splitwise, ou se liga à despesa que já lá está, ou o Farol lança-a.')
     ], [{ txt: 'Guardar', pri: true, fn: guardar }]);
@@ -947,7 +947,7 @@ function fnAcertoJanela(m, pessoaId){
     cs.addEventListener('change', mostrar);
     escolher();
     fnJanela(entrada ? 'Acerto de contas' : 'Empréstimo · estou a devolver', [
-      h('p', { class: 'fn-nota' }, m.descricao + ' · ' + fnData(m.data) + ' · ' + fnEur(Math.abs(m.valor)) + '. ' + (entrada
+      h('p', { class: 'fn-nota' }, fnMovNome(m) + ' · ' + fnData(m.data) + ' · ' + fnEur(Math.abs(m.valor)) + '. ' + (entrada
         ? 'Alguém a pagar-te o que devia: abate no que te deve e não conta como receita.'
         : 'Alguém pagou por ti e estás a devolver: abate no que lhe deves e não conta como despesa.')),
       fnCampo(entrada ? 'Quem te pagou' : 'A quem devolves', nm), lista,

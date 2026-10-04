@@ -147,7 +147,7 @@ function fn_financas_movimentos(corpo){
     if (FN.mov.projeto) f.appendChild(h('span', { class: 'fn-pill tr', style: 'display:inline-flex;align-items:center;gap:6px;padding:4px 10px' }, [
       'Projeto: ' + (fnProjetoNome(FN.mov.projeto) || FN.mov.projeto),
       h('button', { type: 'button', class: 'btn small', 'aria-label': 'Tirar o filtro do projeto', style: 'padding:0 6px;min-height:0', onclick: function(){ FN.mov.projeto = ''; mudar(); } }, '×')]));
-    var qi = h('input', { class: 'fn-sel', type: 'search', placeholder: 'Procurar descrição ou valor', value: FN.mov.q, 'aria-label': 'Procurar', style: 'flex:1 1 180px' });
+    var qi = h('input', { class: 'fn-sel', type: 'search', placeholder: 'Procurar nome, descrição ou valor', value: FN.mov.q, 'aria-label': 'Procurar', style: 'flex:1 1 180px' });
     var tmr = null;
     qi.addEventListener('input', function(){ clearTimeout(tmr); tmr = setTimeout(function(){ if (FN.mov.q !== qi.value.trim()) { FN.mov.q = qi.value.trim(); FN.mov.sel = {}; FN.mov.mostrar = 0; fnMovLista(zona); } }, 350); });
     f.appendChild(qi);
@@ -518,7 +518,9 @@ function fnLinhaMov(m, aoMarcar){
     h('td', { onclick: function(e){ e.stopPropagation(); } }, [h('input', { type: 'checkbox', 'aria-label': 'Escolher', checked: !!FN.mov.sel[m.id], onchange: function(e){ FN.mov.sel[m.id] = e.target.checked; if (aoMarcar) aoMarcar(); else fnRender('financas'); } })]),
     h('td', { class: 'fn-n', style: 'font-size:.75rem;white-space:nowrap' }, fnData(m.data)),
     h('td', { title: conta ? conta.nome : '', style: 'font-size:.75rem;line-height:1.25' }, conta ? conta.nome : h('span', { class: 'fn-muted' }, '—')),
-    h('td', { style: 'min-width:0' }, [h('span', { class: 'd', title: m.descricao }, m.descricao), m.categoria_fonte === 'regra' ? h('small', { class: 'd2' }, 'categoria por regra') : null]),
+    h('td', { style: 'min-width:0' }, [h('span', { class: 'd', title: fnMovNome(m) }, fnMovNome(m)),
+      fnMovOrig(m) ? h('small', { class: 'fn-orig', title: fnMovOrig(m) }, fnMovOrig(m)) : null,
+      m.categoria_fonte === 'regra' ? h('small', { class: 'd2' }, 'categoria por regra') : null]),
     h('td', { class: 'r ' + (m.valor > 0 ? 'fn-good' : '') }, [fnEur(m.valor, true), fnMinhaParte(m)]),
     h('td', { class: 'r fn-saldo' + (m.saldo_calculado ? ' calc' : ''), title: m.saldo == null ? '' : m.saldo_calculado ? 'Saldo calculado a partir dos saldos conhecidos da conta' : 'Saldo do extrato' }, m.saldo == null ? '—' : fnEur(m.saldo)),
     h('td', null, [cat]),
@@ -630,7 +632,8 @@ function fnPainelMov(p, m, emJanela){
   var conta = fnConta(m.conta_id);
   if (!emJanela) p.appendChild(h('div', { class: 'fn-acoes', style: 'justify-content:space-between' }, [h('h3', { style: 'font-size:1.05rem' }, 'Movimento'), h('button', { type: 'button', class: 'btn small', onclick: function(){ FN.mov.aberto = null; fnRender('financas'); } }, 'Fechar')]));
   p.appendChild(h('div', { class: 'fn-caixa', style: 'background:var(--surface-2)' }, [
-    h('div', { class: 'fn-acoes', style: 'justify-content:space-between' }, [h('b', null, m.descricao), h('b', { class: 'fn-n ' + (m.valor > 0 ? 'fn-good' : '') }, fnEur(m.valor, true))]),
+    h('div', { class: 'fn-acoes', style: 'justify-content:space-between' }, [h('b', null, fnMovNome(m)), h('b', { class: 'fn-n ' + (m.valor > 0 ? 'fn-good' : '') }, fnEur(m.valor, true))]),
+    fnMovOrig(m) ? h('small', { class: 'fn-orig' }, fnMovOrig(m)) : null,
     h('small', { class: 'fn-muted' }, fnData(m.data) + ' · ' + (conta ? conta.nome : '') + (m.saldo != null ? ' · saldo ' + fnEur(m.saldo) : '') + (m.categoria_fonte ? ' · categoria: ' + ({ regra: 'regra', tu: 'escolhida por ti', 'tu-corrigiu': 'corrigida por ti', 'ia-aceite': 'sugestão aceite', par: 'transferência ligada' }[m.categoria_fonte] || m.categoria_fonte) : '')),
     m.nota ? h('small', null, 'Nota: ' + m.nota) : null]));
 
@@ -641,6 +644,9 @@ function fnPainelMov(p, m, emJanela){
   var spj = fnSelProjetos(m.project_id);
   var spe = fnEscolhaPessoas(fnIdsPessoas(m));
   spe.style.gridTemplateColumns = 'repeat(auto-fill,minmax(150px,1fr))';
+  /* O nome que se le na lista. Vazio, fica o do extrato - a descricao do banco
+     nao se apaga nunca, so passa para baixo. */
+  var titulo = h('input', { class: 'fn-in', value: m.titulo || '', placeholder: m.descricao });
   var nota = h('input', { class: 'fn-in', value: m.nota || '', placeholder: 'Nota' });
   var regra = h('input', { type: 'checkbox' });
   var padrao = h('input', { class: 'fn-in', value: fnChaveDesc(m.descricao), 'aria-label': 'Texto da regra' });
@@ -652,6 +658,9 @@ function fnPainelMov(p, m, emJanela){
     fnBtn(minhas.length > 1 ? 'Alterar as categorias…' : 'Repartir por categorias…', function(){ fnCategoriasJanela(m); }, 'small')]));
   p.appendChild(fnCampo('Projeto', spj));
   p.appendChild(h('div', { class: 'fn-campo' }, [h('span', null, 'De quem é (agregado) · uma ou mais pessoas'), spe]));
+  p.appendChild(fnCampo('Nome', titulo));
+  p.appendChild(h('small', { class: 'fn-muted', style: 'display:block;margin:-6px 0 8px' },
+    'Em branco fica o texto do extrato. Dando-lhe um nome, é esse que se lê e o do extrato fica por baixo — procura-se pelos dois.'));
   p.appendChild(fnCampo('Nota', nota));
   /* A regra só aparece quando se pede. */
   padrao.style.display = 'none';
@@ -660,7 +669,7 @@ function fnPainelMov(p, m, emJanela){
   p.appendChild(padrao);
   p.appendChild(h('div', { class: 'fn-acoes' }, [fnBtn('Guardar', function(){
     var corpo = { categoria_id: sc.value ? Number(sc.value) : null, context_id: sa.value ? Number(sa.value) : null, nota: nota.value,
-      project_id: spj.value ? Number(spj.value) : null, person_ids: spe.valor(),
+      titulo: titulo.value.trim(), project_id: spj.value ? Number(spj.value) : null, person_ids: spe.valor(),
       aceite: !m.categoria_id && m.ia_categoria_id && String(m.ia_categoria_id) === sc.value };
     if (regra.checked) { corpo.criar_regra = true; corpo.regra_padrao = padrao.value; }
     var mudouCat = corpo.categoria_id && corpo.categoria_id !== m.categoria_id && !corpo.aceite;
@@ -673,7 +682,7 @@ function fnPainelMov(p, m, emJanela){
 
   if (m.valor !== 0) fnPerguntasMov(p, m);
   p.appendChild(h('div', { class: 'fn-acoes', style: 'justify-content:flex-end;margin-top:6px' }, [fnBtn('Apagar movimento', function(){
-    fnJanela('Apagar este movimento?', [h('p', null, m.descricao + ' · ' + fnEur(m.valor))], [{ txt: 'Apagar', pri: true, fn: function(){
+    fnJanela('Apagar este movimento?', [h('p', null, fnMovNome(m) + ' · ' + fnEur(m.valor))], [{ txt: 'Apagar', pri: true, fn: function(){
       return fnApi('/api/financas/movimentos/' + m.id, 'DELETE').then(function(){ FN.mov.aberto = null; fnMudou(); }, fnErro); } }]);
   }, 'small')]));
 }
@@ -909,7 +918,7 @@ function fnTarefasJanela(m, r0, grupo){
   q.addEventListener('input', function(){ clearTimeout(espera); espera = setTimeout(ler, 300); });
   [sa, st, se].forEach(function(s){ s.addEventListener('change', ler); });
   var somaG = grupo ? grupo.reduce(function(t, x){ return t + x.valor; }, 0) : m.valor;
-  j = fnJanela(grupo && grupo.length > 1 ? 'Tarefa de ' + grupo.length + ' movimentos' : 'Tarefas · ' + m.descricao.slice(0, 40), [
+  j = fnJanela(grupo && grupo.length > 1 ? 'Tarefa de ' + grupo.length + ' movimentos' : 'Tarefas · ' + fnMovNome(m).slice(0, 40), [
     h('p', { class: 'fn-nota' }, (grupo && grupo.length > 1 ? grupo.map(function(x){ return fnData(x.data) + ' ' + fnEur(x.valor, true); }).join(' + ') + ' = ' + fnEur(somaG, true) + '. Ficam todos ligados à mesma tarefa (paga em partes).'
       : fnData(m.data) + ' · ' + fnEur(m.valor, true) + '.') + ' Primeiro as que mais se parecem com o movimento.'),
     q, h('div', { class: 'fn-campos' }, [fnCampo('Área', sa), fnCampo('Tipo', st), fnCampo('Estado', se)]), lista], []);
@@ -1005,7 +1014,7 @@ function fnCategoriasJanela(m){
   if (minhas.length > 1) minhas.forEach(function(x){ linha(x.categoria_id, Math.abs(x.valor)); });
   else { linha(m.categoria_id || m.ia_categoria_id, null); linha('', null); }
   fnJanela('Repartir por categorias', [
-    h('p', { class: 'fn-nota' }, m.descricao + ' · ' + fnData(m.data) + ' · ' + fnEur(Math.abs(m.valor)) + (outros ? ' (a parte dos outros, ' + fnEur(outros) + ', fica de fora)' : '') + '.'),
+    h('p', { class: 'fn-nota' }, fnMovNome(m) + ' · ' + fnData(m.data) + ' · ' + fnEur(Math.abs(m.valor)) + (outros ? ' (a parte dos outros, ' + fnEur(outros) + ', fica de fora)' : '') + '.'),
     linhas,
     h('div', { class: 'fn-acoes' }, [fnBtn('+ Categoria', function(){ linha('', null); atualizar(); }, 'small'),
       fnBtn('A última fica com o resto', function(){ var rs = rows(); if (!rs.length) return; var antes = rs.slice(0, -1).reduce(function(t, r){ return t + num(r.querySelector('input').value); }, 0);

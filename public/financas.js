@@ -141,6 +141,9 @@ var FN_CSS =
   '.fn-perg-d:empty,.fn-perg-c:empty{display:none!important}.fn-perg-c{display:flex;flex-direction:column;gap:8px}' +
   '.fn-movtab{table-layout:fixed;min-width:860px}.fn-movtab td{overflow:hidden}.fn-movtab .d{max-width:100%}' +
   '.fn-movtab .d2{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}' +
+  /* A descricao do extrato por baixo do nome dado: mais pequena e em italico,
+     para se ver que e a do banco e nao a que se escreveu. */
+  '.fn-orig{display:block;font-style:italic;color:var(--faint);font-size:.6875rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}' +
   '.fn-movtab td.r{font-size:.875rem;font-weight:500}.fn-movtab .fn-area{font-size:.75rem;white-space:nowrap;text-overflow:ellipsis}' +
   '.fn-movtab .fn-pill{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block;vertical-align:middle}' +
   '.fn-dq{display:inline-flex;align-items:center;gap:6px;max-width:100%;padding:2px 6px 2px 2px;border-radius:999px;border:1px solid transparent;background:none;font:inherit;font-size:.8125rem;color:var(--ink);cursor:pointer;white-space:nowrap;overflow:hidden}' +
@@ -208,6 +211,11 @@ function h(tag, at, filhos){
   return n;
 }
 function fnBtn(txt, fn, cls){ return h('button', { type: 'button', class: 'btn' + (cls ? ' ' + cls : ''), onclick: fn }, txt); }
+/* O nome de um movimento: o que o Marco lhe deu, se deu; senao o do extrato.
+   A descricao do banco nunca se perde - mostra-se por baixo, mais pequena, e
+   a procura corre nas duas. */
+function fnMovNome(m){ return (m && String(m.titulo || '').trim()) || (m && m.descricao) || ''; }
+function fnMovOrig(m){ return m && String(m.titulo || '').trim() && m.descricao !== m.titulo ? m.descricao : null; }
 function fnCard(titulo, direita, corpo, cls){
   var hd = h('header', null, [h('h3', null, titulo)]);
   if (direita) hd.appendChild(typeof direita === 'string' ? h('span', { class: 'mono' }, direita) : direita);
