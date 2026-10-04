@@ -1137,3 +1137,37 @@ ALTER TABLE destinatarios ADD COLUMN IF NOT EXISTS caixa_id INTEGER
 -- E por qual saiu, de facto, cada email que ja foi.
 ALTER TABLE email_envios ADD COLUMN IF NOT EXISTS caixa_id INTEGER
   REFERENCES gmail_caixas(id) ON DELETE SET NULL;
+
+-- ---------------------------------------------------------------------------
+-- A AGENDA NOVA (4 out)
+--
+-- Tres coisas que a Agenda passou a saber:
+--
+-- 1. Mais do que o calendario principal de cada conta Google. Cada pessoa
+--    escolhe que outros calendarios dela entram e como: completos, ou so como
+--    «Ocupado» (o do trabalho: ve-se que a hora esta tomada, nao o que e).
+-- 2. Um evento do Google traz a hora de fim e o local, como os do Farol.
+-- 3. O Farol escreve no Google. Um evento marcado no Farol pode ter uma copia
+--    no calendario Google de cada pessoa que vai; a copia e do Farol (corrigir
+--    ou apagar aqui corrige ou apaga la), e a leitura seguinte reconhece-a e
+--    nao a traz de volta como um evento a mais.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS google_calendarios (
+  person_id INTEGER NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+  cal_id    TEXT NOT NULL,
+  nome      TEXT,
+  modo      TEXT NOT NULL DEFAULT 'completo',   -- completo | ocupado | fora
+  PRIMARY KEY (person_id, cal_id)
+);
+
+ALTER TABLE events ADD COLUMN IF NOT EXISTS ocupado    BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE events ADD COLUMN IF NOT EXISTS google_cal TEXT;
+ALTER TABLE events ADD COLUMN IF NOT EXISTS no_google  BOOLEAN NOT NULL DEFAULT FALSE;
+
+CREATE TABLE IF NOT EXISTS event_google (
+  event_id  INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+  person_id INTEGER NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+  google_id TEXT NOT NULL,
+  PRIMARY KEY (event_id, person_id)
+);
+CREATE INDEX IF NOT EXISTS event_google_gid_idx ON event_google (person_id, google_id);
