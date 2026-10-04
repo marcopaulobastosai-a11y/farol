@@ -281,6 +281,136 @@ function fnConta(id){ var cs = (FN.base && FN.base.contas) || []; for (var i = 0
 function fnCtx(id){ var cs = (window.G && G.contextos) || []; for (var i = 0; i < cs.length; i++) if (cs[i].id === id) return cs[i]; return null; }
 function fnCtxNome(id){ var c = fnCtx(id); if (!c) return ''; var p = c.parent_id ? fnCtx(c.parent_id) : null; return p ? p.name + ' › ' + c.name : c.name; }
 
+/* ------------------------------------------------------------------ *
+ * Listas pendentes com procura (4 out)
+ *
+ * A lista das categorias tem meia centena de linhas em oito grupos: a lista
+ * do browser obriga a rolar ate la e nao deixa escrever.
+ *
+ * O <select> continua a ser quem manda - tudo o que le o .value, mete opcoes
+ * ou ouve o «change» fica na mesma. So se lhe tira o pendente do browser: ao
+ * carregar abre-se uma janelinha com uma caixa de procura e as linhas
+ * filtradas, com as setas e o Enter a funcionar.
+ * ------------------------------------------------------------------ */
+
+var FN_BUSCA_CSS =
+  '.fn-pop-busca{position:fixed;z-index:300;background:var(--surface);border:1px solid var(--line);border-radius:12px;' +
+    'box-shadow:0 18px 50px -18px rgba(15,40,40,.5);padding:8px;width:min(22rem,calc(100vw - 24px));display:flex;flex-direction:column;gap:6px}' +
+  '.fn-pop-busca input{width:100%;box-sizing:border-box;padding:.45rem .6rem;border:1px solid var(--line);border-radius:8px;' +
+    'background:var(--ground);color:var(--ink);font:inherit;font-size:.875rem}' +
+  '.fn-pop-lista{max-height:min(22rem,50vh);overflow:auto;display:flex;flex-direction:column;gap:1px}' +
+  '.fn-pop-g{font-size:.625rem;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);padding:6px 6px 2px}' +
+  '.fn-pop-i{display:block;width:100%;text-align:left;border:0;background:none;font:inherit;font-size:.875rem;color:var(--ink);' +
+    'padding:.35rem .5rem;border-radius:7px;cursor:pointer}' +
+  '.fn-pop-i:hover,.fn-pop-i.mira{background:var(--surface-2)}' +
+  '.fn-pop-i.on{font-weight:600;color:var(--accent-ink,var(--accent))}' +
+  '.fn-pop-vazio{color:var(--muted);font-size:.8125rem;padding:8px 6px}' +
+  'select.fn-busca{cursor:pointer}';
+
+function fnBuscaEstilo(){
+  if (document.getElementById('fnBuscaCss')) return;
+  var e = document.createElement('style');
+  e.id = 'fnBuscaCss';
+  e.textContent = FN_BUSCA_CSS;
+  document.head.appendChild(e);
+}
+function fnSemAcento(x){ return String(x || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim(); }
+function fnBuscaFechar(){
+  [].slice.call(document.querySelectorAll('.fn-pop-busca')).forEach(function(x){ if (x.parentNode) x.parentNode.removeChild(x); });
+}
+
+/* Poe a procura num <select> ja feito. Devolve o proprio select. */
+function fnComProcura(sel, dica){
+  fnBuscaEstilo();
+  sel.classList.add('fn-busca');
+  var abrir = function(e){ if (sel.disabled) return; e.preventDefault(); e.stopPropagation(); fnBuscaPop(sel, dica); };
+  sel.addEventListener('mousedown', abrir);
+  sel.addEventListener('keydown', function(e){
+    if (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowDown' || e.key === 'ArrowUp') abrir(e);
+  });
+  return sel;
+}
+
+function fnBuscaPop(sel, dica){
+  var aberta = document.querySelector('.fn-pop-busca');
+  fnBuscaFechar();
+  /* Carregar outra vez no mesmo campo fecha, como faz o pendente do browser. */
+  if (aberta && aberta._dono === sel) return;
+
+  var p = h('div', { class: 'fn-pop-busca' });
+  p._dono = sel;
+  var q = h('input', { type: 'search', placeholder: dica || 'Procurar…', 'aria-label': 'Procurar' });
+  var lista = h('div', { class: 'fn-pop-lista' });
+  p.appendChild(q); p.appendChild(lista);
+
+  /* As opcoes a plano, cada uma com o grupo a que pertence: assim a procura
+     tambem acha pelo nome do grupo («transportes» acha as portagens). */
+  var itens = [];
+  [].slice.call(sel.children).forEach(function(n){
+    if (n.tagName === 'OPTGROUP') [].slice.call(n.children).forEach(function(o){ itens.push({ grupo: n.label, o: o }); });
+    else itens.push({ grupo: '', o: n });
+  });
+
+  var botoes = [], mira = -1;
+  var apontar = function(i){
+    if (botoes[mira]) botoes[mira].classList.remove('mira');
+    mira = Math.max(0, Math.min(botoes.length - 1, i));
+    if (botoes[mira]) { botoes[mira].classList.add('mira'); botoes[mira].scrollIntoView({ block: 'nearest' }); }
+  };
+  var escolher = function(v){
+    fnBuscaFechar();
+    if (sel.value === v) { sel.focus(); return; }
+    sel.value = v;
+    sel.dispatchEvent(new Event('change', { bubbles: true }));
+    sel.focus();
+  };
+  var desenhar = function(){
+    clear(lista); botoes = []; mira = -1;
+    var t = fnSemAcento(q.value);
+    var g = null;
+    itens.filter(function(it){ return !t || fnSemAcento(it.grupo + ' ' + it.o.textContent).indexOf(t) >= 0; })
+      .forEach(function(it){
+        if (it.grupo !== g) { g = it.grupo; if (g) lista.appendChild(h('div', { class: 'fn-pop-g' }, g)); }
+        var b = h('button', { type: 'button', class: 'fn-pop-i' + (String(it.o.value) === String(sel.value) ? ' on' : '') },
+          it.o.textContent);
+        b.addEventListener('mousedown', function(e){ e.preventDefault(); });
+        b.addEventListener('click', function(){ escolher(it.o.value); });
+        botoes.push(b); lista.appendChild(b);
+      });
+    if (!botoes.length) lista.appendChild(h('div', { class: 'fn-pop-vazio' }, 'Nada com esse texto.'));
+    /* Com procura, a mira vai na primeira; sem procura, na que ja esta posta. */
+    var i = 0;
+    if (!t) botoes.forEach(function(b, n){ if (b.classList.contains('on')) i = n; });
+    apontar(i);
+  };
+  q.addEventListener('input', desenhar);
+  q.addEventListener('keydown', function(e){
+    if (e.key === 'ArrowDown') { e.preventDefault(); apontar(mira + 1); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); apontar(mira - 1); }
+    else if (e.key === 'Enter') { e.preventDefault(); if (botoes[mira]) botoes[mira].click(); }
+    else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); fnBuscaFechar(); sel.focus(); }
+  });
+  desenhar();
+
+  document.body.appendChild(p);
+  var r = sel.getBoundingClientRect(), w = p.offsetWidth, hh = p.offsetHeight;
+  var x = Math.min(r.left, window.innerWidth - w - 12), y = r.bottom + 4;
+  if (y + hh > window.innerHeight - 12) y = Math.max(12, r.top - hh - 4);
+  p.style.left = Math.max(12, x) + 'px';
+  p.style.top = y + 'px';
+  q.focus();
+}
+(function(){
+  /* Fecha-se a carregar fora, a rolar o que esta por baixo, ou a mudar a
+     largura da janela - a janelinha e fixa e ficaria no sitio errado. */
+  document.addEventListener('mousedown', function(e){
+    var p = document.querySelector('.fn-pop-busca');
+    if (p && !p.contains(e.target) && !(e.target.classList && e.target.classList.contains('fn-busca'))) fnBuscaFechar();
+  }, true);
+  document.addEventListener('scroll', function(){ fnBuscaFechar(); }, true);
+  window.addEventListener('resize', fnBuscaFechar);
+})();
+
 /* Listas pendentes reutilizáveis. */
 function fnSelCategorias(valor, vazio, natureza){
   var s = h('select', { class: 'fn-sel' });
@@ -295,7 +425,7 @@ function fnSelCategorias(valor, vazio, natureza){
     s.appendChild(og);
   });
   if (valor) s.value = String(valor);
-  return s;
+  return fnComProcura(s, 'Procurar categoria…');
 }
 function fnSelAreas(valor, vazio){
   var s = h('select', { class: 'fn-sel' });
@@ -306,7 +436,7 @@ function fnSelAreas(valor, vazio){
     cs.filter(function(c){ return c.parent_id === a.id; }).forEach(function(sub){ s.appendChild(h('option', { value: sub.id }, '   ' + a.name + ' › ' + sub.name)); });
   });
   if (valor) s.value = String(valor);
-  return s;
+  return fnComProcura(s, 'Procurar área…');
 }
 function fnSelContas(valor, vazio){
   var s = h('select', { class: 'fn-sel' });
