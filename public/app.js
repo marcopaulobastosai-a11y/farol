@@ -584,7 +584,7 @@ var DOC_TIPOS = ['cart\u00e3o', 'contrato', 'ap\u00f3lice', 'declara\u00e7\u00e3
    Ai o cabecalho diz de que documento se trata e quando expira, e aparece a
    porta para o ecra dos Documentos - a mesma janela, mais contexto. */
 function editarDocumento(d, aviso){
-  var dlg = el('dialog', 'ar-dlg');
+  var dlg = el('dialog', 'ar-dlg folha');
   var cx = el('div', 'ar-dlgc');
   if (aviso){
     var topo = el('div', 'av-top');
