@@ -711,12 +711,15 @@ function fnDica(q, texto, pct, botoes){
    partilha nem é despesa: respondida essa, as outras não aparecem. */
 function fnPerguntasMov(p, m){
   var transf = Boolean(m.par_id || m.para_conta_id);
+  /* Para uma conta que só serve para identificar (as poupanças das meninas)
+     o dinheiro sai de casa e pode ser dividido: as outras perguntas ficam. */
+  var paraFora = Boolean(!m.par_id && m.para_conta_id && (fnConta(m.para_conta_id) || {}).ativo === false);
   var pc = m.par_id ? fnConta(m.par_conta_id) : m.para_conta_id ? fnConta(m.para_conta_id) : null;
   var q1 = fnPergunta(p, { titulo: m.valor < 0 ? 'Foi para outra conta tua?' : 'Veio de outra conta tua?', sim: transf,
     resumo: transf ? (m.valor < 0 ? 'Para ' : 'De ') + (pc ? pc.nome : 'outra conta') + ' · não conta como despesa nem receita' : null,
     desenhar: function(c){ fnPainelPar(c, m); } });
-  if (transf) return;
-  apiGestao('/api/financas/movimentos/' + m.id + '/pares').then(function(r){
+  if (transf && !paraFora) return;
+  if (!transf) apiGestao('/api/financas/movimentos/' + m.id + '/pares').then(function(r){
     var o = (r.pares || [])[0];
     if (!o || o.confianca < 0.6 || q1.aberta()) return;
     fnDica(q1, 'Parece ' + (m.valor < 0 ? 'ir para ' : 'vir de ') + o.conta + ' (' + fnData(o.data) + ').', o.confianca, [
