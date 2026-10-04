@@ -263,7 +263,7 @@ function hjAgenda() {
 
   var itens = [];
   (D.events || []).forEach(function (e) {
-    if (e.day < de || e.day > ate) return;
+    if (e.day < de || e.day > ate || e.ocupado) return;
     var aniv = e.calendar === 'aniversarios';
     itens.push({ dia: e.day, hora: e.at || '', titulo: e.title, sub: e.detail || (aniv ? 'Anivers\u00e1rio' : calName(e.calendar)),
       tipo: aniv ? 'aniversario' : 'evento', ctx: e.context_id });
