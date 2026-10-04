@@ -1458,11 +1458,22 @@ function instalar(app) {
       const b = req.body || {};
       const valor = cent(String(b.valor).replace(/\s/g, '').replace(',', '.'));
       if (!b.conta_id || !valor || !b.data) throw erro(400, 'Faltam a conta, a data ou o valor.');
+      /* Repor um movimento do extrato apagado por engano: fica com a mesma
+         impressao que o extrato lhe daria (a primeira livre para esse dia,
+         valor e texto), para que voltar a importar o extrato nao o duplique. */
+      let impressao = 'manual:' + crypto.randomBytes(8).toString('hex'), origem = 'manual';
+      if (b.repor) {
+        const k = b.data + '|' + valor.toFixed(2) + '|' + norm(String(b.descricao || ''));
+        const raiz = crypto.createHash('sha1').update(k).digest('hex').slice(0, 20);
+        const usadas = new Set((await all('SELECT impressao FROM fin_movimentos WHERE conta_id = $1 AND impressao LIKE $2', [b.conta_id, raiz + '#%'])).map((x) => x.impressao));
+        let n = 1; while (usadas.has(raiz + '#' + n)) n++;
+        impressao = raiz + '#' + n; origem = 'import';
+      }
       const r = (await all(
         `INSERT INTO fin_movimentos (conta_id, data, descricao, valor, categoria_id, categoria_fonte, categoria_em, context_id, impressao, origem, nota)
-         VALUES ($1,$2,$3,$4,$5, CASE WHEN $5::int IS NULL THEN NULL ELSE 'tu' END, CASE WHEN $5::int IS NULL THEN NULL ELSE now() END, $6, $7, 'manual', $8) RETURNING id`,
+         VALUES ($1,$2,$3,$4,$5, CASE WHEN $5::int IS NULL THEN NULL ELSE 'tu' END, CASE WHEN $5::int IS NULL THEN NULL ELSE now() END, $6, $7, $9, $8) RETURNING id`,
         [b.conta_id, b.data, String(b.descricao || 'Movimento').trim(), valor, b.categoria_id || null, b.context_id || null,
-          'manual:' + crypto.randomBytes(8).toString('hex'), b.nota || null]))[0];
+          impressao, b.nota || null, origem]))[0];
       if (!b.categoria_id) categorizar([r.id]).catch(() => {});
       res.json({ id: r.id });
     } catch (e) { falha(res, e, 'o movimento'); }
