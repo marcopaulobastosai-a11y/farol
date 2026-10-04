@@ -196,7 +196,11 @@ var AG_CSS = [
   '.ag-li.feito b{text-decoration:line-through;opacity:.6}',
   '.ag-vazio{padding:36px 16px;text-align:center;color:var(--muted)}',
   /* painel da direita */
-  '#view-agenda .ag-det{position:sticky;top:12px;display:flex;flex-direction:column;gap:13px;max-height:calc(100vh - 24px);overflow:auto}',
+  /* 5 out: o calendario pequeno e o periodo passaram para a direita, por
+     cima do dia; a esquerda fica so com os filtros. */
+  '#view-agenda .ag-dir{display:flex;flex-direction:column;gap:8px;position:sticky;top:12px;max-height:calc(100vh - 24px);overflow:auto;min-width:0}',
+  '#view-agenda .ag-dir .ag-sec{flex:none}',
+  '#view-agenda .ag-det{display:flex;flex-direction:column;gap:13px;flex:none}',
   '.ag-det h3{font-family:var(--serif);font-weight:500;font-size:1.2rem;margin:0;line-height:1.25}',
   '.ag-dh{display:flex;justify-content:space-between;align-items:baseline;gap:8px}',
   '.ag-k{font-family:var(--mono);font-size:.625rem;letter-spacing:.06em;color:var(--muted);text-transform:uppercase;white-space:nowrap}',
@@ -216,7 +220,7 @@ var AG_CSS = [
   '.ag-livre .bar i{position:absolute;top:0;bottom:0;background:var(--c);border-radius:2px;opacity:.85}',
   '.ag-livre .ax{display:flex;justify-content:space-between;font-family:var(--mono);font-size:.5625rem;color:var(--faint);margin-left:78px}',
   '.ag-so-estreito{display:none}',
-  '@media (max-width:1400px){#view-agenda .ag{grid-template-columns:210px minmax(0,1fr)}#view-agenda .ag-det{grid-column:1/-1;position:static;max-height:none}}',
+  '@media (max-width:1400px){#view-agenda .ag{grid-template-columns:210px minmax(0,1fr)}#view-agenda .ag-dir{grid-column:1/-1;position:static;max-height:none;display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));align-items:start}}',
   '@media (max-width:860px){#view-agenda .ag{grid-template-columns:minmax(0,1fr)}#view-agenda .ag-side{position:static;display:none}#view-agenda .ag-side.aberto{display:flex}.ag-so-estreito{display:inline-block}.ag-qg{grid-template-columns:minmax(0,1fr)}.ag-yg{grid-template-columns:repeat(2,minmax(0,1fr))}.ag-mc{min-height:66px}.ag-mc .ag-ev .tm{display:none}.ag-ls .dia{grid-template-columns:minmax(0,1fr)}.ag-li{grid-template-columns:64px 10px minmax(0,1fr)}.ag-li .src{display:none}}'
 ].join('\n');
 
@@ -403,9 +407,6 @@ function agMontar(){
   v.innerHTML =
     '<div class="ag">' +
       '<aside class="ag-side" id="agSide">' +
-        '<div class="ag-sec"><div class="ag-mh"><button type="button" data-ag="mini-" aria-label="Mês anterior">‹</button><b id="agMiniT"></b><button type="button" data-ag="mini+" aria-label="Mês seguinte">›</button></div><div class="ag-mini" id="agMini"></div></div>' +
-        '<div class="ag-sec"><h4>Período</h4><div class="ag-chips" id="agRapido"></div>' +
-          '<div class="ag-int"><input type="date" id="agDe" aria-label="De"><input type="date" id="agAte" aria-label="Até"><button type="button" class="btn small" data-ag="intervalo">Ver o intervalo em lista</button></div></div>' +
         '<div class="ag-sec"><h4>Agregado <button type="button" data-ag="pessoas">todos</button></h4><div id="agPes"></div>' +
           '<label class="ag-row" style="margin-top:6px;border-top:1px solid var(--line-soft);padding-top:8px"><input type="checkbox" id="agPorPessoa"><span class="nm" style="white-space:normal">Dia em colunas por pessoa</span></label></div>' +
         '<div class="ag-sec"><h4>Áreas <button type="button" data-ag="areas">todas</button></h4><div id="agAreas"></div></div>' +
@@ -431,7 +432,12 @@ function agMontar(){
         '<div class="ag-pop" id="agPop" hidden></div>' +
         '<div id="agVista"></div>' +
       '</div>' +
-      '<section class="card ag-det" id="agDet" aria-live="polite"></section>' +
+      '<aside class="ag-dir">' +
+        '<div class="ag-sec"><div class="ag-mh"><button type="button" data-ag="mini-" aria-label="Mês anterior">‹</button><b id="agMiniT"></b><button type="button" data-ag="mini+" aria-label="Mês seguinte">›</button></div><div class="ag-mini" id="agMini"></div></div>' +
+        '<div class="ag-sec"><h4>Período</h4><div class="ag-chips" id="agRapido"></div>' +
+          '<div class="ag-int"><input type="date" id="agDe" aria-label="De"><input type="date" id="agAte" aria-label="Até"><button type="button" class="btn small" data-ag="intervalo">Ver o intervalo em lista</button></div></div>' +
+        '<section class="card ag-det" id="agDet" aria-live="polite"></section>' +
+      '</aside>' +
     '</div>';
   agLigar(v);
   agLerGoogle();
