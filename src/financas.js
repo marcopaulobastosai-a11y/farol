@@ -816,6 +816,15 @@ async function detalharMovimentos(ids, B, sug) {
             m.project_id, pj.name AS projeto,
             m.par_id, pm.conta_id AS par_conta_id, to_char(pm.data,'YYYY-MM-DD') AS par_data,
             pe.name AS pessoa_nome, m.person_ids, m.para_conta_id,
+            m.task_id,
+            (SELECT json_build_object('id', t.id, 'title', t.title, 'tipo', t.tipo, 'status', t.status, 'payee', t.payee,
+                                      'due_on', to_char(t.due_on,'YYYY-MM-DD'), 'paid_on', to_char(t.paid_on,'YYYY-MM-DD'),
+                                      'amount', t.amount, 'paid_amount', t.paid_amount, 'expense_id', t.expense_id,
+                                      'context_id', t.context_id, 'series_id', t.series_id, 'ligada', (t.id = m.task_id),
+                                      'docs', (SELECT COUNT(*) FROM task_documents td WHERE td.task_id = t.id))
+               FROM tasks t
+              WHERE t.origin = 'real' AND (t.id = m.task_id OR (m.task_id IS NULL AND m.expense_id IS NOT NULL AND t.expense_id = m.expense_id))
+              ORDER BY (t.id = m.task_id) DESC, t.id DESC LIMIT 1) AS tarefa,
             (SELECT json_agg(px.name ORDER BY array_position(m.person_ids, px.id)) FROM people px WHERE px.id = ANY(m.person_ids)) AS pessoas_nomes,
             e.description AS despesa, (e.document_id IS NOT NULL) AS despesa_papel, e.splitwise_id::text AS despesa_splitwise,
             ccm.pessoa_id AS cc_pessoa_id, ccp.nome AS cc_pessoa, ccm.origem AS cc_origem,
@@ -871,6 +880,259 @@ async function saldosDosMovimentos(rows, B) {
       m.saldo_calculado = true;
     });
   }
+}
+
+/* ---------------- tarefas dos movimentos ----------------
+   Cadeia unica: tarefa de pagamento -> despesa -> movimento. Ligar um
+   movimento a um pagamento por pagar paga-o (data e valor do banco) e a
+   despesa nasce ai; a um pagamento ja pago, juntam-se as despesas (se cada
+   lado tem a sua, o Marco escolhe qual fica). Uma tarefa normal fica so
+   ligada. */
+const PALAVRAS_VAZIAS = new Set(['pagar', 'pagamento', 'pagamentos', 'despesa', 'despesas', 'conta', 'contas', 'fatura', 'faturas',
+  'mensal', 'mensalidade', 'transferencia', 'para', 'com', 'dos', 'das', 'imediata', 'trf']);
+const diasEntre = (a, b) => Math.round((Date.parse(a) - Date.parse(b)) / 86400000);
+
+function areasDe(B, id) {
+  const out = new Set([Number(id)]);
+  let mudou = true;
+  while (mudou) {
+    mudou = false;
+    B.ctx.forEach((c) => { if (c.parent_id && out.has(c.parent_id) && !out.has(c.id)) { out.add(c.id); mudou = true; } });
+  }
+  return [...out];
+}
+function caminhoArea(B, id) {
+  const out = []; let c = B.ctxPor[id], n = 0;
+  while (c && n++ < 10) { out.unshift({ id: c.id, nome: c.name }); c = B.ctxPor[c.parent_id]; }
+  return out;
+}
+
+async function movParaTarefa(id) {
+  return (await all(
+    `SELECT m.id, to_char(m.data,'YYYY-MM-DD') AS data, m.descricao, m.valor::float AS valor, m.expense_id, m.task_id,
+            COALESCE(m.context_id, c.context_id) AS ctx, m.par_id, m.para_conta_id
+       FROM fin_movimentos m JOIN fin_contas c ON c.id = m.conta_id WHERE m.id = $1`, [id]))[0];
+}
+
+/* Quanto uma tarefa se parece com o movimento: o valor, o nome de quem
+   recebeu no texto do banco, a data e a area. */
+function pontuarTarefa(m, t, naArea) {
+  const v = Math.abs(m.valor);
+  let s = 0; const porque = [];
+  const vals = [t.paid_amount, t.amount].filter((x) => x != null && x > 0);
+  if (vals.some((x) => Math.abs(x - v) < 0.006)) { s += 0.45; porque.push('mesmo valor'); }
+  else if (v && vals.some((x) => Math.abs(x - v) / v <= 0.05)) { s += 0.2; porque.push('valor parecido'); }
+  const d = ' ' + norm(m.descricao) + ' ';
+  const pal = [...new Set(norm((t.payee || '') + ' ' + t.title).split(' ').filter((w) => w.length >= 4 && !PALAVRAS_VAZIAS.has(w)))];
+  const achadas = pal.filter((w) => d.includes(' ' + w + ' '));
+  if (achadas.length) { s += Math.min(0.3, 0.15 * achadas.length); porque.push('«' + achadas.join(' ') + '» no banco'); }
+  const ref = t.paid_on || t.due_on;
+  if (ref) {
+    const dd = Math.abs(diasEntre(ref, m.data));
+    if (dd <= 3) s += 0.2; else if (dd <= 10) s += 0.12; else if (dd <= 30) s += 0.05;
+    if (dd <= 10) porque.push(t.paid_on ? (dd ? 'paga ' + dd + ' dia' + (dd > 1 ? 's' : '') + ' de diferença' : 'paga no mesmo dia') : 'vence perto');
+  }
+  if (naArea) { s += 0.1; porque.push('mesma área'); }
+  if (t.tipo === 'pagamento') s += 0.05;
+  return { score: Math.round(Math.min(1, s) * 100) / 100, porque };
+}
+
+/* As tarefas que podem ser deste movimento. o.janela: so as de datas perto
+   (para as sugestoes); sem janela, as abertas e as fechadas nos ultimos
+   meses (para escolher da lista). */
+async function tarefasDoMovimento(m, B, o) {
+  const p = [m.id, m.data];
+  const w = ["t.origin = 'real'", "t.status <> 'cancelada'", "t.tipo IN ('pagamento','tarefa')"];
+  if (o.tipo === 'pagamentos') w.push("t.tipo = 'pagamento'");
+  if (o.area) { p.push(areasDe(B, o.area)); w.push('t.context_id = ANY($' + p.length + '::int[])'); }
+  if (o.q) { p.push('%' + o.q + '%'); w.push('(t.title ILIKE $' + p.length + ' OR t.payee ILIKE $' + p.length + ')'); }
+  if (o.estado === 'abertas') w.push("t.status <> 'concluida'");
+  if (o.janela) {
+    w.push(`(t.paid_on BETWEEN $2::date - 30 AND $2::date + 30
+             OR (t.status <> 'concluida' AND (t.due_on IS NULL OR t.due_on BETWEEN $2::date - 90 AND $2::date + 45))
+             OR (t.status = 'concluida' AND t.paid_on IS NULL AND t.completed_at::date BETWEEN $2::date - 30 AND $2::date + 30))`);
+  } else if (!o.q) {
+    w.push("(t.status <> 'concluida' OR COALESCE(t.paid_on, t.completed_at::date) >= $2::date - 120)");
+  }
+  const rows = await all(
+    `SELECT t.id, t.title, t.tipo, t.status, t.payee, t.context_id, t.series_id, t.expense_id,
+            to_char(t.due_on,'YYYY-MM-DD') AS due_on, to_char(t.paid_on,'YYYY-MM-DD') AS paid_on,
+            t.amount::float AS amount, t.paid_amount::float AS paid_amount, (t.repeat_rule IS NOT NULL) AS repete,
+            (SELECT COUNT(*)::int FROM task_documents td WHERE td.task_id = t.id) AS docs,
+            (SELECT mm.id FROM fin_movimentos mm WHERE mm.id <> $1
+                AND (mm.task_id = t.id OR (t.expense_id IS NOT NULL AND mm.expense_id = t.expense_id)) LIMIT 1) AS outro_mov
+       FROM tasks t WHERE ${w.join(' AND ')}
+      ORDER BY COALESCE(t.paid_on, t.due_on) DESC NULLS LAST, t.id DESC LIMIT 400`, p);
+  const daArea = m.ctx ? new Set(areasDe(B, m.ctx)) : new Set();
+  rows.forEach((t) => {
+    Object.assign(t, pontuarTarefa(m, t, daArea.has(t.context_id)));
+    t.area = (B.ctxPor[t.context_id] || {}).name || null;
+  });
+  rows.sort((a, b) => (a.outro_mov ? 1 : 0) - (b.outro_mov ? 1 : 0) || b.score - a.score);
+  return rows;
+}
+
+/* Uma despesa que ficou a mais sai, se nada mais precisa dela. */
+async function apagarDespesaSolta(id, movId) {
+  if (!id) return false;
+  const usada = (await all(
+    `SELECT (SELECT COUNT(*) FROM fin_movimentos WHERE expense_id = $1 AND id <> $2)
+          + (SELECT COUNT(*) FROM tasks WHERE expense_id = $1)
+          + (SELECT COUNT(*) FROM inbox_links WHERE target_type = 'despesa' AND target_id = $1)
+          + (SELECT COUNT(*) FROM expenses WHERE id = $1 AND splitwise_id IS NOT NULL) AS n`, [id, movId || 0]))[0];
+  if (Number(usada.n) > 0) return false;
+  await query('DELETE FROM expenses WHERE id = $1', [id]);
+  return true;
+}
+
+async function despesasDaTarefa(t) {
+  if (!t.expense_id) return [];
+  return all(
+    `SELECT e.id, e.description, e.amount::float AS amount, to_char(e.spent_on,'YYYY-MM-DD') AS spent_on, e.merchant,
+            (e.document_id IS NOT NULL) AS papel, e.splitwise_id::text AS splitwise
+       FROM expenses e
+      WHERE e.id = $1 OR (e.note = 'pago em ' || $2 AND e.spent_on = $3::date AND e.context_id IS NOT DISTINCT FROM $4)
+      ORDER BY e.id`, [t.expense_id, t.title, t.paid_on, t.context_id]);
+}
+async function umaDespesa(id) {
+  return (await all(
+    `SELECT e.id, e.description, e.amount::float AS amount, to_char(e.spent_on,'YYYY-MM-DD') AS spent_on, e.merchant,
+            (e.document_id IS NOT NULL) AS papel, e.splitwise_id::text AS splitwise
+       FROM expenses e WHERE e.id = $1`, [id]))[0] || null;
+}
+
+async function ligarTarefa(movId, taskId, escolha) {
+  const m = await movParaTarefa(movId);
+  if (!m) throw erro(404, 'Movimento não encontrado.');
+  const t = (await all(
+    `SELECT id, tipo, title, status, to_char(paid_on,'YYYY-MM-DD') AS paid_on, expense_id, context_id, series_id
+       FROM tasks WHERE id = $1 AND origin = 'real'`, [taskId]))[0];
+  if (!t) throw erro(404, 'Tarefa não encontrada.');
+  const outro = (await all(
+    `SELECT id FROM fin_movimentos WHERE id <> $1 AND (task_id = $2 OR ($3::int IS NOT NULL AND expense_id = $3)) LIMIT 1`,
+    [m.id, t.id, t.expense_id]))[0];
+  if (outro) throw erro(409, 'Esta tarefa já está ligada a outro movimento.');
+
+  if (t.tipo !== 'pagamento') {
+    await query('UPDATE fin_movimentos SET task_id = $2 WHERE id = $1', [m.id, t.id]);
+    return { task_id: t.id, pago: false };
+  }
+  if (m.valor >= 0) throw erro(400, 'Um pagamento liga-se a um movimento que saiu da conta.');
+
+  /* Por pagar: o movimento paga-o. */
+  if (!t.paid_on && t.status !== 'concluida') {
+    await require('./tarefas').pagar(t.id, {
+      paid_on: m.data, paid_amount: Math.abs(m.valor), payment_method: 'transferência', criar_despesa: !m.expense_id
+    });
+    const inst = (await all(
+      `SELECT id, expense_id FROM tasks WHERE (id = $1 OR series_id = $1) AND paid_on = $2::date
+        ORDER BY (id <> $1) DESC, id DESC LIMIT 1`, [t.id, m.data]))[0] || { id: t.id, expense_id: null };
+    if (m.expense_id) await query('UPDATE tasks SET expense_id = COALESCE(expense_id, $2) WHERE id = $1', [inst.id, m.expense_id]);
+    else if (inst.expense_id) await query('UPDATE fin_movimentos SET expense_id = $2 WHERE id = $1', [m.id, inst.expense_id]);
+    await query('UPDATE fin_movimentos SET task_id = $2 WHERE id = $1', [m.id, inst.id]);
+    return { task_id: inst.id, pago: true };
+  }
+
+  /* Ja paga: junta-se a despesa. */
+  const te = t.expense_id, me = m.expense_id;
+  let apagadas = 0;
+  if (te && me && te !== me) {
+    const daTarefa = await despesasDaTarefa(t);
+    if (!['tarefa', 'movimento', 'ambas'].includes(escolha)) {
+      const e = erro(409, 'A tarefa e o movimento têm cada um a sua despesa.');
+      e.conflito = { tarefa: daTarefa, movimento: await umaDespesa(me) };
+      throw e;
+    }
+    if (escolha === 'tarefa') {
+      await query('UPDATE fin_movimentos SET expense_id = $2 WHERE id = $1', [m.id, te]);
+      if (await apagarDespesaSolta(me, m.id)) apagadas++;
+    } else if (escolha === 'movimento') {
+      await query('UPDATE tasks SET expense_id = $2 WHERE id = $1', [t.id, me]);
+      for (const d of daTarefa) if (d.id !== me && await apagarDespesaSolta(d.id, m.id)) apagadas++;
+    } else {
+      await query('UPDATE fin_movimentos SET expense_id = $2 WHERE id = $1', [m.id, te]);
+    }
+  } else if (te && !me) await query('UPDATE fin_movimentos SET expense_id = $2 WHERE id = $1', [m.id, te]);
+  else if (!te && me) await query('UPDATE tasks SET expense_id = $2 WHERE id = $1', [t.id, me]);
+  await query('UPDATE fin_movimentos SET task_id = $2 WHERE id = $1', [m.id, t.id]);
+  return { task_id: t.id, pago: false, apagadas };
+}
+
+/* Os pares movimento -> pagamento que quase de certeza vao juntos (mesmo
+   valor, nome no banco ou data, ainda nenhum ligado), para o aviso da lista. */
+async function tarefasSugeridas(B) {
+  const movs = await all(
+    `SELECT m.id, to_char(m.data,'YYYY-MM-DD') AS data, m.descricao, m.valor::float AS valor, m.expense_id,
+            COALESCE(m.context_id, c.context_id) AS ctx, c.nome AS conta
+       FROM fin_movimentos m JOIN fin_contas c ON c.id = m.conta_id
+      WHERE m.valor < 0 AND m.task_id IS NULL AND m.par_id IS NULL AND m.para_conta_id IS NULL
+        AND m.data >= CURRENT_DATE - 180
+        AND NOT EXISTS (SELECT 1 FROM fin_cc_mov x WHERE x.movimento_id = m.id)
+        AND NOT EXISTS (SELECT 1 FROM tasks t WHERE m.expense_id IS NOT NULL AND t.expense_id = m.expense_id)`);
+  if (!movs.length) return [];
+  const tarefas = await all(
+    `SELECT t.id, t.title, t.tipo, t.status, t.payee, t.context_id, t.expense_id,
+            to_char(t.due_on,'YYYY-MM-DD') AS due_on, to_char(t.paid_on,'YYYY-MM-DD') AS paid_on,
+            t.amount::float AS amount, t.paid_amount::float AS paid_amount
+       FROM tasks t
+      WHERE t.origin = 'real' AND t.tipo = 'pagamento' AND t.status <> 'cancelada'
+        AND (t.paid_on >= CURRENT_DATE - 200 OR (t.status <> 'concluida' AND t.due_on >= CURRENT_DATE - 200))
+        AND NOT EXISTS (SELECT 1 FROM fin_movimentos mm WHERE mm.task_id = t.id OR (t.expense_id IS NOT NULL AND mm.expense_id = t.expense_id))`);
+  const pares = [];
+  movs.forEach((m) => {
+    const daArea = m.ctx ? new Set(areasDe(B, m.ctx)) : new Set();
+    tarefas.forEach((t) => {
+      const ref = t.paid_on || t.due_on;
+      if (!ref || Math.abs(diasEntre(ref, m.data)) > 30) return;
+      const r = pontuarTarefa(m, t, daArea.has(t.context_id));
+      if (r.score >= 0.8 && r.porque[0] === 'mesmo valor') pares.push({ m, t, score: r.score, porque: r.porque });
+    });
+  });
+  pares.sort((a, b) => b.score - a.score);
+  const usadosM = new Set(), usadosT = new Set(), out = [];
+  pares.forEach((p) => {
+    if (usadosM.has(p.m.id) || usadosT.has(p.t.id)) return;
+    usadosM.add(p.m.id); usadosT.add(p.t.id);
+    out.push({
+      movimento: { id: p.m.id, data: p.m.data, descricao: p.m.descricao, valor: p.m.valor, conta: p.m.conta },
+      tarefa: { id: p.t.id, title: p.t.title, status: p.t.status, paid_on: p.t.paid_on, due_on: p.t.due_on, area: (B.ctxPor[p.t.context_id] || {}).name || null },
+      score: p.score, porque: p.porque,
+      conflito: Boolean(p.t.expense_id && p.m.expense_id && p.t.expense_id !== p.m.expense_id)
+    });
+  });
+  return out;
+}
+
+/* A IA escolhe, entre as tarefas candidatas, a que este movimento pagou. */
+async function tarefaPelaIA(m, cands) {
+  if (!CHAVE) throw erro(400, 'A IA não está configurada.');
+  if (!cands.length) return null;
+  const linhas = cands.map((t) => t.id + ' | ' + t.tipo + ' | ' + t.title + ' | ' + (t.payee || '') + ' | ' + (t.area || '') +
+    ' | valor ' + (t.paid_amount != null ? t.paid_amount : t.amount != null ? t.amount : '?') +
+    ' | ' + (t.paid_on ? 'paga ' + t.paid_on : 'vence ' + (t.due_on || '?')) + ' | ' + t.status);
+  const corpo = {
+    model: MODELO, store: false,
+    system_instruction: 'Ligas um movimento bancario de uma familia portuguesa a tarefa (pagamento a fazer, renda, contas da casa, propinas...) a que corresponde. ' +
+      'O nome de quem recebeu no texto do banco pode ser o senhorio ou a entidade, e nao o nome da tarefa. Escolhe so de entre as tarefas dadas, pelo id; ' +
+      'se nenhuma servir, responde task_id 0. Confianca de 0 a 1. Explica em portugues, numa frase curta.',
+    input: [{ type: 'text', text: 'Movimento: ' + m.data + ' | ' + m.descricao + ' | ' + m.valor.toFixed(2) + ' €\n\nTarefas (id | tipo | titulo | a quem | area | valor | data | estado):\n' + linhas.join('\n') }],
+    response_format: {
+      type: 'text', mime_type: 'application/json',
+      schema: { type: 'object', properties: { task_id: { type: 'integer' }, confianca: { type: 'number' }, porque: { type: 'string' } }, required: ['task_id', 'confianca', 'porque'] }
+    }
+  };
+  const r = await fetch('https://generativelanguage.googleapis.com/v1beta/interactions', {
+    method: 'POST', signal: AbortSignal.timeout(60000),
+    headers: { 'content-type': 'application/json', 'x-goog-api-key': CHAVE }, body: JSON.stringify(corpo)
+  });
+  if (!r.ok) throw erro(502, 'A IA não respondeu (' + r.status + ').');
+  const j = await r.json();
+  let cru = '';
+  (j.steps || []).forEach((p) => (p.content || []).forEach((c) => { if (c && c.type === 'text' && c.text) cru += c.text; }));
+  if (!cru && typeof j.output_text === 'string') cru = j.output_text;
+  const x = JSON.parse(cru);
+  const t = cands.find((c) => c.id === Number(x.task_id));
+  return t ? Object.assign({}, t, { ia: { confianca: Math.max(0, Math.min(1, Number(x.confianca) || 0)), porque: String(x.porque || '') } }) : null;
 }
 
 /* ---------------- transferencias entre contas ---------------- */
@@ -1543,6 +1805,76 @@ function instalar(app) {
       await query('UPDATE fin_movimentos SET expense_id = $1 WHERE id = $2', [e.id, m.id]);
       res.json({ expense_id: e.id });
     } catch (e) { falha(res, e, 'a despesa'); }
+  });
+
+  /* ---- tarefas dos movimentos ---- */
+  app.get('/api/financas/movimentos/:id(\\d+)/tarefas', async (req, res) => {
+    try {
+      const m = await movParaTarefa(Number(req.params.id));
+      if (!m) throw erro(404, 'Movimento não encontrado.');
+      const B = await base();
+      const q = String(req.query.q || '').trim().slice(0, 80);
+      const area = req.query.area === 'todas' ? null : (Number(req.query.area) || m.ctx || null);
+      const [sug, lista] = await Promise.all([
+        tarefasDoMovimento(m, B, { janela: true }),
+        tarefasDoMovimento(m, B, { area, q, tipo: req.query.tipo === 'todas' ? 'todas' : 'pagamentos', estado: req.query.estado === 'abertas' ? 'abertas' : 'todas' })
+      ]);
+      res.json({
+        area: area ? { id: area, nome: (B.ctxPor[area] || {}).name || null, caminho: caminhoArea(B, area) } : null,
+        area_movimento: m.ctx ? caminhoArea(B, m.ctx) : [],
+        sugestoes: sug.filter((t) => !t.outro_mov && t.score >= 0.5).slice(0, 3),
+        tarefas: lista.slice(0, 120),
+        ia: Boolean(CHAVE)
+      });
+    } catch (e) { falha(res, e, 'as tarefas'); }
+  });
+  app.post('/api/financas/movimentos/:id(\\d+)/tarefas/ia', async (req, res) => {
+    try {
+      const m = await movParaTarefa(Number(req.params.id));
+      if (!m) throw erro(404, 'Movimento não encontrado.');
+      const B = await base();
+      const cands = (await tarefasDoMovimento(m, B, { janela: true })).filter((t) => !t.outro_mov).slice(0, 30);
+      res.json({ tarefa: await tarefaPelaIA(m, cands) });
+    } catch (e) { falha(res, e, 'a pergunta à IA'); }
+  });
+  app.post('/api/financas/movimentos/:id(\\d+)/tarefa', async (req, res) => {
+    try {
+      const b = req.body || {};
+      res.json(await ligarTarefa(Number(req.params.id), Number(b.task_id), b.despesa || null));
+    } catch (e) {
+      if (e.conflito) return res.status(409).json({ error: e.message, conflito: e.conflito });
+      falha(res, e, 'a tarefa');
+    }
+  });
+  app.delete('/api/financas/movimentos/:id(\\d+)/tarefa', async (req, res) => {
+    try {
+      const m = (await all(
+        `SELECT m.id, m.expense_id, COALESCE(m.task_id, t.id) AS task_id, tt.expense_id AS t_exp
+           FROM fin_movimentos m
+           LEFT JOIN tasks t ON m.task_id IS NULL AND m.expense_id IS NOT NULL AND t.expense_id = m.expense_id
+           LEFT JOIN tasks tt ON tt.id = COALESCE(m.task_id, t.id)
+          WHERE m.id = $1 LIMIT 1`, [req.params.id]))[0];
+      if (!m) throw erro(404, 'Movimento não encontrado.');
+      /* A despesa e a da tarefa: sai do movimento com ela. */
+      await query('UPDATE fin_movimentos SET task_id = NULL, expense_id = CASE WHEN expense_id = $2 THEN NULL ELSE expense_id END WHERE id = $1',
+        [m.id, m.t_exp || 0]);
+      res.json({ ok: true });
+    } catch (e) { falha(res, e, 'a tarefa'); }
+  });
+  app.get('/api/financas/tarefas/sugeridas', async (req, res) => {
+    try { res.json({ pares: await tarefasSugeridas(await base()) }); }
+    catch (e) { falha(res, e, 'as tarefas sugeridas'); }
+  });
+  app.post('/api/financas/tarefas/ligar', async (req, res) => {
+    try {
+      const pares = Array.isArray(req.body && req.body.pares) ? req.body.pares.slice(0, 200) : [];
+      let ligados = 0; const saltados = [];
+      for (const p of pares) {
+        try { await ligarTarefa(Number(p.movimento_id), Number(p.task_id), null); ligados++; }
+        catch (e) { saltados.push({ movimento_id: p.movimento_id, task_id: p.task_id, motivo: e.message }); }
+      }
+      res.json({ ligados, saltados });
+    } catch (e) { falha(res, e, 'as tarefas'); }
   });
 
   /* ---- IA ---- */
