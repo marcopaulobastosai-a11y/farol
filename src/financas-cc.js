@@ -945,7 +945,17 @@ async function guardarPartilha(b) {
      nao se cria outra. */
   if (b.splitwise_existente && typeof b.splitwise_existente === 'object') {
     const g = {};
-    Object.keys(b.splitwise_existente).forEach((k) => { g[k] = { expense_id: Number(b.splitwise_existente[k]), criada: false, assinatura: null }; });
+    const antes = ((await all('SELECT splitwise FROM fin_partilhas WHERE id = $1', [pid]))[0] || {}).splitwise || {};
+    for (const k of Object.keys(b.splitwise_existente)) {
+      const novo = Number(b.splitwise_existente[k]);
+      if (!novo) continue;
+      g[k] = { expense_id: novo, criada: false, assinatura: null };
+      /* A que o Farol tinha criado para esta conta deixa de servir: sai do Splitwise. */
+      const v = antes[k];
+      if (v && v.criada && v.expense_id && Number(v.expense_id) !== novo) {
+        try { await splitwise.pedir('/delete_expense/' + v.expense_id, { metodo: 'POST' }); } catch (e) { console.error('[farol] splitwise apagar despesa:', e.message); }
+      }
+    }
     await query(`UPDATE fin_partilhas SET splitwise = COALESCE(splitwise, '{}'::jsonb) || $2::jsonb WHERE id = $1`, [pid, JSON.stringify(g)]);
   }
   let sw = { criadas: 0, existentes: 0, atualizadas: 0, apagadas: 0, erros: [] };
@@ -1243,9 +1253,20 @@ async function partilhaDaDespesaSplitwise(movimentoId, expenseId, categoriaId) {
 /* As despesas do Splitwise perto deste movimento (data +-30 dias), para
    escolher a que ja la esta: primeiro as do mesmo valor, depois as de data
    mais perto. As ja ligadas a outra despesa partilhada vem marcadas. */
-async function despesasSplitwisePerto(movId, q) {
+async function despesasSplitwisePerto(movId, q, o) {
+  o = o || {};
   const m = (await all("SELECT id, to_char(data,'YYYY-MM-DD') AS data, valor FROM fin_movimentos WHERE id = $1", [movId]))[0];
   if (!m) throw erro(404, 'Movimento não encontrado.');
+  /* Para uma linha so (uma conta corrente do Splitwise): so as desse grupo ou
+     amigo, e bate quando a parte dos outros (ou o total) e a da linha. */
+  let conta = null;
+  if (o.conta_id) {
+    conta = (await all(
+      `SELECT c.id, COALESCE(c.splitwise_grupo_id, 0)::text AS grupo, dp.splitwise_id::text AS amigo
+         FROM fin_cc_contas c LEFT JOIN fin_cc_pessoas dp ON dp.id = c.pessoa_direta_id WHERE c.id = $1`, [Number(o.conta_id)]))[0];
+    if (!conta) throw erro(404, 'Conta corrente não encontrada.');
+  }
+  const alvo = o.valor != null && o.valor !== '' ? cent(Number(String(o.valor).replace(',', '.'))) : null;
   const total = cent(-Number(m.valor));
   const j = await splitwise.pedir('/get_expenses?dated_after=' + somaDias(m.data, -30) + '&dated_before=' + somaDias(m.data, 31) + '&limit=500');
   const eu = Number((await splitwise.quemSou()).id);
@@ -1262,6 +1283,8 @@ async function despesasSplitwisePerto(movId, q) {
   const dias = (a, b) => Math.round((Date.parse(a) - Date.parse(b)) / 86400000);
   return ((j && j.expenses) || [])
     .filter((e) => !e.deleted_at && !e.payment)
+    .filter((e) => !conta || (Number(e.group_id || 0) === Number(conta.grupo) &&
+      (!conta.amigo || (e.users || []).some((u) => Number(u.user_id || (u.user && u.user.id)) === Number(conta.amigo)))))
     .filter((e) => !tq || String(e.description || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().includes(tq))
     .map((e) => {
       const data = String(e.date || '').slice(0, 10);
@@ -1274,7 +1297,11 @@ async function despesasSplitwisePerto(movId, q) {
       return {
         id: Number(e.id), descricao: e.description, data, total: cent(e.cost), dias: dias(data, m.data),
         grupo_nome: e.group_id ? (g ? g.nome : 'Grupo ' + e.group_id) : 'Sem grupo', pessoas,
-        igual: Math.abs(cent(e.cost) - total) < 0.006, usada: usadas[String(e.id)] || null
+        outros: cent(pessoas.filter((x) => !x.eu).reduce((t, x) => t + x.deve, 0)),
+        igual: alvo != null
+          ? (Math.abs(cent(e.cost) - alvo) < 0.006 || Math.abs(cent(pessoas.filter((x) => !x.eu).reduce((t, x) => t + x.deve, 0)) - alvo) < 0.006)
+          : Math.abs(cent(e.cost) - total) < 0.006,
+        usada: usadas[String(e.id)] || null
       };
     })
     .sort((a, b) => (b.igual ? 1 : 0) - (a.igual ? 1 : 0) || (a.usada ? 1 : 0) - (b.usada ? 1 : 0) || Math.abs(a.dias) - Math.abs(b.dias))
@@ -1283,7 +1310,7 @@ async function despesasSplitwisePerto(movId, q) {
 
 function instalarContas(app, falha) {
   app.get('/api/financas/movimentos/:id(\\d+)/splitwise-despesas', async (req, res) => {
-    try { res.json({ despesas: await despesasSplitwisePerto(Number(req.params.id), req.query.q) }); }
+    try { res.json({ despesas: await despesasSplitwisePerto(Number(req.params.id), req.query.q, { conta_id: req.query.conta_id, valor: req.query.valor }) }); }
     catch (e) { falha(res, e, 'as despesas do Splitwise'); }
   });
   app.get('/api/financas/splitwise/despesas/:id(\\d+)', async (req, res) => {
