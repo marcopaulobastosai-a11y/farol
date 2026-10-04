@@ -652,15 +652,15 @@ function fnPainelMov(p, m, emJanela){
   var padrao = h('input', { class: 'fn-in', value: fnChaveDesc(m.descricao), 'aria-label': 'Texto da regra' });
   var minhas = (m.partes || []).filter(function(x){ return !x.pessoa_id && x.categoria_id; });
   var catCampo = fnCampo('Categoria' + (!m.categoria_id && m.ia_categoria_id ? ' (sugerida)' : '') + (minhas.length > 1 ? ' (a maior parte)' : ''), sc);
+  p.appendChild(fnCampo('Nome', titulo));
+  p.appendChild(h('small', { class: 'fn-muted', style: 'display:block;margin:-6px 0 8px' },
+    'Em branco fica o texto do extrato. Dando-lhe um nome, é esse que se lê e o do extrato fica por baixo — procura-se pelos dois.'));
   p.appendChild(h('div', { class: 'fn-campos' }, [catCampo, fnCampo('Área', sa)]));
   if (m.valor !== 0) p.appendChild(h('div', { class: 'fn-acoes', style: 'margin-top:-4px' }, [
     minhas.length > 1 ? h('small', { class: 'fn-muted' }, 'Repartido: ' + minhas.map(function(x){ return fnCatNome(x.categoria_id, true) + ' ' + fnEur(Math.abs(x.valor)); }).join(' · ')) : null,
     fnBtn(minhas.length > 1 ? 'Alterar as categorias…' : 'Repartir por categorias…', function(){ fnCategoriasJanela(m); }, 'small')]));
   p.appendChild(fnCampo('Projeto', spj));
   p.appendChild(h('div', { class: 'fn-campo' }, [h('span', null, 'De quem é (agregado) · uma ou mais pessoas'), spe]));
-  p.appendChild(fnCampo('Nome', titulo));
-  p.appendChild(h('small', { class: 'fn-muted', style: 'display:block;margin:-6px 0 8px' },
-    'Em branco fica o texto do extrato. Dando-lhe um nome, é esse que se lê e o do extrato fica por baixo — procura-se pelos dois.'));
   p.appendChild(fnCampo('Nota', nota));
   /* A regra só aparece quando se pede. */
   padrao.style.display = 'none';
