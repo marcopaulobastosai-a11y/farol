@@ -327,7 +327,7 @@ function peMontar() {
 
 function peMontarDialogo() {
   if ($('peDlg')) return;
-  var dlg = el('dialog', 'pe-dlg');
+  var dlg = el('dialog', 'pe-dlg folha');
   dlg.id = 'peDlg';
   var cx = el('div', 'pe-dlgc');
   cx.id = 'peDlgC';
