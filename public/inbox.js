@@ -235,7 +235,7 @@ function ibMontar() {
 
   /* Catalogar deixou de acontecer no meio da pagina: abre em janela, como
      tudo o resto que pede para preencher campos. */
-  var janela = el('dialog', 'ib-dlg larga');
+  var janela = el('dialog', 'ib-dlg larga folha');
   janela.id = 'ibTriagemJanela';
   var painel = el('div', 'card');
   painel.id = 'ibTriagem';
