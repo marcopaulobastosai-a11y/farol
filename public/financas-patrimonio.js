@@ -112,11 +112,36 @@ function fn_patrimonio_bens(corpo){
     corpo.appendChild(l);
   });
 }
+var FN_CLASSES_BEM = { imovel: 'Imóvel', viatura: 'Viatura', credito: 'Crédito', outro: 'Outro' };
+function fnNomeArea(id){
+  var cs = (window.G && G.contextos) || [], c = cs.filter(function(x){ return x.id === id; })[0];
+  if (!c) return null;
+  var pai = c.parent_id ? cs.filter(function(x){ return x.id === c.parent_id; })[0] : null;
+  return pai ? pai.name + ' › ' + c.name : c.name;
+}
+/* Os papeis de um bem sao os da sub-area dele. Carregar no numero abre os
+   Documentos ja filtrados por essa sub-area. */
+function fnDocsDoBem(b){
+  if (!b.context_id) return null;
+  var n = b.documentos || 0;
+  return fnBtn(n ? n + (n === 1 ? ' documento' : ' documentos') : 'Sem documentos', function(){
+    if (typeof DOCS_AREA === 'undefined' || typeof show !== 'function') return;
+    DOCS_AREA = b.context_id;
+    show('documentos');
+    if (typeof renderDocumentos === 'function') renderDocumentos();
+  }, 'small');
+}
 function fnLinhaBem(b, editar){
-  var sub = [b.classe, b.prestacao ? fnEur(b.prestacao) + '/mês' : null, b.termina ? 'acaba ' + fnData(b.termina) : null, b.valor_em ? 'valor de ' + fnData(b.valor_em) : null].filter(Boolean).join(' · ');
+  var sub = [FN_CLASSES_BEM[b.classe] || b.classe, b.context_id ? fnNomeArea(b.context_id) : null, b.prestacao ? fnEur(b.prestacao) + '/mês' : null, b.termina ? 'acaba ' + fnData(b.termina) : null, b.valor_em ? 'valor de ' + fnData(b.valor_em) : null].filter(Boolean).join(' · ');
   return h('div', { class: 'fn-li' }, [h('div', { class: 'g' }, [b.nome, h('small', null, sub)]),
     h('span', { class: 'fn-n ' + (b.lado === 'passivo' ? 'fn-bad' : '') }, b.valor == null ? 'sem valor' : fnEur(b.lado === 'passivo' ? -Math.abs(b.valor) : b.valor)),
+    editar !== false ? fnDocsDoBem(b) : null,
     editar !== false ? fnBtn('Editar', function(){ fnBemJanela(b); }, 'small') : null]);
+}
+/* A area Patrimonio, onde vivem as sub-areas dos bens. */
+function fnAreaPatrimonio(){
+  var cs = (window.G && G.contextos) || [];
+  return cs.filter(function(c){ return !c.parent_id && (c.slug === 'patrimonio' || /patrim/i.test(c.name)); })[0] || null;
 }
 
 function fnContaJanela(c){
@@ -178,17 +203,41 @@ function fnBemJanela(b){
   var termina = h('input', { class: 'fn-in', type: 'date', value: b && b.termina ? b.termina : '' });
   var pes = h('input', { type: 'checkbox', checked: b ? b.pessoal : true });
   var nota = h('input', { class: 'fn-in', value: b ? (b.nota || '') : '' });
+  var area = fnSelAreas(b ? b.context_id : '');
+  /* Um imovel ou um carro novo ganha a sua sub-area em Patrimonio: e la que
+     ficam a escritura, a caderneta, o seguro, as tarefas e os movimentos dele. */
+  var patr = fnAreaPatrimonio();
+  var novaArea = h('input', { type: 'checkbox' });
+  var linhaNova = h('label', { class: 'fn-check' }, [novaArea, h('span', null, '')]);
+  function ajustarNova(){
+    var pede = patr && !area.value && lado.value === 'ativo' && (classe.value === 'imovel' || classe.value === 'viatura');
+    linhaNova.hidden = !pede;
+    if (!pede) novaArea.checked = false;
+    linhaNova.lastChild.textContent = 'Criar a sub-área «' + (nome.value.trim() || 'nome do bem') + '» em ' + (patr ? patr.name : 'Património') + ' e arrumar lá os papéis deste bem';
+  }
+  if (!b) novaArea.checked = true;
+  [area, lado, classe].forEach(function(x){ x.addEventListener('change', ajustarNova); });
+  nome.addEventListener('input', ajustarNova);
+  ajustarNova();
   var bts = [{ txt: b ? 'Guardar' : 'Criar', pri: true, fn: function(){
     if (!nome.value.trim()) { fnAviso('Falta o nome.'); return false; }
-    var corpo = { nome: nome.value.trim(), lado: lado.value, classe: classe.value, valor: valor.value, valor_em: em.value || null, prestacao: prest.value, termina: termina.value || null, pessoal: pes.checked, nota: nota.value };
-    var p = b ? fnApi('/api/financas/bens/' + b.id, 'PATCH', corpo) : fnApi('/api/financas/bens', 'POST', corpo);
-    return p.then(function(){ fnMudou(); }, fnErro);
+    var corpo = { nome: nome.value.trim(), lado: lado.value, classe: classe.value, valor: valor.value, valor_em: em.value || null, prestacao: prest.value, termina: termina.value || null, pessoal: pes.checked, nota: nota.value, context_id: area.value ? Number(area.value) : null };
+    var antes = Promise.resolve();
+    if (novaArea.checked && !linhaNova.hidden && patr) {
+      antes = fnApi('/api/contextos', 'POST', { name: corpo.nome, parent_id: patr.id }).then(function(r){
+        corpo.context_id = r.id;
+        if (typeof loadGestao === 'function') loadGestao();
+      });
+    }
+    return antes.then(function(){
+      return b ? fnApi('/api/financas/bens/' + b.id, 'PATCH', corpo) : fnApi('/api/financas/bens', 'POST', corpo);
+    }).then(function(){ fnMudou(); }, fnErro);
   } }];
   if (b) bts.push({ txt: 'Apagar', fn: function(){ return fnApi('/api/financas/bens/' + b.id, 'DELETE').then(function(){ fnMudou(); }, fnErro); } });
   fnJanela(b ? b.nome : 'Novo bem ou dívida', [h('div', { class: 'fn-campos' }, [fnCampo('Nome', nome), fnCampo('É', lado), fnCampo('Classe', classe)]),
     h('div', { class: 'fn-campos' }, [fnCampo('Valor (ou o que falta pagar)', valor), fnCampo('Valor de', em)]),
     h('div', { class: 'fn-campos' }, [fnCampo('Prestação mensal', prest), fnCampo('Acaba em', termina)]),
-    fnCampo('Nota', nota), h('label', { class: 'fn-check' }, [pes, 'Pessoal'])], bts);
+    fnCampo('Nota', nota), fnCampo('Área (onde ficam os papéis deste bem)', area), linhaNova, h('label', { class: 'fn-check' }, [pes, 'Pessoal'])], bts);
 }
 
 /* ======================= CONTAS CORRENTES ======================= */
