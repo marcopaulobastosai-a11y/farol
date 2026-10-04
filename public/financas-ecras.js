@@ -1054,7 +1054,7 @@ function fnSemelhantes(m, catId){
 }
 
 /* Partilhas e acertos: o que este movimento é entre ti e os outros.
-   Saída: despesa partilhada, paguei por um amigo, ou empréstimo que devolvo.
+   Saída: despesa partilhada, paguei por alguém, ou empréstimo que devolvo.
    Entrada: acerto de contas (alguém a pagar-te o que devia). */
 function fnPainelPartilhas(p, m){
   var outros = (m.partes || []).filter(function(x){ return x.pessoa_id; });
@@ -1094,7 +1094,7 @@ function fnPainelPartilhas(p, m){
     var outras = h('details', { style: 'margin-top:6px' }, [h('summary', { class: 'fn-muted', style: 'cursor:pointer;font-size:.8125rem' }, 'Tratar de outra forma'),
       h('div', { class: 'fn-opcoes', style: 'margin-top:6px' }, [
         opcao('Despesa partilhada', 'Dividir de outra maneira.', function(){ fnPartilhaJanela([m]); }),
-        opcao('Paguei por um amigo', 'É tudo de outra pessoa.', function(){ fnAmigoJanela(m); }),
+        opcao('Paguei por alguém', 'É tudo de outra pessoa.', function(){ fnAmigoJanela(m); }),
         opcao('Empréstimo', 'Alguém pagou por ti e estás a devolver.', function(){ fnAcertoJanela(m); })])]);
     p.appendChild(outras);
     apiGestao('/api/financas/splitwise/despesas/' + m.despesa_splitwise).then(function(r){
@@ -1119,7 +1119,7 @@ function fnPainelPartilhas(p, m){
   if (m.valor < 0) {
     p.appendChild(h('div', { class: 'fn-opcoes' }, [
       opcao('Despesa partilhada', 'Pagaste e divides: tudo teu, 50/50, partes, percentagens… (conta corrente aqui ou no Splitwise).', function(){ fnPartilhaJanela([m]); }),
-      opcao('Paguei por um amigo', 'É tudo dele: fica a dever-to e entra nas contas partilhadas.', function(){ fnAmigoJanela(m); }),
+      opcao('Paguei por alguém', 'É tudo dessa pessoa: fica a dever-to e entra nas contas partilhadas.', function(){ fnAmigoJanela(m); }),
       opcao('Empréstimo', 'Alguém pagou por ti e estás a devolver.', function(){ fnAcertoJanela(m); })]));
     return;
   }

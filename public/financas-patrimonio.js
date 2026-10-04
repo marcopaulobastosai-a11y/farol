@@ -821,7 +821,12 @@ function fnAvisoPartilha(r){
   if (s.erros && s.erros.length) setTimeout(function(){ fnAviso('Splitwise: ' + s.erros.join(' · ')); }, 2500);
 }
 
-/* Paguei por um amigo: a conta é toda dele, fica a dever-ma. */
+/* Paguei por alguém: a conta é toda dessa pessoa, fica a dever-ma.
+ *
+ * Numa conta do Splitwise a despesa costuma já lá estar - foi lançada por
+ * quem a dividiu. Por isso, mal se escolhe a conta, mostram-se aqui as
+ * despesas de lá que dá para ligar, com as do mesmo valor à frente: ligar
+ * não cria nada. Só quando não há nada para ligar é que se cria. */
 function fnAmigoJanela(m){
   apiGestao('/api/financas/cc').then(function(cc){
     var pessoas = cc.pessoas.filter(function(p){ return p.ativo; });
@@ -830,20 +835,84 @@ function fnAmigoJanela(m){
     var lista = h('datalist', { id: 'fn-dl-amigo' }, pessoas.map(function(p){ return h('option', { value: p.nome }); }));
     var cs = h('select', { class: 'fn-sel' });
     var desc = h('input', { class: 'fn-in', value: m.descricao });
-    fnOpcoesContaCc(cc, cs, null, 'f');
-    nm.addEventListener('change', function(){ fnOpcoesContaCc(cc, cs, porNome(nm.value), cs.value); });
-    fnJanela('Paguei por um amigo', [
-      h('p', { class: 'fn-nota' }, m.descricao + ' · ' + fnData(m.data) + ' · ' + fnEur(-m.valor) + '. É tudo dele: não conta como despesa tua, e fica a dever-to.'),
-      fnCampo('Quem', nm), lista, fnCampo('Fica na conta', cs), fnCampo('Descrição', desc),
-      h('p', { class: 'fn-nota' }, 'Fica nas contas partilhadas. Numa conta do Splitwise, o Farol lança lá a despesa (se ainda lá não estiver).')
-    ], [{ txt: 'Guardar', pri: true, fn: function(){
+    var swCx = h('div', { style: 'display:none;margin:.4rem 0' });
+    var escolhida = null, vez = 0, j;
+
+    var guardar = function(){
       var n = nm.value.trim();
       if (!n) { fnAviso('Falta quem.'); return false; }
       var p = porNome(n);
       var l = Object.assign(p ? { pessoa_id: p.id } : { nome: n }, { valor: -m.valor }, fnContaEscolhida(cs.value));
-      return fnApi('/api/financas/partilhas', 'POST', { movimentos: [m.id], minha: 0, metodo: 'amigo', descricao: desc.value.trim(), linhas: [l] })
+      var corpo = { movimentos: [m.id], minha: 0, metodo: 'amigo', descricao: desc.value.trim(), linhas: [l] };
+      /* Escolhida uma despesa que já está no Splitwise: o Farol liga-se a ela
+         em vez de criar outra igual. */
+      if (escolhida && l.splitwise && l.conta_id) {
+        corpo.splitwise_existente = {};
+        corpo.splitwise_existente[l.conta_id] = escolhida.id;
+      }
+      return fnApi('/api/financas/partilhas', 'POST', corpo)
         .then(function(r){ fnAvisoPartilha(r); fnMudou(); }, fnErro);
-    } }]);
+    };
+
+    var swDesenhar = function(ds){
+      clear(swCx);
+      if (escolhida) {
+        swCx.appendChild(h('div', { class: 'fn-caixa melhor' }, [
+          h('div', { class: 'fn-acoes', style: 'justify-content:space-between' },
+            [h('b', null, escolhida.descricao), h('b', { class: 'fn-n' }, fnEur(escolhida.total))]),
+          h('small', { class: 'fn-muted' }, fnData(escolhida.data) + ' · ' + escolhida.grupo_nome + ' — liga-se a esta; no Splitwise não se cria nada.'),
+          h('div', { class: 'fn-acoes' }, [fnBtn('Escolher outra', function(){ escolhida = null; swDesenhar(ds); }, 'small')])]));
+        return;
+      }
+      var podem = (ds || []).filter(function(d){ return !d.usada; });
+      if (!podem.length) {
+        swCx.appendChild(h('p', { class: 'fn-nota' }, 'No Splitwise não há nada por ligar entre 30 dias antes e 30 dias depois' +
+          ((ds || []).length ? ' (as que lá estão já pertencem a outro movimento)' : '') +
+          '. Ao guardar, o Farol cria lá a despesa: paga por ti, toda para esta pessoa.'));
+        swCx.appendChild(h('div', { class: 'fn-acoes' }, [fnBtn('Criar no Splitwise e guardar', function(){
+          var r = guardar();
+          if (r && typeof r.then === 'function') r.then(function(ok){ if (ok !== false && j) j.fechar(); });
+        }, 'primary small')]));
+        return;
+      }
+      swCx.appendChild(h('p', { class: 'fn-nota' }, 'Já está lá alguma destas? Ligar não cria nada no Splitwise. Primeiro as do mesmo valor.'));
+      podem.slice(0, 6).forEach(function(d, i){
+        swCx.appendChild(h('div', { class: 'fn-caixa' + (d.igual && i === 0 ? ' melhor' : ''), style: 'margin-bottom:6px' + (d.igual ? '' : ';opacity:.65') }, [
+          h('div', { class: 'fn-acoes', style: 'justify-content:space-between' },
+            [h('b', null, d.descricao), h('b', { class: 'fn-n' }, fnEur(d.total))]),
+          h('small', { class: 'fn-muted' }, [fnData(d.data) + (d.dias ? ' (' + (d.dias > 0 ? '+' : '') + d.dias + ' d)' : ' (mesmo dia)'),
+            d.grupo_nome, d.pessoas.map(function(x){ return x.nome + ' ' + fnEur(x.deve); }).join(' · ')].join(' · ')),
+          d.igual ? null : h('small', { class: 'fn-muted', style: 'display:block' }, 'Valor diferente de ' + fnEur(-m.valor) + '.'),
+          h('div', { class: 'fn-acoes' }, [fnBtn('É esta', function(){ escolhida = d; swDesenhar(ds); }, (i === 0 && d.igual ? 'primary ' : '') + 'small')])]));
+      });
+      swCx.appendChild(h('p', { class: 'fn-nota' }, 'Nenhuma destas? Guarda assim mesmo e o Farol cria lá a despesa.'));
+    };
+
+    var swLer = function(){
+      var v = String(cs.value || '');
+      escolhida = null;
+      if (v.charAt(0) !== 's') { swCx.style.display = 'none'; clear(swCx); vez++; return; }
+      swCx.style.display = '';
+      clear(swCx);
+      swCx.appendChild(h('p', { class: 'fn-nota' }, 'A ler o Splitwise…'));
+      var n = ++vez;
+      apiGestao('/api/financas/movimentos/' + m.id + '/splitwise-despesas?' + fnQs({ conta_id: v.slice(2), valor: -m.valor })).then(function(r){
+        if (n === vez) swDesenhar(r.despesas || []);
+      }, function(e){
+        if (n !== vez) return;
+        clear(swCx);
+        swCx.appendChild(h('p', { class: 'fn-nota' }, (e && e.message) || 'Não deu para ler o Splitwise.'));
+      });
+    };
+
+    fnOpcoesContaCc(cc, cs, null, 'f');
+    nm.addEventListener('change', function(){ fnOpcoesContaCc(cc, cs, porNome(nm.value), cs.value); swLer(); });
+    cs.addEventListener('change', swLer);
+    j = fnJanela('Paguei por alguém', [
+      h('p', { class: 'fn-nota' }, m.descricao + ' · ' + fnData(m.data) + ' · ' + fnEur(-m.valor) + '. É tudo dessa pessoa: não conta como despesa tua, e fica a dever-to.'),
+      fnCampo('Quem', nm), lista, fnCampo('Fica na conta', cs), swCx, fnCampo('Descrição', desc),
+      h('p', { class: 'fn-nota' }, 'Fica nas contas partilhadas. Numa conta do Splitwise, ou se liga à despesa que já lá está, ou o Farol lança-a.')
+    ], [{ txt: 'Guardar', pri: true, fn: guardar }]);
   }, fnErro);
 }
 
