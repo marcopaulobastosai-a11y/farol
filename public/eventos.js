@@ -99,6 +99,7 @@ function evLista(){
   var out = [];
   ((window.D && D.events) || []).forEach(function(e){
     var real = typeof e.id === 'number';
+    if (e.ocupado) return;   /* o tempo do trabalho: so a Agenda o desenha */
     /* Um evento de varios dias que ja comecou ainda esta a acontecer. */
     var dia = f.quando === 'proximos' && e.ends_on && e.ends_on > e.day ? e.ends_on : e.day;
     if (!passaOnde(real ? e.context_id : null) || !passaQuando(dia)) return;
@@ -316,6 +317,28 @@ function evjAvisoTxt(dia, hora, remind){
   return 'Aparece no Hoje, em «Precisa de ti», a partir de ' + (dia7 ? dia7.toLowerCase().slice(0, 3) + ' ' : '') + dd + ' às ' + hh + '.';
 }
 
+/* As contas Google de cada pessoa: quem pode receber copias. */
+var EVJ_CONTAS = null;
+function evjContasGoogle(){
+  if (window.AG && AG.google && Object.keys(AG.google).length) return AG.google;
+  return EVJ_CONTAS;
+}
+function evjLerContas(depois){
+  if (typeof apiGestao !== 'function') return;
+  apiGestao('/api/google/estado').then(function(r){
+    EVJ_CONTAS = {};
+    ((r && r.contas) || []).forEach(function(c){ EVJ_CONTAS[c.person_id] = c; });
+    if (depois) depois();
+  }).catch(function(){});
+}
+function evjGoogleTxt(g){
+  if (!g) return '';
+  var t = [];
+  if (g.copiados && g.copiados.length) t.push('No Google de ' + g.copiados.join(', ') + '.');
+  if (g.falhas && g.falhas.length) t.push('O Google falhou: ' + g.falhas.join('; ') + '.');
+  return t.length ? ' ' + t.join(' ') : '';
+}
+
 function evjPessoas(){
   var ps = (window.G && G.people) || (window.D && D.people) || [];
   return ps.filter(function(p){ return p.active !== false; });
@@ -389,7 +412,7 @@ function evJanela(ev, opts){
   var iD = el('input'); iD.type = 'date';
   iD.value = e.day || opts.day || tfISO(tfHoje());
   evjCampo(g1, 'Dia', iD);
-  var iH = el('input'); iH.type = 'time'; iH.value = e.at || '';
+  var iH = el('input'); iH.type = 'time'; iH.value = e.at || (novo && opts.at) || '';
   var wH = evjCampo(g1, 'Começa às', iH);
   var sDur = evjSelect(EVJ_DURACOES);
   var iFim = el('input'); iFim.type = 'time'; iFim.style.display = 'none'; iFim.style.marginTop = '6px';
@@ -460,6 +483,37 @@ function evJanela(ev, opts){
   if (!pes.childNodes.length) pes.appendChild(el('span', 'evj-dica', 'Não há pessoas na app.'));
   wP.appendChild(pes);
   sO.appendChild(wP);
+
+  /* O Google de quem vai (4 out): uma copia do evento no calendario de cada
+     pessoa que vai e que deu licenca para o Farol escrever. A copia e do
+     Farol: corrigir ou apagar aqui corrige ou apaga la. */
+  var wG = el('div'); wG.style.marginTop = '10px';
+  var lG = el('label', 'evj-chk'); var cG = el('input'); cG.type = 'checkbox';
+  lG.appendChild(cG); lG.appendChild(document.createTextNode('Pôr no calendário Google de quem vai'));
+  wG.appendChild(lG);
+  var dG = el('div', 'evj-dica'); wG.appendChild(dG);
+  sO.appendChild(wG);
+  cG.checked = novo ? true : Boolean(e.no_google);
+  function acertarG(){
+    var ids = Object.keys(quem).filter(function(k){ return quem[k]; }).map(Number);
+    var contas = evjContasGoogle();
+    if (!contas){ dG.textContent = ''; return; }
+    if (!cG.checked){ dG.textContent = ids.length ? 'Fica só no Farol.' : ''; return; }
+    if (!ids.length){ dG.textContent = 'Escolhe quem vai para o evento ir para o Google dessas pessoas.'; return; }
+    var vai = [], sem = [];
+    ids.forEach(function(id){
+      var p = evjPessoas().filter(function(x){ return x.id === id; })[0];
+      if (!p) return;
+      var c = contas[id];
+      if (c && c.escrever) vai.push(p.name); else sem.push(p.name + (c ? ' (falta licença para escrever)' : ' (sem Google ligado)'));
+    });
+    dG.textContent = [vai.length ? 'Vai para o Google de ' + vai.join(', ') + '.' : '',
+      sem.length ? 'Não vai para: ' + sem.join(', ') + ' — liga ou renova na ficha da pessoa.' : ''].filter(Boolean).join(' ');
+  }
+  pes.addEventListener('click', function(){ setTimeout(acertarG, 0); });
+  cG.addEventListener('change', acertarG);
+  evjLerContas(acertarG);
+  acertarG();
   c.appendChild(sO);
 
   /* ---- lembrete e notas ---- */
@@ -596,6 +650,7 @@ function evJanela(ev, opts){
       person_ids: Object.keys(quem).filter(function(k){ return quem[k]; }).map(Number),
       remind_min: sRem.value === '' ? null : Number(sRem.value),
       tentative: cConf.checked,
+      no_google: cG.checked,
       detail: iN.value.trim() || null
     };
     bOk.disabled = true;
@@ -606,13 +661,14 @@ function evJanela(ev, opts){
     }).then(function(r){
       var fresco = novo ? r : (r && r.evento);
       if (!fresco) throw new Error('O servidor não devolveu o evento.');
+      var gRes = r && r.google;
       D.events = (D.events || []).filter(function(x){ return x.id !== fresco.id; }).concat([fresco]);
       D.events.sort(function(x, y){ return x.day < y.day ? -1 : (x.day > y.day ? 1 : String(x.at || '').localeCompare(String(y.at || ''))); });
-      if (!novo || (!pend.ficheiros.length && !pend.docs.length)) return { ev: fresco };
-      return evjEnviarPendentes(fresco, pend);
+      if (!novo || (!pend.ficheiros.length && !pend.docs.length)) return { ev: fresco, google: gRes };
+      return evjEnviarPendentes(fresco, pend).then(function(x){ x.google = gRes; return x; });
     }).then(function(res){
       evjFechar();
-      toast((novo ? 'Marcado para ' : 'Gravado: ') + tfDataTxt(res.ev.day, res.ev.at) + '.' + (res.falhou ? ' ' + res.falhou : ''));
+      toast((novo ? 'Marcado para ' : 'Gravado: ') + tfDataTxt(res.ev.day, res.ev.at) + '.' + (res.falhou ? ' ' + res.falhou : '') + evjGoogleTxt(res.google));
       renderAll();
     }).catch(function(er){
       bOk.disabled = false;
