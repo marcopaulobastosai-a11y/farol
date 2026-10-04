@@ -18,6 +18,8 @@ var FM_CSS = [
   '.fm-top{display:flex;flex-wrap:wrap;gap:10px;align-items:center}',
   '.fm-who{display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:0 14px 0 6px;border-radius:999px;border:1px solid var(--line);background:var(--surface);font:inherit;font-size:.875rem;color:var(--ink);cursor:pointer}',
   '.fm-who.on{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}',
+  '.fm-amb{padding:0 18px;font-weight:500}',
+  '.fm-filtros{margin-left:6px}',
   '.fm-av{width:32px;height:32px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;color:#fff;font-family:var(--mono);font-size:.75rem;overflow:hidden;flex:none}',
   '.fm-av img{width:100%;height:100%;object-fit:cover}',
   '.fm-tabs{display:flex;flex-wrap:wrap;border-bottom:1px solid var(--line);margin:12px 0 14px}',
@@ -160,7 +162,26 @@ function fmSelect(opcoes, valor) {
 }
 
 /* ================= entrada: o area-tarefas.js chama isto ================= */
-function fmSubArea(ctxId) {
+/* Quem esta escolhido numa sub-area: uma pessoa (id em texto) ou 'todos'
+   (Ambos / Todos - o que e comum). Com uma pessoa so, e sempre ela. */
+try { FM.quem = JSON.parse(localStorage.getItem('fmQuem') || '{}') || {}; } catch (e) { FM.quem = {}; }
+function fmQuemValido(ctxId) {
+  if (!FM.cfg) { fmCarregar(); return 'todos'; }
+  var ids = ((FM.cfg.pessoas || {})[ctxId] || []).filter(function (id) { return fmPessoa(id); });
+  if (!ids.length) return 'todos';
+  if (ids.length === 1) return String(ids[0]);
+  var q = FM.quem[ctxId];
+  return q && ids.indexOf(Number(q)) >= 0 ? String(q) : 'todos';
+}
+function fmEscolher(ctxId, q) {
+  FM.quem[ctxId] = q;
+  try { localStorage.setItem('fmQuem', JSON.stringify(FM.quem)); } catch (e) {}
+  fmRedesenhar();
+}
+
+/* opts.filtros: o Quando e o Fechados da area, que passam para a linha dos
+   nomes (a barra dos filtros nao aparece nas sub-areas da Familia). */
+function fmSubArea(ctxId, opts) {
   fmMontar();
   var c = fmCtx(ctxId);
   if (!c) return null;
@@ -171,28 +192,39 @@ function fmSubArea(ctxId) {
   }
   if (!FM.cfg) { fmCarregar(); return null; }
   var ids = (FM.cfg.pessoas || {})[ctxId] || [];
-  return fmPainel(ctxId, ids);
+  return fmPainel(ctxId, ids, opts || {});
 }
 
-/* ================= a vida das pessoas da sub-area ================= */
-function fmPainel(ctxId, ids) {
-  var card = el('div', 'card fm-p fi-ecra');
+/* ================= a linha dos nomes e, com uma pessoa, a ficha dela ================= */
+function fmPainel(ctxId, ids, opts) {
+  var card = el('div', 'card fm-p');
   var topo = el('div', 'fm-top');
   card.appendChild(topo);
   var pessoas = ids.map(fmPessoa).filter(Boolean);
-  if (!pessoas.length) {
-    topo.appendChild(el('span', null, 'Esta sub-área ainda não tem pessoas.'));
+  if (!pessoas.length) topo.appendChild(el('span', null, 'Esta sub-área ainda não tem pessoas.'));
+  var q = fmQuemValido(ctxId);
+  var quem = q === 'todos' ? null : Number(q);
+  if (pessoas.length > 1) {
+    var amb = el('button', 'fm-who fm-amb' + (!quem ? ' on' : ''), pessoas.length === 2 ? 'Ambos' : 'Todos');
+    amb.type = 'button';
+    amb.title = 'O que é comum: o que está arrumado nesta sub-área';
+    amb.onclick = function () { fmEscolher(ctxId, 'todos'); };
+    topo.appendChild(amb);
   }
-  var quem = FM.quem[ctxId];
-  if (!pessoas.some(function (p) { return p.id === quem; })) quem = FM.quem[ctxId] = pessoas.length ? pessoas[0].id : null;
   pessoas.forEach(function (p) {
     var b = el('button', 'fm-who' + (p.id === quem ? ' on' : ''));
     b.type = 'button';
+    b.title = 'A vida de ' + p.name + ': tudo o que é dela, em todas as áreas';
     b.appendChild(fmAvatar(p));
     b.appendChild(document.createTextNode(p.name));
-    b.onclick = function () { FM.quem[ctxId] = p.id; fmRedesenhar(); };
+    b.onclick = function () { fmEscolher(ctxId, String(p.id)); };
     topo.appendChild(b);
   });
+  if (opts.filtros && opts.filtros.length) {
+    var dds = el('div', 'ae-dds fm-filtros');
+    opts.filtros.forEach(function (x) { if (x) dds.appendChild(x); });
+    topo.appendChild(dds);
+  }
   var esp = el('span'); esp.style.flex = '1'; topo.appendChild(esp);
   var gerir = el('button', 'btn', 'Pessoas da sub-área'); gerir.type = 'button';
   gerir.onclick = function () { fmGerirPessoas(ctxId, ids); };
@@ -202,19 +234,29 @@ function fmPainel(ctxId, ids) {
     nova.onclick = function () { fiEditar({}, function () { if (typeof loadGestao === 'function') loadGestao(); }); };
     topo.appendChild(nova);
   }
-  if (!quem) return card;
+  /* Os cartoes individuais (Dados, Cofre) so com uma pessoa escolhida.
+     Vao depois dos numeros: o area-tarefas.js poe-nos la. */
+  if (quem) card.fmDepois = fmIndividual(ctxId, quem);
+  return card;
+}
 
-  var tab = FM.tab[ctxId] || 'curso';
+function fmIndividual(ctxId, quem) {
+  var card = el('div', 'card fm-p fi-ecra');
+  var chave = ctxId + ':' + quem;
+  var tab = FM.tab[chave] === undefined ? 'dados' : FM.tab[chave];
   var tabs = el('div', 'fm-tabs'); tabs.setAttribute('role', 'tablist');
-  [['curso', 'Em curso'], ['dados', 'Dados'], ['cofre', 'Cofre'], ['docs', 'Documentos']].forEach(function (t) {
+  tabs.style.margin = '0';
+  [['dados', 'Dados'], ['cofre', 'Cofre']].forEach(function (t) {
     var b = el('button', 'fm-tab' + (tab === t[0] ? ' on' : ''), t[1]); b.type = 'button'; b.setAttribute('role', 'tab');
-    b.onclick = function () { FM.tab[ctxId] = t[0]; fmRedesenhar(); };
+    b.setAttribute('aria-expanded', tab === t[0] ? 'true' : 'false');
+    /* Carregar no que esta aberto fecha-o: os cartoes de baixo sobem. */
+    b.onclick = function () { FM.tab[chave] = tab === t[0] ? null : t[0]; fmRedesenhar(); };
     tabs.appendChild(b);
   });
   card.appendChild(tabs);
-  var corpo = el('div');
+  if (!tab) return card;
+  var corpo = el('div'); corpo.style.marginTop = '14px';
   card.appendChild(corpo);
-
   if (tab === 'cofre') { fmCofre(corpo, quem); return card; }
 
   var d = FM.fichas[quem];
@@ -228,25 +270,13 @@ function fmPainel(ctxId, ids) {
   if (typeof FI !== 'undefined') { FI.id = quem; FI.dados = d; FI.contas = d.contas || []; }
   var p = d.pessoa;
   try {
-    if (tab === 'dados') {
-      var g = el('div', 'fm-grid'); corpo.appendChild(g);
-      var col = el('div', 'stack'); g.appendChild(col);
-      if (typeof fiDados === 'function') fiDados(col, p, d.dependentes || [], d.google || null);
-      if (typeof fiEditar === 'function') {
-        var ed = el('button', 'btn', 'Editar dados de ' + p.name); ed.type = 'button';
-        ed.onclick = function () { fiEditar(p, function () { delete FM.fichas[quem]; fmRedesenhar(); }); };
-        corpo.appendChild(ed);
-      }
-    } else if (tab === 'docs') {
-      if (typeof fiDocumentos === 'function') fiDocumentos(corpo, d.documentos || []);
-    } else {
-      var g2 = el('div', 'fm-grid'); corpo.appendChild(g2);
-      var a = el('div', 'stack'), b2 = el('div', 'stack'); g2.appendChild(a); g2.appendChild(b2);
-      if (typeof fiCompromissos === 'function') fiCompromissos(a, d.compromissos || [], d.compromissosPassados || 0);
-      if (typeof fiTarefas === 'function') fiTarefas(a, d.tarefas || []);
-      if (typeof fiProjetos === 'function') fiProjetos(b2, d.projetos || []);
-      if (typeof fiDespesas === 'function') fiDespesas(b2, d.despesas || []);
-      if (typeof fiCaixa === 'function') fiCaixa(b2, d.caixa || []);
+    var g = el('div', 'fm-grid'); corpo.appendChild(g);
+    var col = el('div', 'stack'); g.appendChild(col);
+    if (typeof fiDados === 'function') fiDados(col, p, d.dependentes || [], d.google || null);
+    if (typeof fiEditar === 'function') {
+      var ed = el('button', 'btn', 'Editar dados de ' + p.name); ed.type = 'button';
+      ed.onclick = function () { fiEditar(p, function () { delete FM.fichas[quem]; fmRedesenhar(); }); };
+      corpo.appendChild(ed);
     }
   } catch (e) {
     console.error('[farol] familia painel', e);
