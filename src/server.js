@@ -870,6 +870,14 @@ financas.instalar(app);
 const google = require('./google');
 google.instalar(app);
 
+/* A Familia por sub-areas: o cofre de cada pessoa e os sonhos da casa. */
+const familia = require('./familia');
+familia.instalar(app, {
+  sessao: (req) => auth.sessao(req),
+  authAtiva: () => auth.ativa(),
+  ehAdmin: (email) => acessos.ehAdmin(email)
+});
+
 /* Mandar os papeis de um pagamento a quem se paga, pelo Gmail. */
 require('./emails').instalar(app, {
   ehAdmin: (req) => { if (!auth.ativa()) return true; const x = auth.sessao(req); return Boolean(x && acessos.ehAdmin(x.email)); }
@@ -886,6 +894,7 @@ app.get('*', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'i
     /* Os calendarios ligados relem-se sozinhos, a partir de agora. */
     await google.arrancar();
     await financas.preparar();
+    await familia.preparar().catch((err) => console.error('[farol] familia:', err.message));
   } catch (err) {
     console.error('[farol] arranque sem base de dados:', err.message);
   }
