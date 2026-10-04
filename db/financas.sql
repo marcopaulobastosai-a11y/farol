@@ -245,6 +245,16 @@ ALTER TABLE fin_mov_partes ADD COLUMN IF NOT EXISTS cc_conta_id INTEGER REFERENC
 -- A linha vai para o Splitwise (na conta corrente dela) ou fica so no Farol.
 ALTER TABLE fin_mov_partes ADD COLUMN IF NOT EXISTS sw BOOLEAN NOT NULL DEFAULT FALSE;
 CREATE INDEX IF NOT EXISTS fin_partes_partilha_idx ON fin_mov_partes (partilha_id) WHERE partilha_id IS NOT NULL;
+-- Como se dividiu (como no Splitwise: partes iguais, valores, percentagens,
+-- porcoes, ajustes; ou paguei por um amigo) e o que se escreveu em cada linha,
+-- para a janela voltar a abrir igual.
+ALTER TABLE fin_partilhas ADD COLUMN IF NOT EXISTS metodo TEXT;
+ALTER TABLE fin_partilhas ADD COLUMN IF NOT EXISTS entradas JSONB;
+-- Um acerto (alguem paga o que devia) ou um emprestimo devolvido pode ir
+-- tambem para o Splitwise como pagamento: o id dessa despesa de pagamento e
+-- se foi o Farol que a criou (so essa se apaga ao desligar).
+ALTER TABLE fin_cc_mov ADD COLUMN IF NOT EXISTS sw_pagamento_id BIGINT;
+ALTER TABLE fin_cc_mov ADD COLUMN IF NOT EXISTS sw_criado BOOLEAN NOT NULL DEFAULT FALSE;
 
 -- Categorias de partida, genericas, uma vez so. Depois disso a lista e do
 -- Marco: o que ele apagar nao volta.
