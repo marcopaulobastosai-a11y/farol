@@ -125,6 +125,10 @@ var FN_CSS =
   '.fn-ov.folha .fn-mod{width:min(27rem,100vw);height:100%;max-height:100dvh;border-radius:0;border:0;border-left:1px solid var(--line);' +
   'box-shadow:-20px 0 60px -30px rgba(0,0,0,.45);overflow:auto;gap:12px;padding:14px 18px 0;animation:fnFolha .18s ease}' +
   '.fn-ov.folha .fn-mod.largo{width:min(36rem,100vw)}' +
+  /* A folha do lote fica aberta enquanto se vao escolhendo mais linhas: sem
+     fundo escuro e sem apanhar cliques, para a lista continuar a mexer. */
+  '.fn-ov.folha.lado{background:none;pointer-events:none}' +
+  '.fn-ov.folha.lado .fn-mod{pointer-events:auto;box-shadow:-20px 0 60px -30px rgba(0,0,0,.45)}' +
   '.fn-ov.folha .fn-mod > .acoes{position:sticky;bottom:0;margin-top:auto;background:var(--surface);border-top:1px solid var(--line);padding:10px 0 12px}' +
   '.fn-folha-top{display:flex;gap:10px;align-items:flex-start;justify-content:space-between}' +
   '.fn-folha-top h3{margin:0;font-size:1.1rem}.fn-folha-top .btn{flex:0 0 auto}' +
@@ -150,7 +154,12 @@ var FN_CSS =
   '.fn-dq span:last-child{overflow:hidden;text-overflow:ellipsis}.fn-dq .ib-av{width:22px;height:22px;font-size:.625rem;flex:none}' +
   '.fn-dq:hover{border-color:var(--line);background:var(--ground)}.fn-dq.vazio{color:var(--muted);font-size:.75rem;padding:2px 8px;opacity:.55}' +
   'tr:hover .fn-dq.vazio{opacity:1}' +
-  '.fn-movtab tr.fn-tocada td{background:color-mix(in srgb, var(--accent) 11%, transparent);font-weight:600}' +
+  /* Escolhidos para mexer em lote: verde claro, so para se ver o conjunto. */
+  '.fn-movtab tr.fn-sel td{background:color-mix(in srgb, var(--accent) 10%, transparent)}' +
+  /* Acabados de mudar: verde mais forte e o nome a negrito - o resto da linha
+     fica como estava, para a marca cair no nome e nao na linha inteira. */
+  '.fn-movtab tr.fn-tocada td{background:color-mix(in srgb, var(--accent) 22%, transparent)}' +
+  '.fn-movtab tr.fn-tocada .d{font-weight:700}' +
   '.fn-movtab tr.fn-tocada td:first-child{box-shadow:inset 3px 0 0 var(--accent)}' +
   '.fn-movtab tr.fn-tocada{animation:fnPisca 1.4s ease-out 1}' +
   '@keyframes fnPisca{0%{background:color-mix(in srgb, var(--accent) 38%, transparent)}100%{background:transparent}}' +
@@ -230,14 +239,19 @@ function fnApi(url, metodo, corpo){
   var o = metodo ? { method: metodo, headers: { 'Content-Type': 'application/json' }, body: corpo ? JSON.stringify(corpo) : '{}' } : undefined;
   return apiGestao(url, o).then(function(r){ if (metodo && metodo !== 'GET') fnTocou(url, corpo); return r; });
 }
-/* Os movimentos em que se acabou de mexer ficam marcados na lista (fundo e
-   letra mais forte), para se ver onde se esteve. */
+/* Os movimentos da ultima alteracao ficam marcados na lista (fundo verde, o
+   nome a negrito), para se ver o que acabou de mudar. So os da ultima: marcar
+   um lote novo apaga o anterior, senao ao fim de uma tarde esta a lista toda
+   pintada e a marca nao diz nada. Uma gravacao que nao nomeie movimentos -
+   uma conta corrente, uma regra - deixa a marca anterior onde esta. */
 function fnTocou(url, corpo){
-  FN.tocados = FN.tocados || {};
+  var novos = {}, algum = false;
   var m = /\/api\/financas\/movimentos\/(\d+)/.exec(url);
-  if (m) FN.tocados[Number(m[1])] = true;
+  if (m) { novos[Number(m[1])] = true; algum = true; }
   var b = corpo || {};
-  [].concat(b.ids || [], b.movimentos || [], b.pares ? [].concat.apply([], b.pares) : [], b.saida ? [b.saida, b.entrada] : []).forEach(function(id){ if (id) FN.tocados[Number(id)] = true; });
+  [].concat(b.ids || [], b.movimentos || [], b.pares ? [].concat.apply([], b.pares) : [], b.saida ? [b.saida, b.entrada] : [])
+    .forEach(function(id){ if (id) { novos[Number(id)] = true; algum = true; } });
+  if (algum) FN.tocados = novos;
 }
 function fnQs(o){
   return Object.keys(o).filter(function(k){ return o[k] !== '' && o[k] != null; })
@@ -309,7 +323,7 @@ function fnTipoNome(t){ for (var i = 0; i < FN_TIPOS.length; i++) if (FN_TIPOS[i
    o.largo: mais larga, para os detalhes com muitos campos. */
 function fnJanela(titulo, corpo, botoes, o){
   o = o || {};
-  var ov = h('div', { class: 'fn-ov' + (o.folha ? ' folha' : '') });
+  var ov = h('div', { class: 'fn-ov' + (o.folha ? ' folha' : '') + (o.lado ? ' lado' : '') });
   var mod = h('div', { class: 'fn-mod' + (o.largo ? ' largo' : ''), role: 'dialog', 'aria-modal': 'true', 'aria-label': titulo });
   var esc = function(e){
     if (e.key !== 'Escape' || !ov.parentNode) return;
@@ -340,7 +354,7 @@ function fnJanela(titulo, corpo, botoes, o){
   if (!o.folha) ov.addEventListener('keydown', function(e){ if (e.key === 'Escape') fechar(); });
   document.body.appendChild(ov);
   var f = o.folha ? null : mod.querySelector('input, select, textarea'); if (f) setTimeout(function(){ f.focus(); }, 30);
-  return { fechar: fechar };
+  return { fechar: fechar, ov: ov, mod: mod };
 }
 function fnCampo(rot, ctrl){ return h('label', { class: 'fn-campo' }, [h('span', null, rot), ctrl]); }
 function fnErro(e){ fnAviso((e && e.message) || 'Não foi possível.'); return false; }

@@ -217,6 +217,7 @@ function fnMovLista(zona){
   });
 }
 function fnMovDesenhar(zona, d, qs){
+  fnLoteFechar();
   clear(zona);
   var ms = d.movimentos;
   var todosIds = d.todos || ms.map(function(m){ return [m.id, m.valor]; });
@@ -253,16 +254,33 @@ function fnMovDesenhar(zona, d, qs){
   cartao.appendChild(lote);
   var todos = h('input', { type: 'checkbox', 'aria-label': 'Escolher todos' });
   var tb = h('tbody');
+  /* Os escolhidos, com o movimento inteiro quando ele esta a vista (a folha
+     da partilha e a da tarefa precisam da descricao e da data, nao so do id). */
+  var porId = {};
+  var guardarLidos = function(lista){ (lista || []).forEach(function(m){ porId[m.id] = m; }); };
+  guardarLidos(ms);
+  var escolhidos = function(){
+    return todosIds.map(function(x){ return porId[x[0]] || { id: x[0], valor: x[1] }; });
+  };
+  var limparSel = function(){
+    FN.mov.sel = {};
+    Array.prototype.forEach.call(tb.querySelectorAll('input[type=checkbox]'), function(c){ c.checked = false; });
+    Array.prototype.forEach.call(tb.querySelectorAll('tr'), function(r){ r.classList.remove('fn-sel'); });
+    desenharLote();
+  };
   var desenharLote = function(){
     clear(lote);
     var selN = Object.keys(FN.mov.sel).filter(function(k){ return FN.mov.sel[k]; });
     todos.checked = selN.length > 0 && selN.length === todosIds.length;
-    if (selN.length) lote.appendChild(fnBarraLote(selN, todosIds.map(function(x){ return { id: x[0], valor: x[1] }; }), function(){
-      FN.mov.sel = {}; Array.prototype.forEach.call(tb.querySelectorAll('input[type=checkbox]'), function(c){ c.checked = false; }); desenharLote(); }));
+    if (!selN.length) { fnLoteFechar(); return; }
+    lote.appendChild(fnBarraLote(selN, escolhidos(), limparSel));
+    /* Escolher uma linha abre a folha; escolher mais so lhe muda a conta. */
+    fnLoteFolha(selN, escolhidos(), limparSel);
   };
   todos.addEventListener('change', function(){
     FN.mov.sel = {}; if (todos.checked) todosIds.forEach(function(x){ FN.mov.sel[x[0]] = true; });
     Array.prototype.forEach.call(tb.querySelectorAll('input[type=checkbox]'), function(c){ c.checked = todos.checked; });
+    Array.prototype.forEach.call(tb.querySelectorAll('tr'), function(r){ r.classList.toggle('fn-sel', todos.checked); });
     desenharLote();
   });
   /* O que está à vista fica registado, para se poder trocar uma linha só. */
@@ -270,6 +288,7 @@ function fnMovDesenhar(zona, d, qs){
   var maisZona = h('div', { class: 'fn-acoes', style: 'justify-content:center;padding:8px' });
   var acrescentar = function(lista){
     var frag = document.createDocumentFragment();
+    guardarLidos(lista);
     lista.forEach(function(m){ frag.appendChild(fnLinhaMov(m, desenharLote)); });
     tb.appendChild(frag);
     FN.mov.mostrar = d.movimentos.length;
@@ -306,6 +325,15 @@ function fnMovDesenhar(zona, d, qs){
 /* Depois de gravar um movimento, troca-se só a linha dele: lê-se esse
    movimento e acerta-se o aviso das sugestões. As outras listas guardadas
    deixam de valer (podiam ter este movimento com a categoria velha). */
+/* Repoe o verde em todas as linhas a vista: so as da ultima alteracao ficam
+   pintadas, as de antes limpam. */
+function fnPintarTocados(tb){
+  if (!tb) return;
+  var t = FN.tocados || {};
+  Array.prototype.forEach.call(tb.querySelectorAll('tr[data-id]'), function(r){
+    r.classList.toggle('fn-tocada', Boolean(t[Number(r.getAttribute('data-id'))]));
+  });
+}
 function fnMovAtualizar(id){
   if (FN.movJanela) { FN.movJanela.fechar(); FN.movJanela = null; }
   var v = FN.movVista;
@@ -324,6 +352,9 @@ function fnMovAtualizar(id){
     if (rs.reembolsos && m.cc_pessoa_id && !m.reembolso && !m.divisao) rs.reembolsos = Math.max(0, rs.reembolsos - 1);
     var novo = fnLinhaMov(m, v.aoMarcar);
     if (tr.parentNode) tr.parentNode.replaceChild(novo, tr);
+    /* Trocar uma linha so nao redesenha as outras: as que estavam pintadas da
+       alteracao anterior tem de ser limpas a mao. */
+    fnPintarTocados(v.tb);
     v.avisos();
   }, function(e){ tr.classList.remove('fn-aler'); fnErro(e); fnMudou(); });
 }
@@ -514,8 +545,12 @@ function fnLinhaMov(m, aoMarcar){
      quando o movimento não tem uma sua. */
   var ctx = fnCtx(m.context_id || (conta && conta.context_id));
   var daConta = !m.context_id && ctx;
-  var tr = h('tr', { class: 'clic' + (FN.tocados && FN.tocados[m.id] ? ' fn-tocada' : ''), 'data-id': m.id, onclick: function(){ fnMovJanela(m); } }, [
-    h('td', { onclick: function(e){ e.stopPropagation(); } }, [h('input', { type: 'checkbox', 'aria-label': 'Escolher', checked: !!FN.mov.sel[m.id], onchange: function(e){ FN.mov.sel[m.id] = e.target.checked; if (aoMarcar) aoMarcar(); else fnRender('financas'); } })]),
+  var tr = h('tr', { class: 'clic' + (FN.tocados && FN.tocados[m.id] ? ' fn-tocada' : '') + (FN.mov.sel[m.id] ? ' fn-sel' : ''), 'data-id': m.id, onclick: function(){ fnMovJanela(m); } }, [
+    h('td', { onclick: function(e){ e.stopPropagation(); } }, [h('input', { type: 'checkbox', 'aria-label': 'Escolher', checked: !!FN.mov.sel[m.id], onchange: function(e){
+      FN.mov.sel[m.id] = e.target.checked;
+      /* O verde claro entra e sai com a caixa, sem redesenhar a lista. */
+      tr.classList.toggle('fn-sel', e.target.checked);
+      if (aoMarcar) aoMarcar(); else fnRender('financas'); } })]),
     h('td', { class: 'fn-n', style: 'font-size:.75rem;white-space:nowrap' }, fnData(m.data)),
     h('td', { title: conta ? conta.nome : '', style: 'font-size:.75rem;line-height:1.25' }, conta ? conta.nome : h('span', { class: 'fn-muted' }, '—')),
     h('td', { style: 'min-width:0' }, [h('span', { class: 'd', title: fnMovNome(m) }, fnMovNome(m)),
@@ -598,32 +633,122 @@ function fnMinhaParte(m){
   return h('small', { style: 'display:block', class: 'fn-muted' }, 'tua parte ' + fnEur(minha));
 }
 
+/* ------------------------------------------------------------------ *
+ * Mexer em vários movimentos de uma vez (4 out)
+ *
+ * A barra de cima tinha dez controlos espremidos numa linha e metade das
+ * escolhas ficava escondida. Agora escolher uma linha abre uma folha à
+ * direita com tudo o que se pode mudar nos escolhidos, e a folha fica aberta
+ * enquanto se vão escolhendo mais - por isso não tapa nem bloqueia a lista.
+ *
+ * Em cima da lista fica só a conta («9 escolhidos») e as duas saídas: voltar
+ * a abrir a folha, e limpar.
+ * ------------------------------------------------------------------ */
+
 function fnBarraLote(ids, ms, limpar){
-  var sc = fnSelCategorias('', 'Categoria…');
-  var debs = (ms || []).filter(function(m){ return FN.mov.sel[m.id] && m.valor < 0; });
-  var sa = fnSelAreas('', 'Área…');
-  var spj = fnSelProjetos('', 'Projeto…');
+  var tot = (ms || []).filter(function(m){ return FN.mov.sel[m.id]; }).reduce(function(t, m){ return t + Number(m.valor || 0); }, 0);
   return h('div', { class: 'fn-barra', style: 'padding:8px;border-bottom:1px solid var(--line)' }, [
-    h('b', null, ids.length + ' escolhidos'), sc,
-    fnBtn('Categorizar', function(){ if (!sc.value) return fnAviso('Escolhe a categoria.');
-      fnApi('/api/financas/movimentos/lote', 'POST', { ids: ids, categoria_id: Number(sc.value) }).then(function(r){ FN.mov.sel = {}; fnAviso(r.feitos + ' categorizados.'); fnMudou(); }, fnErro); }, 'small'),
-    sa,
-    fnBtn('Pôr na área', function(){
-      fnApi('/api/financas/movimentos/lote', 'POST', { ids: ids, context_id: sa.value ? Number(sa.value) : null }).then(function(r){ FN.mov.sel = {}; fnAviso(r.feitos + ' arrumados.'); fnMudou(); }, fnErro); }, 'small'),
-    spj,
-    fnBtn('Pôr no projeto', function(){
-      fnApi('/api/financas/movimentos/lote', 'POST', { ids: ids, project_id: spj.value ? Number(spj.value) : null }).then(function(r){ FN.mov.sel = {}; fnAviso(r.feitos + (spj.value ? ' postos no projeto.' : ' tirados do projeto.')); fnMudou(); }, fnErro); }, 'small'),
-    fnBtn('De quem…', function(){ fnEscolherPessoa(ids, null); }, 'small'),
-    debs.length ? fnBtn('Partilhar… (' + debs.length + ')', function(){ fnPartilhaJanela(debs); }, 'small') : null,
-    debs.length > 1 ? fnBtn('Tarefa… (' + debs.length + ')', function(){ fnTarefaDeVarios(debs); }, 'small') : null,
-    fnBtn('Aceitar sugestões', function(){
-      fnApi('/api/financas/movimentos/lote', 'POST', { ids: ids, aceitar: true }).then(function(r){ FN.mov.sel = {}; fnAviso(r.feitos + ' categorizados.'); fnMudou(); }, fnErro); }, 'small'),
-    fnBtn('Apagar', function(){
-      fnJanela('Apagar ' + ids.length + ' movimentos?', [h('p', null, 'Saem do Farol. Se voltares a importar o mesmo extrato, voltam a entrar.')], [{ txt: 'Apagar', pri: true, fn: function(){
-        return fnApi('/api/financas/movimentos/lote', 'POST', { ids: ids, apagar: true }).then(function(r){ FN.mov.sel = {}; fnAviso(r.feitos + ' apagados.'); fnMudou(); }, fnErro); } }]);
-    }, 'small'),
-    fnBtn('Limpar', function(){ if (limpar) limpar(); else { FN.mov.sel = {}; fnRender('financas'); } }, 'small')
+    h('b', null, ids.length + (ids.length === 1 ? ' escolhido' : ' escolhidos')),
+    h('span', { class: 'fn-muted', style: 'font-size:.8125rem' }, fnEur(tot, true)),
+    fnBtn('Alterar os escolhidos…', function(){ fnLoteFolha(ids, ms, limpar); }, 'primary small'),
+    fnBtn('Limpar', function(){ fnLoteFechar(); if (limpar) limpar(); else { FN.mov.sel = {}; fnRender('financas'); } }, 'small')
   ]);
+}
+
+function fnLoteFechar(){
+  if (FN.lote && FN.lote.j) { try { FN.lote.j.fechar(); } catch (e) {} }
+  FN.lote = null;
+}
+
+/* Uma lista com «— não mexer —» à cabeça: o que ficar assim não se envia, e
+   cada movimento guarda o que já tinha. A segunda linha é que limpa. */
+function fnLoteSel(sel, tirar){
+  sel.options[0].textContent = '— não mexer —';
+  sel.insertBefore(h('option', { value: '0' }, tirar), sel.options[0].nextSibling);
+  sel.value = '';
+  return sel;
+}
+function fnLoteValor(sel){ return sel.value === '' ? undefined : (sel.value === '0' ? null : Number(sel.value)); }
+
+/* A folha dos escolhidos. Construída uma vez e depois só refrescada (a conta,
+   os rótulos dos botões), para não se perder o que já se escolheu nos campos
+   enquanto se vai marcando mais linhas. */
+function fnLoteFolha(ids, ms, limpar){
+  /* Fechada pela cruz, pelo Cancelar ou pelo Escape, a folha some do ecra sem
+     passar por aqui: confirma-se que ainda esta la antes de a reaproveitar. */
+  if (FN.lote && FN.lote.j.ov && document.body.contains(FN.lote.j.ov)) { FN.lote.refrescar(ids, ms); return; }
+  FN.lote = null;
+
+  var tit = h('b');
+  var resumo = h('small', { class: 'fn-muted', style: 'display:block' });
+  var sc = fnLoteSel(fnSelCategorias(''), '— sem categoria —');
+  var sa = fnLoteSel(fnSelAreas(''), '— sem área —');
+  var spj = fnLoteSel(fnSelProjetos(''), '— sem projeto —');
+  var mexeuP = false;
+  var spe = fnEscolhaPessoas([], function(){ mexeuP = true; });
+  spe.style.gridTemplateColumns = 'repeat(auto-fill,minmax(150px,1fr))';
+  /* Estas duas abrem janela propria: a folha sai da frente, mas a escolha
+     fica - a barra de cima volta a abri-la. */
+  var bPart = fnBtn('Partilhar…', function(){ var d = FN.lote.debs(); fnLoteFechar(); fnPartilhaJanela(d); }, 'small');
+  var bTar = fnBtn('Ligar a uma tarefa…', function(){ var d = FN.lote.debs(); fnLoteFechar(); fnTarefaDeVarios(d); }, 'small');
+  var bSug = fnBtn('Aceitar as sugestões da IA', function(){ fnLoteApi({ aceitar: true }, 'categorizados'); }, 'small');
+  var bApagar = fnBtn('Apagar', function(){
+    var n = FN.lote.ids.length;
+    fnJanela('Apagar ' + n + ' movimentos?', [h('p', null, 'Saem do Farol. Se voltares a importar o mesmo extrato, voltam a entrar.')],
+      [{ txt: 'Apagar', pri: true, fn: function(){ return fnLoteApi({ apagar: true }, 'apagados'); } }]);
+  }, 'small danger');
+
+  var j = fnJanela('Escolhidos', [
+    h('div', null, [tit, resumo]),
+    h('p', { class: 'fn-nota' }, 'Muda-se só o que se mexer aqui; o resto de cada movimento fica como está.'),
+    fnCampo('Categoria', sc), fnCampo('Área', sa), fnCampo('Projeto', spj),
+    h('div', { class: 'fn-campo' }, [h('span', null, 'De quem é (agregado) · uma ou mais pessoas'), spe]),
+    h('hr', { style: 'border:0;border-top:1px solid var(--line);margin:4px 0' }),
+    h('div', { class: 'fn-campo' }, [h('span', null, 'Relacionar todos com uma coisa só'),
+      h('div', { class: 'fn-acoes', style: 'flex-wrap:wrap' }, [bPart, bTar])]),
+    h('small', { class: 'fn-muted' }, 'A partilha divide estes pagamentos com alguém de uma vez; a tarefa liga-os todos ao mesmo pagamento do Farol.'),
+    h('hr', { style: 'border:0;border-top:1px solid var(--line);margin:4px 0' }),
+    h('div', { class: 'fn-acoes', style: 'flex-wrap:wrap' }, [bSug, bApagar])
+  ], [{ txt: 'Guardar', pri: true, fn: function(){
+    var corpo = {};
+    var c = fnLoteValor(sc); if (c !== undefined) corpo.categoria_id = c;
+    var a = fnLoteValor(sa); if (a !== undefined) corpo.context_id = a;
+    var p = fnLoteValor(spj); if (p !== undefined) corpo.project_id = p;
+    if (mexeuP) corpo.person_ids = spe.valor();
+    if (!Object.keys(corpo).length) { fnAviso('Não mexeste em nada.'); return false; }
+    return fnLoteApi(corpo, 'alterados');
+  } }], { folha: true, lado: true });
+
+  FN.lote = {
+    j: j, ids: ids, ms: ms || [], limpar: limpar,
+    debs: function(){ return FN.lote.ms.filter(function(m){ return FN.mov.sel[m.id] && Number(m.valor) < 0; }); },
+    refrescar: function(novosIds, novosMs){
+      FN.lote.ids = novosIds; FN.lote.ms = novosMs || FN.lote.ms;
+      var n = novosIds.length;
+      var tot = FN.lote.ms.filter(function(m){ return FN.mov.sel[m.id]; }).reduce(function(t, m){ return t + Number(m.valor || 0); }, 0);
+      tit.textContent = n + (n === 1 ? ' movimento escolhido' : ' movimentos escolhidos');
+      resumo.textContent = fnEur(tot, true);
+      var d = FN.lote.debs().length;
+      bPart.textContent = 'Partilhar…' + (d ? ' (' + d + ')' : '');
+      bTar.textContent = 'Ligar a uma tarefa…' + (d ? ' (' + d + ')' : '');
+      bPart.disabled = bTar.disabled = !d;
+    }
+  };
+  FN.lote.refrescar(ids, ms);
+  /* Fechar a folha não desfaz a escolha: a barra de cima fica lá com o
+     «Alterar os escolhidos…» para se voltar a abrir. */
+}
+
+function fnLoteApi(corpo, feito){
+  var ids = (FN.lote && FN.lote.ids) || [];
+  var limpar = FN.lote && FN.lote.limpar;
+  return fnApi('/api/financas/movimentos/lote', 'POST', Object.assign({ ids: ids }, corpo)).then(function(r){
+    fnLoteFechar();
+    FN.mov.sel = {};
+    fnAviso(r.feitos + ' ' + feito + '.');
+    if (limpar) limpar();
+    fnMudou();
+  }, fnErro);
 }
 
 /* O painel do movimento: categoria, área, conta corrente, e a reconciliação
