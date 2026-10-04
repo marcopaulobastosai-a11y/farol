@@ -815,7 +815,7 @@ async function sugestoesDeEntradas(lista, B) {
 async function detalharMovimentos(ids, B, sug) {
   if (!ids.length) return [];
   const rows = await all(
-    `SELECT m.id, m.conta_id, to_char(m.data,'YYYY-MM-DD') AS data, m.descricao, m.valor, m.saldo, m.categoria_id, m.categoria_fonte,
+    `SELECT m.id, m.conta_id, to_char(m.data,'YYYY-MM-DD') AS data, m.descricao, m.titulo, m.valor, m.saldo, m.categoria_id, m.categoria_fonte,
             m.context_id, m.person_id, m.expense_id, m.ia_categoria_id, m.ia_confianca, m.ia_fonte, m.nota, m.origem,
             m.project_id, pj.name AS projeto,
             m.par_id, pm.conta_id AS par_conta_id, to_char(pm.data,'YYYY-MM-DD') AS par_data,
@@ -1437,12 +1437,14 @@ function instalar(app) {
       if (q.projeto) add('m.project_id = ?', Number(q.projeto));
       if (q.pessoa) add('? = ANY(m.person_ids)', Number(q.pessoa));
       if (q.q) {
-        /* Procura no descritivo e, se o texto parecer um valor, no montante. */
+        /* Procura nos dois textos - o nome que o Marco deu e o do extrato - e,
+           se o que se escreveu parecer um valor, tambem no montante. */
         const num = String(q.q).replace(/\s/g, '').replace(',', '.');
+        const dois = '(m.descricao ILIKE $N OR m.titulo ILIKE $N)';
         if (/^\d+(\.\d+)?$/.test(num)) {
           v.push('%' + q.q + '%'); v.push(num);
-          w.push('(m.descricao ILIKE $' + (v.length - 1) + " OR to_char(abs(m.valor),'FM999999990.00') LIKE $" + v.length + " || '%')");
-        } else add('m.descricao ILIKE ?', '%' + q.q + '%');
+          w.push('(' + dois.replace(/\$N/g, '$' + (v.length - 1)) + " OR to_char(abs(m.valor),'FM999999990.00') LIKE $" + v.length + " || '%')");
+        } else { v.push('%' + q.q + '%'); w.push(dois.replace(/\$N/g, '$' + v.length)); }
       }
       if (q.estado === 'categorizar') w.push('m.categoria_id IS NULL');
       if (q.estado === 'sugestoes') w.push('m.categoria_id IS NULL AND m.ia_categoria_id IS NOT NULL');
@@ -1543,7 +1545,7 @@ function instalar(app) {
         set('categoria_fonte', !cat ? null : (b.aceite ? 'ia-aceite' : (m.ia_categoria_id && m.ia_categoria_id !== Number(cat) ? 'tu-corrigiu' : 'tu')));
         sets.push('categoria_em = now()');
       }
-      ['context_id', 'nota', 'expense_id', 'data', 'descricao', 'project_id', 'para_conta_id'].forEach((k) => { if (b[k] !== undefined) set(k, b[k] === '' ? null : b[k]); });
+      ['context_id', 'nota', 'expense_id', 'data', 'descricao', 'titulo', 'project_id', 'para_conta_id'].forEach((k) => { if (b[k] !== undefined) set(k, b[k] === '' ? null : b[k]); });
       /* De quem: uma ou varias pessoas (person_id fica com a primeira). */
       if (b.person_ids !== undefined || b.person_id !== undefined) {
         const ps = b.person_ids !== undefined ? [...new Set((b.person_ids || []).map(Number).filter(Boolean))] : (b.person_id ? [Number(b.person_id)] : []);
