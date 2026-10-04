@@ -684,7 +684,11 @@ async function patrimonio(empresas) {
   const B = await base();
   const hoje = hojeIso();
   const contas = (await saldosContas(B, hoje)).filter((c) => c.ativo);
-  const bens = (await all('SELECT id, nome, lado, classe, valor, to_char(valor_em,\'YYYY-MM-DD\') AS valor_em, prestacao, to_char(termina,\'YYYY-MM-DD\') AS termina, context_id, pessoal, nota FROM fin_bens WHERE ativo ORDER BY lado, nome'))
+  /* Os papeis de cada bem sao os da sub-area dele: a escritura, a caderneta,
+     o CPCV. A contagem vai junto para o ecra os poder abrir dali. */
+  const bens = (await all('SELECT id, nome, lado, classe, valor, to_char(valor_em,\'YYYY-MM-DD\') AS valor_em, prestacao, to_char(termina,\'YYYY-MM-DD\') AS termina, context_id, pessoal, nota, ' +
+    '(SELECT count(*)::int FROM documents d WHERE d.context_id IS NOT NULL AND d.context_id = fin_bens.context_id AND d.aprovado) AS documentos ' +
+    'FROM fin_bens WHERE ativo ORDER BY lado, nome'))
     .map((b) => Object.assign(b, { valor: b.valor == null ? null : cent(b.valor), prestacao: b.prestacao == null ? null : cent(b.prestacao) }));
   const C = await cc.resumo();
   const conta = (c) => empresas || c.pessoal;
