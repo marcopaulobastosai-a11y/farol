@@ -666,7 +666,8 @@ function fnPainelMov(p, m, emJanela){
   }, 'small')]));
 
   fnPainelPar(p, m);
-  if (m.par_id) return;
+  /* Uma transferência entre contas tuas não se partilha nem é despesa. */
+  if (m.par_id || m.para_conta_id) return;
   if (m.valor === 0) return;
   fnPainelPartilhas(p, m);
   if (m.valor > 0) return;
@@ -804,15 +805,46 @@ function fnPainelPartilhas(p, m){
   var opcao = function(titulo, texto, fn, pri){
     return h('button', { type: 'button', class: 'fn-opcao' + (pri ? ' pri' : ''), onclick: fn }, [h('b', null, titulo), h('small', null, texto)]);
   };
+  /* A despesa do Farol a que está ligado já foi dividida no Splitwise:
+     mostra-se essa divisão (quem pagou, quanto é de cada um), não as
+     opções em branco. */
+  if (m.valor < 0 && m.despesa_splitwise) {
+    var cx = h('div', { class: 'fn-caixa melhor' }, [h('small', { class: 'fn-muted' }, 'A ler a despesa no Splitwise…')]);
+    p.appendChild(cx);
+    var outras = h('details', { style: 'margin-top:6px' }, [h('summary', { class: 'fn-muted', style: 'cursor:pointer;font-size:.8125rem' }, 'Tratar de outra forma'),
+      h('div', { class: 'fn-opcoes', style: 'margin-top:6px' }, [
+        opcao('Despesa partilhada', 'Dividir de outra maneira.', function(){ fnPartilhaJanela([m]); }),
+        opcao('Paguei por um amigo', 'É tudo de outra pessoa.', function(){ fnAmigoJanela(m); }),
+        opcao('Empréstimo', 'Alguém pagou por ti e estás a devolver.', function(){ fnAcertoJanela(m); })])]);
+    p.appendChild(outras);
+    apiGestao('/api/financas/splitwise/despesas/' + m.despesa_splitwise).then(function(r){
+      var d = r.despesa;
+      clear(cx);
+      var eu = d.pessoas.filter(function(x){ return x.eu; })[0] || { deve: 0, pagou: 0 };
+      var bate = Math.abs(d.total + m.valor) < 0.006;
+      cx.appendChild(h('div', { class: 'fn-acoes', style: 'justify-content:space-between' }, [h('b', null, 'Dividida no Splitwise'), h('span', { class: 'fn-pill tr' }, d.grupo_nome)]));
+      cx.appendChild(h('small', { class: 'fn-muted' }, '«' + d.descricao + '» · ' + fnData(d.data) + ' · total ' + fnEur(d.total) + (d.apagada ? ' · APAGADA no Splitwise' : '') + (bate ? '' : ' · o movimento é de ' + fnEur(-m.valor))));
+      d.pessoas.slice().sort(function(a, b){ return (b.eu ? 1 : 0) - (a.eu ? 1 : 0); }).forEach(function(x){
+        cx.appendChild(h('div', { class: 'fn-li' }, [h('div', { class: 'g' }, [x.nome, h('small', null, (x.pagou > 0.005 ? 'pagou ' + fnEur(x.pagou) + ' · ' : '') + 'a parte é ' + fnEur(x.deve))]),
+          h('span', { class: 'fn-n' + (!x.eu && x.deve > 0.005 ? ' fn-good' : '') }, x.eu ? fnEur(x.deve) : (x.deve > 0.005 ? 'deve-te ' + fnEur(x.deve) : '—'))]));
+      });
+      cx.appendChild(h('small', { class: 'fn-muted' }, 'Por agora conta como despesa tua o movimento inteiro (' + fnEur(-m.valor) + '). Com o botão, conta só a tua parte (' + fnEur(eu.deve) + ') e a dos outros fica nas contas correntes do Splitwise; no Splitwise não se cria nada de novo.'));
+      if (!d.apagada && bate) cx.appendChild(h('div', { class: 'fn-acoes' }, [fnBtn('Contar só a minha parte', function(){
+        fnApi('/api/financas/movimentos/' + m.id + '/partilha-splitwise', 'POST', { expense_id: Number(m.despesa_splitwise), categoria_id: m.categoria_id || null })
+          .then(function(x){ fnAviso('Feito: eu pago ' + fnEur(x.minha) + ', os outros ' + fnEur(x.outros) + ' (ligado à despesa do Splitwise).'); fnMudou(); }, fnErro);
+      }, 'primary small')]));
+    }, function(e){ clear(cx); cx.appendChild(h('small', { class: 'fn-muted' }, 'Ligada a uma despesa do Splitwise, mas não foi possível lê-la: ' + e.message)); });
+    return;
+  }
   if (m.valor < 0) {
     p.appendChild(h('div', { class: 'fn-opcoes' }, [
-      opcao('Despesa partilhada', 'Pagaste e divides: tudo teu, 50/50, partes, percentagens… (conta corrente aqui ou no Splitwise).', function(){ fnPartilhaJanela([m]); }, true),
+      opcao('Despesa partilhada', 'Pagaste e divides: tudo teu, 50/50, partes, percentagens… (conta corrente aqui ou no Splitwise).', function(){ fnPartilhaJanela([m]); }),
       opcao('Paguei por um amigo', 'É tudo dele: fica a dever-to e entra nas contas partilhadas.', function(){ fnAmigoJanela(m); }),
       opcao('Empréstimo', 'Alguém pagou por ti e estás a devolver.', function(){ fnAcertoJanela(m); })]));
     return;
   }
   p.appendChild(h('div', { class: 'fn-opcoes' }, [
-    opcao('Acerto de contas', 'Alguém a pagar-te o que devia: diz quem é e em que conta corrente (aqui ou no Splitwise).', function(){ fnAcertoJanela(m); }, true)]));
+    opcao('Acerto de contas', 'Alguém a pagar-te o que devia: diz quem é e em que conta corrente (aqui ou no Splitwise).', function(){ fnAcertoJanela(m); })]));
   fnPainelReembolso(p, m);
 }
 
