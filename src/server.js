@@ -110,6 +110,11 @@ app.get('/api/bootstrap', async (_req, res) => {
       all(`SELECT e.id, to_char(e.day,'YYYY-MM-DD') AS day, e.at, e.title, e.calendar, e.detail, e.context_id,
                   e.duration_min, to_char(e.ends_on,'YYYY-MM-DD') AS ends_on, e.location,
                   e.remind_min, e.tentative,
+                  /* A Agenda (4 out): de onde veio, se e so «ocupado» e em
+                     que calendarios Google tem copia. */
+                  e.origin, e.google_pessoa, e.ocupado, e.no_google,
+                  ARRAY(SELECT eg.person_id FROM event_google eg
+                         WHERE eg.event_id = e.id ORDER BY eg.person_id) AS no_google_de,
                   /* Quem vai: a janela do evento marca-os, a linha mostra-os. */
                   ARRAY(SELECT ep.person_id FROM event_people ep
                          WHERE ep.event_id = e.id ORDER BY ep.person_id) AS pessoas,
@@ -691,7 +696,19 @@ function extrasDoEvento(b) {
     out.push(['remind_min', r.v]);
   }
   if (b.tentative !== undefined) out.push(['tentative', Boolean(b.tentative)]);
+  /* Pôr uma copia no calendario Google de quem vai (google.espelhar). */
+  if (b.no_google !== undefined) out.push(['no_google', Boolean(b.no_google)]);
   return { campos: out };
+}
+
+/* O Google de quem vai fica igual ao evento. Um Google em baixo nao impede
+   de gravar no Farol: a janela diz o que nao foi. */
+async function espelharSemRebentar(id) {
+  try { return await google.espelhar(id); }
+  catch (err) {
+    console.warn('[farol] copias Google:', err.message);
+    return { copiados: [], sem_licenca: [], falhas: [err.message] };
+  }
 }
 
 /* Quem vai ao evento: a lista inteira substitui a que la estava. */
@@ -714,6 +731,9 @@ async function linhaDoEvento(id) {
     `SELECT e.id, to_char(e.day,'YYYY-MM-DD') AS day, e.at, e.title, e.calendar, e.detail, e.context_id,
             e.duration_min, to_char(e.ends_on,'YYYY-MM-DD') AS ends_on, e.location,
             e.remind_min, e.tentative,
+            e.origin, e.google_pessoa, e.ocupado, e.no_google,
+            ARRAY(SELECT eg.person_id FROM event_google eg
+                   WHERE eg.event_id = e.id ORDER BY eg.person_id) AS no_google_de,
             ARRAY(SELECT ep.person_id FROM event_people ep
                    WHERE ep.event_id = e.id ORDER BY ep.person_id) AS pessoas,
             COALESCE((SELECT json_agg(json_build_object('id', i.document_id, 'papel', i.papel)
@@ -743,7 +763,10 @@ app.post('/api/gestao/eventos', async (req, res) => {
        VALUES (${vals.map((_, k) => '$' + (k + 1)).join(', ')}) RETURNING id`, vals);
     const id = rows[0].id;
     if (b.person_ids !== undefined) await pessoasDoEvento(id, b.person_ids);
-    res.status(201).json(await linhaDoEvento(id));
+    const g = await espelharSemRebentar(id);
+    const linha = await linhaDoEvento(id);
+    linha.google = g;
+    res.status(201).json(linha);
   } catch (err) {
     console.error('[farol] POST evento:', err.message);
     res.status(500).json({ error: 'Não foi possível guardar o evento.' });
@@ -802,7 +825,8 @@ app.patch('/api/gestao/eventos/:id', async (req, res) => {
           [id, pid]);
       }
     }
-    res.json({ ok: true, id, evento: await linhaDoEvento(id) });
+    const g = await espelharSemRebentar(id);
+    res.json({ ok: true, id, google: g, evento: await linhaDoEvento(id) });
   } catch (err) {
     console.error('[farol] PATCH evento:', err.message);
     res.status(500).json({ error: 'Não foi possível gravar o evento.' });
@@ -813,6 +837,9 @@ app.delete('/api/gestao/eventos/:id', async (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isInteger(id)) return res.status(400).json({ error: 'id inválido' });
   try {
+    /* As copias no Google saem primeiro: depois de apagar o evento ja nao
+       se sabe onde estavam. */
+    await google.apagarCopias(id).catch((err) => console.warn('[farol] copias Google:', err.message));
     const rows = await all("DELETE FROM events WHERE id = $1 AND origin = 'real' RETURNING id", [id]);
     if (!rows.length) return res.status(404).json({ error: 'Evento não encontrado.' });
     res.json({ ok: true });
