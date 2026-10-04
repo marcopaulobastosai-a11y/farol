@@ -985,3 +985,9 @@ document.addEventListener('click', function(ev){
   $('agPop').hidden = true;
   agRender();
 }, true);
+
+/* Os pedidos nao esperam pelos scripts: o /api/bootstrap e o /api/gestao
+   chegam muitas vezes antes de este ficheiro (o ultimo) ser lido, e o
+   renderAll dessa altura ainda nao sabia da Agenda. Desenha-se aqui tambem;
+   sem dados, o agRender nao faz nada e espera pelo proximo renderAll. */
+agRender();
