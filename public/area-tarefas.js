@@ -1398,6 +1398,21 @@ function aeRenderArea(a){
   var todos = [area].concat(subs);
   var idsTodos = todos.map(function(c){ return c.id; });
 
+  /* Familia: numa sub-area de pessoas o Quem sao os botoes com os nomes
+     (familia.js) e a barra dos filtros nao aparece. Com uma pessoa escolhida
+     ve-se a vida dela inteira: todas as areas, so o que e dela. Com Ambos /
+     Todos, o que e comum - o que esta arrumado na sub-area. */
+  var fmSub = null, fmPessoa = null;
+  if (a.view === 'familia' && f.subs.length === 1 && subs.some(function(s){ return String(s.id) === f.subs[0]; })){
+    fmSub = Number(f.subs[0]);
+    var fmQ = typeof fmQuemValido === 'function' ? fmQuemValido(fmSub) : 'todos';
+    f = Object.assign({}, f, { quem: fmQ, papel: fmQ === 'todos' ? f.papel : 'ambos' });
+    if (fmQ !== 'todos'){
+      fmPessoa = Number(fmQ);
+      idsTodos = (G.contextos || []).map(function(c){ return c.id; }).concat([null]);
+    }
+  }
+
   var daArea = (G.tasks || []).filter(function(t){
     return !t.parent_id && idsTodos.indexOf(aeCtxT(t)) >= 0;
   });
@@ -1432,9 +1447,11 @@ function aeRenderArea(a){
   var escolhidas = opcoes.filter(function(o){ return o.k !== 'tudo' && f.subs.indexOf(o.k) >= 0; });
   var ids = escolhidas.length ? [].concat.apply([], escolhidas.map(function(o){ return o.ids; })) : idsTodos;
   var tudo = !escolhidas.length;
+  if (fmPessoa) ids = idsTodos;
   /* Sem Quem neste ecra, a pessoa guardada de outros tempos nao conta. */
   if (a.semQuem) f.quem = 'todos';
   var grupos = todos.filter(function(c){ return ids.indexOf(c.id) >= 0; });
+  if (fmPessoa) grupos = (G.contextos || []).concat([{ id: null, name: 'Sem área' }]);
 
   /* Os periodos somam-se: basta cair num. «Em atraso» e um criterio a parte
      (so se aplica ao que tem prazo e esta por fazer). */
@@ -1493,6 +1510,7 @@ function aeRenderArea(a){
     var meu = typeof e.id === 'number' && naArea(e);
     /* Os aniversarios nao tem area: sao da Familia, e e la que aparecem. */
     var aniv = a.view === 'familia' && e.calendar === 'aniversarios';
+    if (fmPessoa){ meu = (e.pessoas || []).indexOf(fmPessoa) >= 0 || e.google_pessoa === fmPessoa; aniv = false; }
     if ((!meu && !aniv) || !passaDia(e.day)) return;
     guardaEvento({ id: e.id, title: e.title, day: e.day, at: e.at, detail: e.detail,
                    location: e.location, tentative: e.tentative, pessoas: e.pessoas,
@@ -1601,7 +1619,7 @@ function aeRenderArea(a){
 
   var nomesQ = f.periodos.map(aeNomePeriodo);
   var nomeQuando = !nomesQ.length ? 'Tudo' : nomesQ.length <= 2 ? nomesQ.join(' + ') : nomesQ.length + ' períodos';
-  dds.appendChild(aeDropdown('Quando', nomeQuando, !!nomesQ.length, 0, function(pop){
+  var ddQuando = dds.appendChild(aeDropdown('Quando', nomeQuando, !!nomesQ.length, 0, function(pop){
     pop.appendChild(aeOpcao('Tudo', !f.periodos.length, function(){ aePor(a, 'periodos', []); }));
     pop.appendChild(el('hr'));
     AE_PERIODOS.filter(function(pp){ return pp[0] !== 'tudo'; }).forEach(function(pp){
@@ -1644,7 +1662,7 @@ function aeRenderArea(a){
   var nomeFech = !nomesF.length ? 'Escondidos'
     : nomesF.length === AE_FECHADOS.length ? 'Todos à vista'
     : nomesF.map(function(x){ return x[1].split(' ')[0]; }).join(', ');
-  dds.appendChild(aeDropdown('Fechados', nomeFech, !!nomesF.length, 0, function(pop){
+  var ddFechados = dds.appendChild(aeDropdown('Fechados', nomeFech, !!nomesF.length, 0, function(pop){
     pop.appendChild(el('div', 'ae-ddt', 'Mostrar o que já foi feito, pago ou passou'));
     AE_FECHADOS.forEach(function(x){
       pop.appendChild(aeOpcao(x[1], f.fechados.indexOf(x[0]) >= 0, function(){ aeAlternar(a, 'fechados', x[0]); }));
@@ -1674,6 +1692,7 @@ function aeRenderArea(a){
      escolhida no Onde, senao a area inteira. */
   var alvoId = escolhidas.length === 1 && escolhidas[0].k !== 'geral' ? Number(escolhidas[0].k) : area.id;
   var alvoNome = escolhidas.length === 1 ? escolhidas[0].nome : area.name;
+  if (fmPessoa && pessoa(fmPessoa)) alvoNome = pessoa(fmPessoa).name;
 
   var kpis = el('div', 'ae-kpis');
   kpis.appendChild(aeKpi(String(soltas.length), 'por fazer', '', function(){
@@ -1696,7 +1715,9 @@ function aeRenderArea(a){
   /* As despesas: o mes corrente da area (ou da sub-area), com os ultimos nove
      meses em miniatura. O detalhe - graficos, quadro, periodos - vive na
      pagina das Despesas, que abre ja filtrada. */
-  var despAqui = AE.despesas === null ? null : despTodas.filter(naAreaDesp);
+  var despAqui = AE.despesas === null ? null : despTodas.filter(function(x){
+    return naAreaDesp(x) && (!fmPessoa || aePassaPessoaSo(f, [x.person_id]));
+  });
   var hojeD = tfHoje();
   var meses9 = [];
   for (var mi = 8; mi >= 0; mi--){
@@ -1726,7 +1747,7 @@ function aeRenderArea(a){
 
   /* Os documentos da area, sem o periodo: e o arquivo dela. Abre os
      Documentos ja filtrados. */
-  var docsAqui = docsTodos.filter(naArea);
+  var docsAqui = docsTodos.filter(function(d){ return naArea(d) && (!fmPessoa || aePassaPessoaSo(f, [d.person_id])); });
   var porLerAqui = docsAqui.filter(function(d){ return !d.lido; }).length;
   var bO = el('button', 'ae-kpi ae-link');
   bO.type = 'button';
@@ -1749,7 +1770,7 @@ function aeRenderArea(a){
     });
     return;
   }
-  box.appendChild(barra);
+  if (!fmSub) box.appendChild(barra);
   /* Numa sub-area de Patrimonio (um bem) os cartoes ficam a 3/4 e o quarto
      da direita lista os papeis dela, sem ser preciso abrir os Documentos. */
   var umaSub = escolhidas.length === 1 && /^\d+$/.test(escolhidas[0].k) ? Number(escolhidas[0].k) : null;
@@ -1770,8 +1791,13 @@ function aeRenderArea(a){
       : (a.view === 'casa' && typeof fnLigacaoBem === 'function' ? fnLigacaoBem(umaSub)
       /* Na Familia: a vida das pessoas da sub-area (familia.js), ou o quadro
          dos Sonhos - esse ocupa o ecra: os cartoes de baixo nao fazem falta. */
-      : (a.view === 'familia' && typeof fmSubArea === 'function' ? fmSubArea(umaSub) : null));
-    if (fichaBem) alvo.appendChild(fichaBem);
+      : (a.view === 'familia' && typeof fmSubArea === 'function' ? fmSubArea(umaSub, { filtros: [ddQuando, ddFechados] }) : null));
+    /* Na Familia a linha dos nomes vai por cima dos numeros, e os cartoes de
+       uma pessoa (Dados, Cofre) logo a seguir. */
+    if (fichaBem && a.view === 'familia' && !fichaBem.getAttribute('data-so')){
+      alvo.insertBefore(fichaBem, kpis);
+      if (fichaBem.fmDepois) alvo.appendChild(fichaBem.fmDepois);
+    } else if (fichaBem) alvo.appendChild(fichaBem);
     if (fichaBem && fichaBem.getAttribute('data-so')) { if (kpis.parentNode) kpis.parentNode.removeChild(kpis); return; }
   }
 
