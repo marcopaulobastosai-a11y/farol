@@ -201,21 +201,7 @@ var AE_CSS =
   '.ae-mais-campos:hover{text-decoration:underline}' +
   /* 27 set: a lista unica a 3/4 e a coluna da direita (Agenda, Projetos) */
   '.ae-main{display:grid;grid-template-columns:minmax(0,1fr);gap:14px;align-items:start}' +
-  '.ae-main.com-det{grid-template-columns:minmax(0,3fr) minmax(0,2fr)}' +
   '.ae-esq{display:flex;flex-direction:column;gap:14px;min-width:0}' +
-  /* O detalhe abre a direita a altura da tarefa que se escolheu, e fica
-     colado ao cimo quando se rola: numa lista comprida ele aparecia la em
-     cima, fora do ecra, e parecia que nao tinha aberto. */
-  '.ae-detslot{min-width:0;align-self:start;position:sticky;top:62px;'
-    + 'max-height:calc(100vh - 76px);overflow:auto;overscroll-behavior:contain}' +
-  /* Dentro da area quem cola ao cimo e a coluna, nao o painel: senao ele
-     ficava colado dentro de si proprio, que e o mesmo que nada. */
-  '.ae-detslot .tf-det{margin:0;position:static;max-height:none;overflow:visible}' +
-  /* Em ecra estreito as colunas empilham-se e o detalhe fica por baixo da
-     lista: ai nao cola nem se alinha com nada (quem poe a classe e o JS,
-     porque quem manda e a largura da grelha, nao a da janela). */
-  '.ae-detslot.solto{position:static;max-height:none;overflow:visible;margin-top:0}' +
-  '.ae .tf-det .tf-fechar{display:inline-flex}' +
   '.card.ae-volta{display:flex;flex-direction:row;align-items:center;justify-content:flex-start;gap:14px;flex-wrap:wrap;padding:10px 14px}' +
   '.ae-volta > *,.ae-volta > .btn.small{margin:0}' +
   '.ae-trilho{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:.875rem;color:var(--muted)}' +
@@ -248,7 +234,7 @@ var AE_CSS =
   '.ae-spark i{width:8px;border-radius:2px 2px 0 0;background:var(--line);min-height:2px}' +
   '.ae-spark i.agora{background:var(--accent)}';
 
-var AE = { filtro: {}, fechados: {}, despesas: null, aLerDespesas: false, tipo: {}, pagina: {}, det: null,
+var AE = { filtro: {}, fechados: {}, despesas: null, aLerDespesas: false, tipo: {}, pagina: {},
            feitas: {}, hist: {} };
 function aeLerGuardado(chave){
   try { return JSON.parse(localStorage.getItem(chave) || '{}') || {}; } catch (e) { return {}; }
@@ -654,7 +640,7 @@ function aeLinha(t, comSub){
   li.appendChild(corpo);
   if (tfTipo(t) === 'pagamento' && t.amount) li.appendChild(el('div', 'tf-val', tfEuros(t.amount)));
   li.appendChild(el('div', 'tf-r ' + tfNivelData(t), tfDataTxt(t.due_on, t.due_time)));
-  if (AE.det && window.TF && TF.aberta === t.id) li.classList.add('sel');
+  if (window.TF && TF.aberta === t.id) li.classList.add('sel');
   li.addEventListener('click', function(){ aeAbrirTarefa(t); });
   return li;
 }
@@ -1773,8 +1759,7 @@ function aeRenderArea(a){
   var aPagarL = lista.filter(function(t){ return tfTipo(t) === 'pagamento'; })
     .reduce(function(s2, t){ return s2 + Number(t.amount || 0); }, 0);
 
-  var detAqui = AE.det === a.view && window.TF && TF.aberta && aeNo('det', 'tfDet');
-  var main = el('div', 'ae-main' + (detAqui ? ' com-det' : ''));
+  var main = el('div', 'ae-main');
   var esq = el('div', 'ae-esq');
   main.appendChild(esq);
   esq.appendChild(aeWidget(a, 'tarefas', {
@@ -1874,63 +1859,8 @@ function aeRenderArea(a){
       aeRodape(card, 'Abrir os Projetos', function(){ show('projetos'); });
     }
   }));
-  /* ---- a direita, o detalhe da tarefa escolhida: o mesmo das Tarefas ---- */
-  if (detAqui){
-    var slot = el('div', 'ae-detslot');
-    main.appendChild(slot);
-    aeEmprestar('det', aeNo('det', 'tfDet'), slot);
-  }
   box.appendChild(main);
-  if (detAqui) aeAlinharDetalhe(main, esq, slot);
 }
-
-/* Por o detalhe a altura da linha escolhida. Mede-se depois do ecra estar
-   desenhado, e conta-se a partir do cimo da grelha (o «sticky» ja mexeu no
-   sitio onde o painel se ve, mas nao no sitio que ele ocupa). Abrir o detalhe
-   estreita a lista e as linhas descem, por isso confere-se outra vez nos
-   quadros seguintes, ate a conta parar de mudar. */
-function aeAlinharDetalhe(main, esq, slot){
-  if (!main || !slot) return;
-  slot.style.marginTop = '';
-  var voltas = 0;
-  var por = function(){
-    if (!slot.parentNode || !main.parentNode) return;
-    var linha = main.querySelector('.tf-row.sel');
-    if (!linha) return;
-    var m = main.getBoundingClientRect();
-    /* Em ecra estreito as colunas empilham-se: ai nao ha nada a alinhar. */
-    if (slot.getBoundingClientRect().left < m.left + 20){
-      slot.classList.add('solto');
-      slot.style.marginTop = '';
-      return;
-    }
-    slot.classList.remove('solto');
-    var desvio = Math.round(linha.getBoundingClientRect().top - m.top);
-    /* Sem passar do fim da lista, senao ficava pagina em branco por baixo. */
-    var limite = Math.max(0, (esq ? esq.offsetHeight : 0) - 120);
-    desvio = Math.min(Math.max(0, desvio), limite);
-    var novo = desvio > 4 ? desvio + 'px' : '';
-    if (novo !== slot.style.marginTop) slot.style.marginTop = novo;
-    if (++voltas < 4) seguinte();
-  };
-  var seguinte = function(){
-    if (window.requestAnimationFrame) window.requestAnimationFrame(por); else setTimeout(por, 16);
-  };
-  seguinte();
-  setTimeout(function(){ voltas = 3; por(); }, 250);
-  AE.alinhar = function(){ voltas = 3; por(); };
-}
-
-/* Mudar a largura da janela pode empilhar (ou desempilhar) as colunas: a
-   conta da altura tem de ser refeita. */
-(function(){
-  var espera = null;
-  window.addEventListener('resize', function(){
-    if (!AE.alinhar) return;
-    clearTimeout(espera);
-    espera = setTimeout(function(){ try { AE.alinhar(); } catch (e) {} }, 150);
-  });
-})();
 
 
 /* O que ja fechou na area, do historico todo, por mes em que fechou. Fica em
@@ -2045,7 +1975,7 @@ function aeAbrirPagina(a, pag, alvoId){
     if (window.DP){ DP.filtro.onde = alvoId ? String(alvoId) : 'tudo'; DP.soSemPapel = false; if (typeof dpGuardar === 'function') dpGuardar(); }
   }
   if (pag === 'documentos' && typeof DOCS_AREA !== 'undefined') DOCS_AREA = alvoId;
-  aeFecharDetalheArea();
+  if (typeof avFecharFolha === 'function') avFecharFolha();
   AE.pagina[a.view] = pag;
   aeRenderArea(a);
   window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -2123,38 +2053,24 @@ function aeSubPagina(a, box, pag, c){
   }
 }
 
-/* Clicar numa tarefa da area abre o detalhe a direita, sem sair dela. */
+/* Clicar numa tarefa da area abre o detalhe numa folha por cima (aviso.js),
+   como no Hoje: antes ele vinha para uma coluna a direita e os cartoes da
+   area encolhiam todos para lhe dar lugar. */
 function aeAbrirTarefa(t){
-  var a = aeAreaAtiva();
-  if (!a || typeof tfAbrir !== 'function' || typeof tfMontar !== 'function'){
-    if (typeof avAbrir === 'function') avAbrir({ origem: 'tarefa', id: t.id, quando: t.due_on || null, detail: areaNome(t.context_id) });
-    else if (typeof tfIrPara === 'function') tfIrPara(t.id);
+  if (typeof avTarefaId === 'function' && avTarefaId(t.id)) return;
+  if (typeof avAbrir === 'function'){
+    avAbrir({ origem: 'tarefa', id: t.id, quando: t.due_on || null, detail: areaNome(t.context_id) });
     return;
   }
-  tfMontar();
-  AE.det = a.view;
-  TF.aberta = t.id;
-  aeRenderArea(a);
-  tfAbrir(t.id);
+  if (typeof tfIrPara === 'function') tfIrPara(t.id);
 }
 
-function aeFecharDetalheArea(){
-  if (!AE.det) return;
-  AE.det = null;
-  aeDevolver('det');
-  if (typeof _aeTfFechar === 'function') _aeTfFechar();
-}
-
-/* Fechar o detalhe (a cruz, ou a tarefa que desapareceu) arruma tambem a
-   coluna da direita da area. */
+/* Fechar o detalhe redesenha a area, para a linha deixar de aparecer marcada. */
 var _aeTfFechar = typeof tfFecharDetalhe === 'function' ? tfFecharDetalhe : null;
 if (_aeTfFechar){
   tfFecharDetalhe = function(){
-    var v = AE.det;
-    AE.det = null;
-    aeDevolver('det');
     _aeTfFechar();
-    var a = v && AE_AREAS.filter(function(x){ return x.view === v; })[0];
+    var a = aeAreaAtiva();
     if (a){ try { aeRenderArea(a); } catch (e) { console.error('[farol] area ' + a.view, e); } }
   };
 }
@@ -2491,7 +2407,7 @@ show = function(view){
   /* Sair (ou voltar a entrar pelo menu) leva a area a pagina dela, e o que
      estava emprestado volta para casa antes de a outra pagina se mostrar. */
   AE.pagina = {};
-  aeFecharDetalheArea();
+  if (typeof avFecharFolha === 'function') avFecharFolha();
   aeDevolverTudo();
   _aeShow(view);
   aeNavMarcar();

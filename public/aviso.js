@@ -260,19 +260,18 @@ function avFolhaEscape(e){
   avFecharFolha();
 }
 
-/* O detalhe das Tarefas, aqui dentro. Devolve false quando as Tarefas ainda
-   nao estao carregadas - ai serve o formulario antigo. */
-function avFolhaTarefa(t){
-  if (typeof tfMontar !== 'function' || typeof tfAbrir !== 'function') return false;
+/* Abre a folha e traz o painel para dentro dela. E idempotente de proposito:
+   quem desenha o detalhe chama isto antes de desenhar, esteja a folha ja
+   aberta ou nao. Devolve false quando o painel nao existe - ai o detalhe fica
+   onde sempre esteve. */
+function avFolhaGarantir(){
+  if (AV.folha) return true;
   if (!document.getElementById('tf')) return false;
-  tfMontar();
   if (typeof aeDevolver === 'function'){ try { aeDevolver('det'); } catch (e) {} }
   var no = avPainel();
   if (!no || !no.parentNode) return false;
 
   avFolhaEstilo();
-  avFechar();
-  avFecharFolha();
 
   var folha = el('div', 'av-folha');
   var fundo = el('div', 'av-folha-fundo');
@@ -281,12 +280,23 @@ function avFolhaTarefa(t){
   var cx = el('div', 'av-folha-cx');
   var mio = el('div', 'av-folha-mio');
   cx.appendChild(mio);
-  var rod = el('div', 'av-folha-rod');
-  var bIr = el('button', 'btn', 'Abrir na lista');
-  bIr.type = 'button';
-  bIr.addEventListener('click', function(){ var id = t.id; avFecharFolha(); avIrLista(id); });
-  rod.appendChild(bIr);
-  cx.appendChild(rod);
+  /* A saida para o ecra das Tarefas so faz sentido fora dele - estando la, a
+     lista ja esta por baixo da folha. */
+  var vt = document.getElementById('view-tarefas');
+  if (!(vt && vt.classList.contains('is-active'))){
+    var rod = el('div', 'av-folha-rod');
+    var bIr = el('button', 'btn', 'Abrir na lista');
+    bIr.type = 'button';
+    /* A tarefa pode mudar sem a folha fechar - uma subtarefa, a tarefa-mae -
+       por isso le-se qual e na altura de carregar, e nao agora. */
+    bIr.addEventListener('click', function(){
+      var id = window.TF && TF.aberta;
+      avFecharFolha();
+      if (id) avIrLista(id);
+    });
+    rod.appendChild(bIr);
+    cx.appendChild(rod);
+  }
   folha.appendChild(cx);
   document.body.appendChild(folha);
 
@@ -307,9 +317,25 @@ function avFolhaTarefa(t){
     };
   }
   document.addEventListener('keydown', avFolhaEscape, true);
+  return true;
+}
 
-  TF.aberta = t.id;
-  tfAbrir(t.id);
+/* Saber se o painel esta neste momento dentro da folha - o desenho do detalhe
+   pergunta, para nao mexer na grelha das Tarefas quando ele nao esta la. */
+function avNaFolha(){
+  return Boolean(AV.folha && AV.folha.contains(avPainel()));
+}
+
+/* Abrir o detalhe de uma tarefa a partir de qualquer ecra, sem sair dele: e
+   por aqui que entram o Hoje, as areas, os projetos e os movimentos. O
+   tfAbrir desenha, e o desenho chama o avFolhaGarantir. */
+function avTarefaId(id){
+  if (typeof tfMontar === 'function') tfMontar();
+  if (typeof tfAbrir !== 'function' || !document.getElementById('tf')) return false;
+  var t = typeof tfPorId === 'function' ? tfPorId(id) : null;
+  if (!t) return false;
+  avFechar();
+  tfAbrir(id);
   return true;
 }
 
@@ -321,7 +347,7 @@ function avTarefa(a){
 
   /* O detalhe e o das Tarefas. So se as Tarefas nao estiverem de pe e que se
      desenha aqui o formulario curto. */
-  if (avFolhaTarefa(t)) return;
+  if (avTarefaId(t.id)) return;
 
   var s = avShell(t.title, 'Tarefa' + (a.detail ? ' · ' + a.detail : ''), a);
   var iTit = avCampo(s.grelha, 'Título', avTexto(t.title), true);

@@ -1009,10 +1009,13 @@ function pjPainelTarefa(box){
   }
   var pr = projeto(t.project_id);
   var tipo = (t.tipo || 'tarefa');
+  /* O detalhe da tarefa abre numa folha por cima deste ecra (aviso.js); so
+     se ela nao se montar e que se salta para as Tarefas. */
   pjCabecaPainel(box, 'Tarefa', function(){
+    if (typeof avTarefaId === 'function' && avTarefaId(t.id)) return;
     show('tarefas');
     if (typeof tfIrPara === 'function') setTimeout(function(){ tfIrPara(t.id); }, 0);
-  }, 'Abrir nas Tarefas');
+  }, 'Abrir o detalhe');
 
   var topo = el('div');
   if (pr){
@@ -1601,9 +1604,11 @@ function pjLinhaTarefa(t){
     li.appendChild(el('div', 'pj-r' + (u.nivel ? ' ' + u.nivel : ''), u.texto || dataCurta(quando)));
   }
 
-  /* O detalhe de uma tarefa ja existe e vive nas Tarefas: daqui salta-se para
-     la em vez de se desenhar um segundo, que depressa ficaria diferente. */
+  /* O detalhe de uma tarefa ja existe e vive nas Tarefas: aqui pede-se
+     emprestado numa folha por cima (aviso.js), em vez de se desenhar um
+     segundo, que depressa ficaria diferente, ou de se sair do projeto. */
   li.addEventListener('click', function(){
+    if (typeof avTarefaId === 'function' && avTarefaId(t.id)) return;
     show('tarefas');
     if (typeof tfIrPara === 'function') setTimeout(function(){ tfIrPara(t.id); }, 0);
   });

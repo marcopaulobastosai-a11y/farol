@@ -1122,11 +1122,17 @@ function tfTextoAuto(no, guardar){
 
 function tfRenderDetalhe(base){
   var t = TF.detalhe && TF.detalhe.id === base.id ? TF.detalhe : base;
+  /* O detalhe mora numa folha por cima do ecra (aviso.js), para nao roubar
+     largura a lista nem aos cartoes de uma area. Pede-se aqui, e nao em cada
+     sitio que abre uma tarefa, porque este e o unico caminho por onde todos
+     passam. Sem a folha - um ecra onde ela nao se consiga montar - o painel
+     fica na coluna de sempre. */
+  var naFolha = typeof avFolhaGarantir === 'function' && avFolhaGarantir();
   var det = $('tfDet');
   var foco = document.activeElement && det.contains(document.activeElement) ? document.activeElement.dataset.tfk : null;
   clear(det);
   det.hidden = false;
-  $('tf').classList.remove('sem-detalhe');
+  if (!naFolha) $('tf').classList.remove('sem-detalhe');
   var fechada = tfFechada(t);
 
   // barra de cima: concluir, data, prioridade, menu

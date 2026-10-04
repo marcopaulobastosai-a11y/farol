@@ -825,11 +825,15 @@ function fnTarefasJanela(m, r0){
   desenhar(r0.tarefas || []);
   var ovs = document.querySelectorAll('.fn-ov'); var mod = ovs.length ? ovs[ovs.length - 1].querySelector('.fn-mod') : null; if (mod) mod.classList.add('largo');
 }
-/* Abre a tarefa no ecrã das Tarefas (fecha as janelas das Finanças). */
+/* Abre o detalhe da tarefa numa folha por cima (aviso.js), fechando antes as
+   janelas das Finanças. Sem folha, salta-se para o ecrã das Tarefas. */
 function fnAbrirTarefa(id){
   [].slice.call(document.querySelectorAll('.fn-ov')).forEach(function(o){ if (o.parentNode) o.parentNode.removeChild(o); });
   FN.movJanela = null;
-  var ir = function(){ return typeof tfIrPara === 'function' && tfIrPara(id); };
+  var ir = function(){
+    if (typeof avTarefaId === 'function' && avTarefaId(id)) return true;
+    return typeof tfIrPara === 'function' && tfIrPara(id);
+  };
   if (ir()) return;
   apiGestao('/api/gestao').then(function(d){ window.G = d; if (!ir()) fnAviso('Não encontrei a tarefa.'); }, fnErro);
 }
