@@ -1247,7 +1247,8 @@ function fnFichaBem(ctxId){
   var classe = principal ? principal.classe : 'outro';
   var habitavel = !/terreno|lote/i.test(principal ? principal.nome : '');
   var lista = (FN_ESSENCIAIS[classe] || []).filter(function(e){ return e[2] !== 'casa' || habitavel; });
-  if (dividas.length) lista = lista.concat([FN_DIVIDA_DOC]);
+  /* Um sinal recebido (classe Outro) e uma divida mas nao tem contrato de credito. */
+  if (dividas.some(function(b){ return b.classe !== 'outro'; })) lista = lista.concat([FN_DIVIDA_DOC]);
   if (lista.length) {
     card.appendChild(h('div', { class: 'fn-ficha-sec' }, 'Documentos essenciais'));
     var ul = h('div', { class: 'fn-ficha-docs' });
