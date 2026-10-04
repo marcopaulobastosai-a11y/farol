@@ -149,6 +149,10 @@ CREATE TABLE IF NOT EXISTS fin_bens (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- A ficha de um bem: o que o identifica (artigo matricial, registo, area,
+-- matricula, compra) e a sub-area da Casa onde se vive nele. Tudo opcional.
+ALTER TABLE fin_bens ADD COLUMN IF NOT EXISTS dados JSONB;
+
 -- Contas correntes: com quem se divide dinheiro. Quem esta no Splitwise
 -- (splitwise_id) acerta-se sozinho ao fim do dia; os outros a mao.
 CREATE TABLE IF NOT EXISTS fin_cc_pessoas (
