@@ -102,7 +102,7 @@ function acMontar() {
 function acMontarDialogo() {
   if ($('acDlg')) return;
 
-  var dlg = el('dialog', 'ac-dlg');
+  var dlg = el('dialog', 'ac-dlg folha');
   dlg.id = 'acDlg';
 
   var cx = el('div', 'ac-dlgc');
