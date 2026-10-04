@@ -686,7 +686,7 @@ async function patrimonio(empresas) {
   const contas = (await saldosContas(B, hoje)).filter((c) => c.ativo);
   /* Os papeis de cada bem sao os da sub-area dele: a escritura, a caderneta,
      o CPCV. A contagem vai junto para o ecra os poder abrir dali. */
-  const bens = (await all('SELECT id, nome, lado, classe, valor, to_char(valor_em,\'YYYY-MM-DD\') AS valor_em, prestacao, to_char(termina,\'YYYY-MM-DD\') AS termina, context_id, pessoal, nota, ' +
+  const bens = (await all('SELECT id, nome, lado, classe, valor, to_char(valor_em,\'YYYY-MM-DD\') AS valor_em, prestacao, to_char(termina,\'YYYY-MM-DD\') AS termina, context_id, pessoal, nota, dados, ' +
     '(SELECT count(*)::int FROM documents d WHERE d.context_id IS NOT NULL AND d.context_id = fin_bens.context_id AND d.aprovado) AS documentos ' +
     'FROM fin_bens WHERE ativo ORDER BY lado, nome'))
     .map((b) => Object.assign(b, { valor: b.valor == null ? null : cent(b.valor), prestacao: b.prestacao == null ? null : cent(b.prestacao) }));
@@ -2021,16 +2021,30 @@ function instalar(app) {
   });
 
   /* ---- bens ---- */
+  /* A ficha do bem: so texto curto e numeros, chaves conhecidas. O que vier a
+     mais ou vazio nao se grava. */
+  const DADOS_BEM = ['artigo', 'registo', 'area_m2', 'vpt', 'compra_data', 'compra_preco', 'imt', 'imposto_selo',
+    'matricula', 'modelo', 'data_matricula', 'seguradora', 'apolice', 'casa_context_id'];
+  const dadosBem = (d) => {
+    if (!d || typeof d !== 'object') return null;
+    const out = {};
+    DADOS_BEM.forEach((k) => {
+      const v = d[k];
+      if (v === undefined || v === null || String(v).trim() === '') return;
+      out[k] = k === 'casa_context_id' ? Number(v) || null : String(v).trim().slice(0, 200);
+    });
+    return Object.keys(out).length ? JSON.stringify(out) : null;
+  };
   app.post('/api/financas/bens', async (req, res) => {
     try {
       const b = req.body || {};
       if (!String(b.nome || '').trim()) throw erro(400, 'Falta o nome.');
       const num = (x) => (x === '' || x == null ? null : cent(String(x).replace(/\s/g, '').replace(',', '.')));
       const r = (await all(
-        `INSERT INTO fin_bens (nome, lado, classe, valor, valor_em, prestacao, termina, context_id, pessoal, nota)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id`,
+        `INSERT INTO fin_bens (nome, lado, classe, valor, valor_em, prestacao, termina, context_id, pessoal, nota, dados)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,
         [b.nome.trim(), b.lado === 'passivo' ? 'passivo' : 'ativo', b.classe || 'outro', num(b.valor), b.valor_em || null,
-          num(b.prestacao), b.termina || null, b.context_id || null, b.pessoal !== false, b.nota || null]))[0];
+          num(b.prestacao), b.termina || null, b.context_id || null, b.pessoal !== false, b.nota || null, dadosBem(b.dados)]))[0];
       res.json({ id: r.id });
     } catch (e) { falha(res, e, 'o bem'); }
   });
@@ -2040,6 +2054,7 @@ function instalar(app) {
       const num = (x) => (x === '' || x == null ? null : cent(String(x).replace(/\s/g, '').replace(',', '.')));
       ['nome', 'lado', 'classe', 'valor_em', 'termina', 'context_id', 'pessoal', 'nota', 'ativo'].forEach((k) => { if (b[k] !== undefined) { vals.push(b[k] === '' ? null : b[k]); sets.push(k + ' = $' + vals.length); } });
       ['valor', 'prestacao'].forEach((k) => { if (b[k] !== undefined) { vals.push(num(b[k])); sets.push(k + ' = $' + vals.length); } });
+      if (b.dados !== undefined) { vals.push(dadosBem(b.dados)); sets.push('dados = $' + vals.length); }
       if (sets.length) { vals.push(req.params.id); await query('UPDATE fin_bens SET ' + sets.join(', ') + ' WHERE id = $' + vals.length, vals); }
       res.json({ ok: true });
     } catch (e) { falha(res, e, 'o bem'); }
