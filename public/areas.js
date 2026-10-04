@@ -193,7 +193,7 @@ function arRender() {
 
 /* Criar e editar na mesma janela: os campos são os mesmos. */
 function arJanela(c, paiId) {
-  var dlg = el('dialog', 'ar-dlg');
+  var dlg = el('dialog', 'ar-dlg folha');
   var cx = el('div', 'ar-dlgc');
   cx.appendChild(el('h3', null, c ? 'Editar \u00e1rea' : (paiId ? 'Nova sub-\u00e1rea' : 'Nova \u00e1rea')));
 
