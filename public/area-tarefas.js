@@ -1739,6 +1739,15 @@ function aeRenderArea(a){
   }
   box.appendChild(barra);
   box.appendChild(kpis);
+  /* Uma sub-area de Patrimonio e um bem: por cima dos cartoes, a ficha dele.
+     Na sub-area da Casa onde se vive num imovel, a ligacao para essa ficha.
+     Vive no financas-patrimonio.js. */
+  if (escolhidas.length === 1 && /^\d+$/.test(escolhidas[0].k)) {
+    var umaSub = Number(escolhidas[0].k);
+    var fichaBem = a.view === 'patrimonio' && typeof fnFichaBem === 'function' ? fnFichaBem(umaSub)
+      : (a.view === 'casa' && typeof fnLigacaoBem === 'function' ? fnLigacaoBem(umaSub) : null);
+    if (fichaBem) box.appendChild(fichaBem);
+  }
 
   var MAXT = 40;
   /* Uma lista vazia diz coisas diferentes conforme a area nao ter nada, ou
