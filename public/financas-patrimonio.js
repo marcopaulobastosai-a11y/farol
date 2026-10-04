@@ -601,12 +601,13 @@ function fnPartilhaAbrir(movs, partilha, cc){
       fnMudou();
     }, fnErro);
   } });
-  fnJanela(partilha ? 'Despesa partilhada' : 'Despesa partilhada · ' + (movs.length > 1 ? movs.length + ' pagamentos' : 'dividir'), [
+  var jp = fnJanela(partilha ? 'Despesa partilhada' : 'Despesa partilhada · ' + (movs.length > 1 ? movs.length + ' pagamentos' : 'dividir'), [
     lst,
     h('p', { class: 'fn-nota' }, (movs.length === 1 ? m0.descricao + ' · ' + fnData(m0.data) + ' · ' : '') + 'pagaste ' + fnEur(total) + '.'),
     fnCampo('Descrição', desc),
     h('div', { class: 'fn-acoes', style: 'flex-wrap:wrap;gap:6px;margin:4px 0' }, [h('span', { class: 'fn-muted', style: 'font-size:.8125rem' }, 'Atalhos:'),
-      fnBtn('Tudo eu (100%)', tudoEu, 'small'), fnBtn('50/50', meias, 'small'), fnBtn('Tudo de outra pessoa', tudoOutro, 'small')]),
+      fnBtn('Tudo eu (100%)', tudoEu, 'small'), fnBtn('50/50', meias, 'small'), fnBtn('Tudo de outra pessoa', tudoOutro, 'small'),
+      movs.length === 1 && m0.valor < 0 ? fnBtn('Já está no Splitwise…', function(){ fnSwDespesasJanela(m0, catSel.value, function(){ jp.fechar(); }); }, 'small') : null]),
     seg, dica,
     h('div', { class: 'mono', style: 'margin-top:6px' }, 'Quem entra e quanto'), lista, linhas,
     h('div', { class: 'fn-acoes' }, [fnBtn('+ Pessoa', function(){ linha({}); if (metodo === 'porcoes') rows()[rows().length - 1]._ei.value = '1'; if (metodo === 'ajustes') rows()[rows().length - 1]._ei.value = '0'; atualizar(); }, 'small')]),
@@ -616,6 +617,50 @@ function fnPartilhaAbrir(movs, partilha, cc){
   ], botoes);
   var mods = document.querySelectorAll('.fn-mod'); if (mods.length) mods[mods.length - 1].classList.add('largo');
   atualizar();
+}
+/* Escolher a despesa que já está no Splitwise: a divisão vem de lá (quem
+   pagou, a parte de cada um) e o Farol só a liga, não cria outra. */
+function fnSwDespesasJanela(m, categoria, fecharPai){
+  var q = h('input', { class: 'fn-in', placeholder: 'Procurar pela descrição no Splitwise' });
+  var lista = h('div', { class: 'fn-lista', style: 'max-height:58vh;overflow:auto' }, [h('p', { class: 'fn-nota' }, 'A ler o Splitwise…')]);
+  var j;
+  var cartao = function(d, i){
+    var eu = d.pessoas.filter(function(x){ return x.eu; })[0];
+    var pode = d.igual && !d.usada;
+    return h('div', { class: 'fn-caixa' + (pode && i === 0 ? ' melhor' : ''), style: 'margin-bottom:6px' + (pode ? '' : ';opacity:.65') }, [
+      h('div', { class: 'fn-acoes', style: 'justify-content:space-between' }, [h('b', null, d.descricao), h('b', { class: 'fn-n' }, fnEur(d.total))]),
+      h('small', { class: 'fn-muted' }, [fnData(d.data) + (d.dias ? ' (' + (d.dias > 0 ? '+' : '') + d.dias + ' d)' : ' (mesmo dia)'), d.grupo_nome,
+        d.pessoas.map(function(x){ return x.nome + (x.pagou > 0.005 ? ' pagou ' + fnEur(x.pagou) + ',' : '') + ' parte ' + fnEur(x.deve); }).join(' · ')].join(' · ')),
+      !d.igual ? h('small', { class: 'fn-muted', style: 'display:block' }, 'Valor diferente do movimento (' + fnEur(-m.valor) + ').')
+        : d.usada ? h('small', { class: 'fn-muted', style: 'display:block' }, 'Já ligada a outro movimento.')
+        : eu && eu.pagou < d.total - 0.005 ? h('small', { class: 'fn-muted', style: 'display:block' }, 'No Splitwise não foste tu a pagar tudo — confirma que é esta.') : null,
+      pode ? h('div', { class: 'fn-acoes' }, [fnBtn('Ligar a esta', function(){
+        fnApi('/api/financas/movimentos/' + m.id + '/partilha-splitwise', 'POST', { expense_id: d.id, categoria_id: categoria ? Number(categoria) : null }).then(function(x){
+          j.fechar(); if (fecharPai) fecharPai();
+          fnAviso('Ligado à despesa do Splitwise: tu ' + fnEur(x.minha) + ', os outros ' + fnEur(x.outros) + '. No Splitwise não se criou nada.');
+          FN.mov.sel = {}; fnMudou();
+        }, fnErro);
+      }, (i === 0 ? 'primary ' : '') + 'small')]) : null]);
+  };
+  var vez = 0;
+  var ler = function(){
+    var n = ++vez;
+    lista.style.opacity = '.5';
+    apiGestao('/api/financas/movimentos/' + m.id + '/splitwise-despesas' + (q.value.trim() ? '?q=' + encodeURIComponent(q.value.trim()) : '')).then(function(r){
+      if (n !== vez) return;
+      lista.style.opacity = '';
+      clear(lista);
+      if (!r.despesas.length) lista.appendChild(h('p', { class: 'fn-nota' }, 'Nenhuma despesa no Splitwise entre 30 dias antes e 30 dias depois' + (q.value.trim() ? ' com esse texto' : '') + '.'));
+      r.despesas.forEach(function(d, i){ lista.appendChild(cartao(d, i)); });
+    }, function(e){ lista.style.opacity = ''; clear(lista); lista.appendChild(h('p', { class: 'fn-nota' }, e.message)); });
+  };
+  var espera;
+  q.addEventListener('input', function(){ clearTimeout(espera); espera = setTimeout(ler, 350); });
+  j = fnJanela('Já está no Splitwise', [
+    h('p', { class: 'fn-nota' }, m.descricao + ' · ' + fnData(m.data) + ' · ' + fnEur(-m.valor) + '. Escolhe a despesa do Splitwise: as pessoas e as partes vêm de lá. Primeiro as do mesmo valor.'),
+    q, lista], []);
+  var mods = document.querySelectorAll('.fn-mod'); if (mods.length) mods[mods.length - 1].classList.add('largo');
+  ler();
 }
 function fnAvisoPartilha(r){
   var s = r.splitwise || {}, extra = [];
