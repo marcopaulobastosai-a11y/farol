@@ -245,7 +245,7 @@ function emInput(tipo, valor, ph){
 }
 
 function emJanelaDest(d){
-  var dlg = el('dialog', 'em-dlg');
+  var dlg = el('dialog', 'em-dlg folha');
   var cx = el('div', 'em-dlgc');
   cx.appendChild(el('h3', null, d ? 'Editar destinatário' : 'Novo destinatário'));
   var duas = el('div', 'em-2');
