@@ -191,7 +191,8 @@ function fnSaldoJanela(c){
     return fnApi('/api/financas/contas/' + c.id + '/saldo', 'POST', { saldo: s.value, em: em.value }).then(function(){ fnMudou(); }, fnErro);
   } }]);
 }
-function fnBemJanela(b){
+function fnBemJanela(b, pre){
+  pre = pre || {};
   var nome = h('input', { class: 'fn-in', value: b ? b.nome : '' });
   var lado = h('select', { class: 'fn-sel' }, [h('option', { value: 'ativo' }, 'Bem (ativo)'), h('option', { value: 'passivo' }, 'Dívida (passivo)')]);
   if (b) lado.value = b.lado;
@@ -203,7 +204,38 @@ function fnBemJanela(b){
   var termina = h('input', { class: 'fn-in', type: 'date', value: b && b.termina ? b.termina : '' });
   var pes = h('input', { type: 'checkbox', checked: b ? b.pessoal : true });
   var nota = h('input', { class: 'fn-in', value: b ? (b.nota || '') : '' });
-  var area = fnSelAreas(b ? b.context_id : '');
+  var area = fnSelAreas(b ? b.context_id : (pre.context_id || ''));
+  /* A identificacao do bem: o que se procura no IMI, no IRS e numa venda. */
+  var dd = (b && b.dados) || {};
+  var ident = {};
+  var inp = function(k, ph, tipo){ ident[k] = h('input', { class: 'fn-in', type: tipo || 'text', placeholder: ph || '', value: dd[k] || '' }); return ident[k]; };
+  var casa = fnSelAreas(dd.casa_context_id || '', '— não se vive lá —');
+  var blocoImovel = h('div', null, [
+    h('div', { class: 'fn-campos' }, [fnCampo('Artigo matricial', inp('artigo', 'ex.: U-4019')), fnCampo('Registo predial', inp('registo', 'ex.: CRP Agualva-Cacém n.º 5860'))]),
+    h('div', { class: 'fn-campos' }, [fnCampo('Área (m²)', inp('area_m2')), fnCampo('Valor patrimonial (VPT)', inp('vpt'))]),
+    fnCampo('Onde se vive nele (sub-área da Casa)', casa)]);
+  var blocoViatura = h('div', null, [
+    h('div', { class: 'fn-campos' }, [fnCampo('Matrícula', inp('matricula')), fnCampo('Marca e modelo', inp('modelo'))]),
+    h('div', { class: 'fn-campos' }, [fnCampo('Data da matrícula', inp('data_matricula', '', 'date')), fnCampo('Seguradora', inp('seguradora'))]),
+    fnCampo('Apólice', inp('apolice'))]);
+  var blocoCompra = h('div', { class: 'fn-campos' }, [fnCampo('Comprado em', inp('compra_data', '', 'date')), fnCampo('Preço de compra', inp('compra_preco')),
+    fnCampo('IMT pago', inp('imt')), fnCampo('Imposto do Selo', inp('imposto_selo'))]);
+  var identBox = h('div', null, [h('p', { class: 'fn-nota' }, 'Identificação (aparece na ficha do bem)'), blocoImovel, blocoViatura, blocoCompra]);
+  function ajustarIdent(){
+    var ativo = lado.value === 'ativo';
+    identBox.hidden = !ativo || (classe.value !== 'imovel' && classe.value !== 'viatura');
+    blocoImovel.hidden = classe.value !== 'imovel';
+    blocoViatura.hidden = classe.value !== 'viatura';
+  }
+  [lado, classe].forEach(function(x){ x.addEventListener('change', ajustarIdent); });
+  ajustarIdent();
+  function lerIdent(){
+    if (identBox.hidden) return b ? b.dados || null : null;
+    var o = {};
+    Object.keys(ident).forEach(function(k){ if (ident[k].value.trim()) o[k] = ident[k].value.trim(); });
+    if (classe.value === 'imovel' && casa.value) o.casa_context_id = Number(casa.value);
+    return o;
+  }
   /* Um imovel ou um carro novo ganha a sua sub-area em Patrimonio: e la que
      ficam a escritura, a caderneta, o seguro, as tarefas e os movimentos dele. */
   var patr = fnAreaPatrimonio();
@@ -221,7 +253,7 @@ function fnBemJanela(b){
   ajustarNova();
   var bts = [{ txt: b ? 'Guardar' : 'Criar', pri: true, fn: function(){
     if (!nome.value.trim()) { fnAviso('Falta o nome.'); return false; }
-    var corpo = { nome: nome.value.trim(), lado: lado.value, classe: classe.value, valor: valor.value, valor_em: em.value || null, prestacao: prest.value, termina: termina.value || null, pessoal: pes.checked, nota: nota.value, context_id: area.value ? Number(area.value) : null };
+    var corpo = { nome: nome.value.trim(), lado: lado.value, classe: classe.value, valor: valor.value, valor_em: em.value || null, prestacao: prest.value, termina: termina.value || null, pessoal: pes.checked, nota: nota.value, context_id: area.value ? Number(area.value) : null, dados: lerIdent() };
     var antes = Promise.resolve();
     if (novaArea.checked && !linhaNova.hidden && patr) {
       antes = fnApi('/api/contextos', 'POST', { name: corpo.nome, parent_id: patr.id }).then(function(r){
@@ -237,7 +269,7 @@ function fnBemJanela(b){
   fnJanela(b ? b.nome : 'Novo bem ou dívida', [h('div', { class: 'fn-campos' }, [fnCampo('Nome', nome), fnCampo('É', lado), fnCampo('Classe', classe)]),
     h('div', { class: 'fn-campos' }, [fnCampo('Valor (ou o que falta pagar)', valor), fnCampo('Valor de', em)]),
     h('div', { class: 'fn-campos' }, [fnCampo('Prestação mensal', prest), fnCampo('Acaba em', termina)]),
-    fnCampo('Nota', nota), fnCampo('Área (onde ficam os papéis deste bem)', area), linhaNova, h('label', { class: 'fn-check' }, [pes, 'Pessoal'])], bts, { folha: true });
+    fnCampo('Nota', nota), fnCampo('Área (onde ficam os papéis deste bem)', area), linhaNova, identBox, h('label', { class: 'fn-check' }, [pes, 'Pessoal'])], bts, { folha: true });
 }
 
 /* ======================= CONTAS CORRENTES ======================= */
@@ -1096,3 +1128,164 @@ function fnRegraJanela(r){
     h('div', { class: 'fn-campos' }, [fnCampo('Valor mínimo', vmin), fnCampo('Valor máximo', vmax)]), h('div', { class: 'fn-campos' }, [fnCampo('Conta', conta), fnCampo('E a área passa a', area)]),
     r ? h('label', { class: 'fn-check' }, [ativo, 'Ativa']) : null, h('p', { class: 'fn-nota' }, 'Maiúsculas e acentos não contam. Ao criar, aplica-se logo aos movimentos que ainda não têm categoria.')], bts, { folha: true });
 }
+
+
+/* ======================= FICHA DO BEM ======================= */
+/* Cada sub-area de Patrimonio e um bem: ao abri-la, o ecra da area mostra
+   por cima a ficha dele - quanto vale, quanto se deve, o que o identifica e
+   que papeis faltam. As tarefas, os projetos e os documentos continuam nos
+   cartoes de sempre, por baixo. Quem chama e o area-tarefas.js. */
+var FN_ESSENCIAIS = {
+  imovel: [['escritura', 'Escritura'], ['caderneta', 'Caderneta predial'], ['certidao', 'Certidão permanente'],
+           ['licenca', 'Licença de utilização', 'casa'], ['seguro', 'Apólice do seguro', 'casa'], ['planta', 'Plantas', 'casa']],
+  viatura: [['registo', 'Certificado de matrícula (DUA)'], ['seguro', 'Apólice do seguro'], ['inspecao', 'Última inspeção']]
+};
+var FN_DIVIDA_DOC = ['contrato', 'Contrato do crédito'];
+var FN_FICHA = { dados: null, aLer: false };
+
+function fnFichaLer(depois){
+  if (FN_FICHA.dados || FN_FICHA.aLer) return;
+  FN_FICHA.aLer = true;
+  apiGestao('/api/financas/patrimonio?empresas=1').then(function(d){ FN_FICHA.dados = d; })
+    .catch(function(){ FN_FICHA.dados = { bens: [], erro: true }; })
+    .then(function(){ FN_FICHA.aLer = false; if (typeof depois === 'function') depois(); });
+}
+/* Quando se mexe num bem, a ficha volta a ler. */
+var _fnMudouFicha = fnMudou;
+fnMudou = function(){ FN_FICHA.dados = null; return _fnMudouFicha.apply(this, arguments); };
+
+function fnIrParaArea(ctxId){
+  var c = ((window.G && G.contextos) || []).filter(function(x){ return x.id === ctxId; })[0];
+  if (!c || typeof show !== 'function' || typeof AE === 'undefined') return;
+  var topo = c.parent_id ? G.contextos.filter(function(x){ return x.id === c.parent_id; })[0] : c;
+  var nome = typeof aeNorm === 'function' ? aeNorm(topo.name) : topo.name.toLowerCase();
+  var a = (typeof AE_AREAS !== 'undefined' ? AE_AREAS : []).filter(function(x){ return nome.indexOf(x.nome) === 0; })[0];
+  if (!a) return;
+  AE.filtro[a.view] = Object.assign({}, AE.filtro[a.view] || {}, { subs: c.parent_id ? [String(c.id)] : [] });
+  show(a.view);
+  if (typeof aeRender === 'function') aeRender();
+}
+
+function fnFichaBem(ctxId){
+  if (!ctxId) return null;
+  var card = h('div', { class: 'card fn-ficha' });
+  if (!FN_FICHA.dados) {
+    card.appendChild(h('p', { class: 'fn-nota' }, 'A ler a ficha do bem…'));
+    fnFichaLer(function(){ if (typeof aeRender === 'function') aeRender(); });
+    return card;
+  }
+  var bens = (FN_FICHA.dados.bens || []).filter(function(b){ return b.context_id === ctxId; });
+  var ativos = bens.filter(function(b){ return b.lado !== 'passivo'; });
+  var dividas = bens.filter(function(b){ return b.lado === 'passivo'; });
+  var principal = ativos.filter(function(b){ return b.classe === 'imovel' || b.classe === 'viatura'; })[0] || ativos[0] || null;
+
+  var hd = h('header', null, [h('h3', null, principal ? principal.nome : 'Ficha do bem')]);
+  hd.appendChild(principal ? fnBtn('Editar', function(){ fnBemJanela(principal); }, 'small')
+    : fnBtn('+ Registar o bem', function(){ fnBemJanela(null, { context_id: ctxId }); }, 'small'));
+  card.appendChild(hd);
+  if (!bens.length) {
+    card.appendChild(h('p', { class: 'fn-nota' }, 'Esta sub-área ainda não tem um bem no Património. Regista-o para veres aqui o valor, a dívida e os papéis que faltam.'));
+    return card;
+  }
+
+  /* 1. Quanto vale e quanto se deve. */
+  var vale = ativos.reduce(function(s, b){ return s + (b.valor || 0); }, 0);
+  var deve = dividas.reduce(function(s, b){ return s + Math.abs(b.valor || 0); }, 0);
+  var semValor = ativos.some(function(b){ return b.valor == null; }) || dividas.some(function(b){ return b.valor == null; });
+  var linhas = [];
+  ativos.forEach(function(b){ linhas.push(fnFichaLinha(b.nome, b.valor == null ? 'sem valor' : fnEur(b.valor), b.valor_em ? 'valor de ' + fnData(b.valor_em) : '', b)); });
+  dividas.forEach(function(b){
+    var sub = [b.prestacao ? fnEur(b.prestacao) + '/mês' : null, b.termina ? 'acaba ' + fnData(b.termina) : null].filter(Boolean).join(' · ');
+    linhas.push(fnFichaLinha(b.nome, b.valor == null ? 'sem valor' : fnEur(-Math.abs(b.valor)), sub, b, true));
+  });
+  var resumo = h('div', { class: 'fn-ficha-resumo' }, [
+    h('div', null, [h('small', null, 'Vale'), h('b', null, fnEur(vale))]),
+    h('div', null, [h('small', null, 'Deve-se'), h('b', { class: deve ? 'fn-bad' : '' }, fnEur(-deve))]),
+    h('div', null, [h('small', null, 'É teu (capital próprio)'), h('b', null, fnEur(vale - deve))])
+  ]);
+  card.appendChild(resumo);
+  if (semValor) card.appendChild(h('p', { class: 'fn-nota' }, 'Há valores por escrever: o capital próprio só fica certo com todos. Carrega em Editar.'));
+  card.appendChild(h('div', { class: 'fn-lista' }, linhas));
+
+  /* 2. O que o identifica. */
+  var d = (principal && principal.dados) || {};
+  var ROT = [['artigo', 'Artigo matricial'], ['registo', 'Registo predial'], ['area_m2', 'Área', ' m²'], ['vpt', 'VPT', ' €'],
+    ['matricula', 'Matrícula'], ['modelo', 'Modelo'], ['data_matricula', 'Matrícula de'], ['seguradora', 'Seguradora'], ['apolice', 'Apólice'],
+    ['compra_data', 'Comprado em'], ['compra_preco', 'Preço de compra', ' €'], ['imt', 'IMT', ' €'], ['imposto_selo', 'Imposto do Selo', ' €']];
+  var ids = ROT.filter(function(r){ return d[r[0]]; }).map(function(r){
+    var raw = d[r[0]], v;
+    var n = Number(String(raw).replace(/\s/g, '').replace(/\./g, '').replace(',', '.'));
+    if (/data/.test(r[0]) && /^\d{4}-\d\d-\d\d$/.test(raw)) v = fnData(raw);
+    else if (r[2] === ' €' && isFinite(n)) v = fnEur(n);
+    else v = raw + (r[2] || '');
+    return h('div', null, [h('small', null, r[1]), h('span', null, v)]);
+  });
+  card.appendChild(h('div', { class: 'fn-ficha-sec' }, 'Identificação'));
+  card.appendChild(ids.length ? h('div', { class: 'fn-ficha-ids' }, ids)
+    : h('p', { class: 'fn-nota' }, 'Ainda sem identificação. Em Editar escreve o artigo, o registo, a compra ou a matrícula.'));
+
+  /* 3. Os papeis essenciais: os que ha e os que faltam. */
+  var docs = ((window.D && D.documents) || []).filter(function(x){ return x.context_id === ctxId; });
+  var classe = principal ? principal.classe : 'outro';
+  var habitavel = !/terreno|lote/i.test(principal ? principal.nome : '');
+  var lista = (FN_ESSENCIAIS[classe] || []).filter(function(e){ return e[2] !== 'casa' || habitavel; });
+  if (dividas.length) lista = lista.concat([FN_DIVIDA_DOC]);
+  if (lista.length) {
+    card.appendChild(h('div', { class: 'fn-ficha-sec' }, 'Documentos essenciais'));
+    var ul = h('div', { class: 'fn-ficha-docs' });
+    lista.forEach(function(e){
+      var ds = docs.filter(function(x){ return (x.kind || '') === e[0]; });
+      var ok = ds.length > 0, extra = '';
+      if (ok) {
+        var dd2 = ds[0], val = dd2.valid_on || dd2.valid_until;
+        extra = dd2.name + (val ? ' · válido até ' + fnData(String(val).slice(0, 10)) : '');
+      }
+      ul.appendChild(h('div', { class: ok ? 'ok' : 'falta' }, [h('b', null, ok ? '✓' : '○'), h('span', null, e[1]), h('small', null, ok ? extra : 'em falta')]));
+    });
+    card.appendChild(ul);
+    card.appendChild(h('p', { class: 'fn-nota' }, 'Um papel conta quando está nesta sub-área com o tipo certo (Relacionar › Área / projeto).'));
+  }
+
+  /* 4. Onde se vive nele. */
+  if (d.casa_context_id) {
+    var nm = fnNomeArea(d.casa_context_id);
+    if (nm) card.appendChild(h('div', { class: 'fn-ficha-casa' }, [h('span', null, 'O dia a dia da casa (contas, manutenção, mudança) está em '),
+      fnBtn(nm + ' →', function(){ fnIrParaArea(d.casa_context_id); }, 'small')]));
+  }
+  return card;
+}
+function fnFichaLinha(nome, valor, sub, b, divida){
+  return h('div', { class: 'fn-li' }, [h('div', { class: 'g' }, [nome, sub ? h('small', null, sub) : null]),
+    h('span', { class: 'fn-n ' + (divida ? 'fn-bad' : '') }, valor), fnBtn('Editar', function(){ fnBemJanela(b); }, 'small')]);
+}
+
+/* No sentido contrario: na sub-area da Casa onde se vive, uma linha leva a
+   ficha do imovel em Patrimonio. */
+function fnLigacaoBem(ctxId){
+  if (!ctxId) return null;
+  if (!FN_FICHA.dados) { fnFichaLer(function(){ if (typeof aeRender === 'function') aeRender(); }); return null; }
+  var b = (FN_FICHA.dados.bens || []).filter(function(x){ return x.lado !== 'passivo' && x.dados && x.dados.casa_context_id === ctxId; })[0];
+  if (!b || !b.context_id) return null;
+  return h('div', { class: 'card fn-ficha-casa' }, [h('span', null, 'Os papéis, o crédito e os impostos deste imóvel estão em '),
+    fnBtn((fnNomeArea(b.context_id) || b.nome) + ' →', function(){ fnIrParaArea(b.context_id); }, 'small')]);
+}
+
+(function(){
+  if (document.getElementById('fnFichaCss')) return;
+  var st = document.createElement('style'); st.id = 'fnFichaCss';
+  st.textContent =
+    '.fn-ficha .fn-ficha-resumo{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:4px 0 10px}' +
+    '.fn-ficha .fn-ficha-resumo div{background:var(--ground);border:1px solid var(--line);border-radius:10px;padding:10px 12px;min-width:0}' +
+    '.fn-ficha .fn-ficha-resumo small,.fn-ficha-ids small{display:block;font-size:.72rem;color:var(--faint)}' +
+    '.fn-ficha .fn-ficha-resumo b{font-family:var(--mono);font-size:1.05rem;font-weight:500}' +
+    '.fn-ficha .fn-ficha-sec{font-family:var(--mono);font-size:var(--fs-mono);letter-spacing:.07em;text-transform:uppercase;color:var(--faint);margin:14px 0 6px}' +
+    '.fn-ficha .fn-ficha-ids{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:8px 14px;font-size:.875rem}' +
+    '.fn-ficha .fn-ficha-docs div{display:flex;align-items:baseline;gap:8px;padding:5px 0;border-top:1px solid var(--line-soft);font-size:.875rem;min-width:0}' +
+    '.fn-ficha .fn-ficha-docs div:first-child{border-top:0}' +
+    '.fn-ficha .fn-ficha-docs small{margin-left:auto;color:var(--faint);font-size:.75rem;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:55%}' +
+    '.fn-ficha .fn-ficha-docs .ok b{color:var(--good,#1baf7a)}' +
+    '.fn-ficha .fn-ficha-docs .falta b,.fn-ficha .fn-ficha-docs .falta small{color:var(--warn,#c47f00)}' +
+    '.fn-ficha-casa{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:.875rem;color:var(--ink-2);margin-top:12px}' +
+    '@media (max-width:640px){.fn-ficha .fn-ficha-resumo{grid-template-columns:1fr}}';
+  document.head.appendChild(st);
+})();
