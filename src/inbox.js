@@ -2178,7 +2178,11 @@ function instalar(app) {
 
   app.get('/api/documentos/:id(\\d+)/relacionar', async (req, res) => {
     try {
-      res.json({ ok: true, relacoes: await relacoesDoDocumento(Number(req.params.id)) });
+      const id = Number(req.params.id);
+      /* Onde o papel esta arrumado - area, projeto e tipo - para a janela
+         mostrar o que ja la esta em vez de partir do zero. */
+      const arq = (await all('SELECT context_id, project_id, kind FROM documents WHERE id = $1', [id]))[0] || null;
+      res.json({ ok: true, relacoes: await relacoesDoDocumento(id), arquivo: arq });
     } catch (err) {
       console.error('[farol] GET relacionar:', err.message);
       res.status(500).json({ error: 'Nao foi possivel ler as relacoes.' });
