@@ -1222,10 +1222,14 @@ async function despesaSplitwise(id) {
 
 /* Conta so a minha parte do movimento, como a despesa do Splitwise diz: fica
    uma despesa partilhada ligada a ela (sem criar outra no Splitwise). */
+/* movimentoId pode ser uma lista: dois pagamentos que no Splitwise são uma
+   despesa só (as poupanças da Sofia e da Maria, 50 + 50 = 100). */
 async function partilhaDaDespesaSplitwise(movimentoId, expenseId, categoriaId) {
   const d = await despesaSplitwise(expenseId);
-  const m = (await all('SELECT id, valor, categoria_id FROM fin_movimentos WHERE id = $1', [movimentoId]))[0];
-  if (!m) throw erro(404, 'Movimento não encontrado.');
+  const ids = [].concat(movimentoId).map(Number).filter(Boolean);
+  const ms = await all('SELECT id, valor, categoria_id FROM fin_movimentos WHERE id = ANY($1::int[]) ORDER BY data, id', [ids]);
+  if (!ms.length || ms.length !== ids.length) throw erro(404, 'Movimento não encontrado.');
+  const m = Object.assign({}, ms[0], { valor: ms.reduce((t, x) => t + Number(x.valor), 0) });
   if (d.apagada) throw erro(400, 'Essa despesa foi apagada no Splitwise.');
   const total = cent(-Number(m.valor));
   if (Math.abs(d.total - total) > 0.005) throw erro(400, 'No Splitwise a despesa é de ' + d.total.toFixed(2).replace('.', ',') + ' € e o movimento de ' + total.toFixed(2).replace('.', ',') + ' €.');
@@ -1245,8 +1249,8 @@ async function partilhaDaDespesaSplitwise(movimentoId, expenseId, categoriaId) {
     existente[contaId] = d.id;
   }
   if (!linhas.length) throw erro(400, 'No Splitwise esta despesa não está dividida com ninguém.');
-  const atual = (await all('SELECT partilha_id FROM fin_mov_partes WHERE movimento_id = $1 AND partilha_id IS NOT NULL LIMIT 1', [m.id]))[0];
-  return guardarPartilha({ id: atual ? atual.partilha_id : null, movimentos: [m.id], minha, metodo: 'valores', descricao: d.descricao,
+  const atual = (await all('SELECT partilha_id FROM fin_mov_partes WHERE movimento_id = ANY($1::int[]) AND partilha_id IS NOT NULL LIMIT 1', [ids]))[0];
+  return guardarPartilha({ id: atual ? atual.partilha_id : null, movimentos: ids, minha, metodo: 'valores', descricao: d.descricao,
     categoria_id: categoriaId || m.categoria_id, linhas, splitwise_existente: existente });
 }
 
@@ -1267,7 +1271,7 @@ async function despesasSplitwisePerto(movId, q, o) {
     if (!conta) throw erro(404, 'Conta corrente não encontrada.');
   }
   const alvo = o.valor != null && o.valor !== '' ? cent(Number(String(o.valor).replace(',', '.'))) : null;
-  const total = cent(-Number(m.valor));
+  const total = o.total != null && o.total !== '' ? cent(Number(String(o.total).replace(',', '.'))) : cent(-Number(m.valor));
   const j = await splitwise.pedir('/get_expenses?dated_after=' + somaDias(m.data, -30) + '&dated_before=' + somaDias(m.data, 31) + '&limit=500');
   const eu = Number((await splitwise.quemSou()).id);
   const ps = await all('SELECT id, nome, splitwise_id::text AS sw FROM fin_cc_pessoas WHERE splitwise_id IS NOT NULL');
@@ -1310,14 +1314,18 @@ async function despesasSplitwisePerto(movId, q, o) {
 
 function instalarContas(app, falha) {
   app.get('/api/financas/movimentos/:id(\\d+)/splitwise-despesas', async (req, res) => {
-    try { res.json({ despesas: await despesasSplitwisePerto(Number(req.params.id), req.query.q, { conta_id: req.query.conta_id, valor: req.query.valor }) }); }
+    try { res.json({ despesas: await despesasSplitwisePerto(Number(req.params.id), req.query.q, { conta_id: req.query.conta_id, valor: req.query.valor, total: req.query.total }) }); }
     catch (e) { falha(res, e, 'as despesas do Splitwise'); }
   });
   app.get('/api/financas/splitwise/despesas/:id(\\d+)', async (req, res) => {
     try { res.json({ despesa: await despesaSplitwise(req.params.id) }); } catch (e) { falha(res, e, 'a despesa do Splitwise'); }
   });
   app.post('/api/financas/movimentos/:id(\\d+)/partilha-splitwise', async (req, res) => {
-    try { res.json(await partilhaDaDespesaSplitwise(Number(req.params.id), (req.body || {}).expense_id, (req.body || {}).categoria_id)); }
+    try {
+      const b = req.body || {};
+      const ids = Array.isArray(b.movimentos) && b.movimentos.length ? b.movimentos : [Number(req.params.id)];
+      res.json(await partilhaDaDespesaSplitwise(ids, b.expense_id, b.categoria_id));
+    }
     catch (e) { falha(res, e, 'a despesa partilhada'); }
   });
   app.get('/api/financas/cc/contas/:id(\\d+)', async (req, res) => {
