@@ -298,7 +298,7 @@ var FN_BUSCA_CSS =
     'box-shadow:0 18px 50px -18px rgba(15,40,40,.5);padding:8px;width:min(22rem,calc(100vw - 24px));display:flex;flex-direction:column;gap:6px}' +
   '.fn-pop-busca input{width:100%;box-sizing:border-box;padding:.45rem .6rem;border:1px solid var(--line);border-radius:8px;' +
     'background:var(--ground);color:var(--ink);font:inherit;font-size:.875rem}' +
-  '.fn-pop-lista{max-height:min(22rem,50vh);overflow:auto;display:flex;flex-direction:column;gap:1px}' +
+  '.fn-pop-lista{max-height:min(22rem,50vh);overflow:auto;overscroll-behavior:contain;display:flex;flex-direction:column;gap:1px}' +
   '.fn-pop-g{font-size:.625rem;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);padding:6px 6px 2px}' +
   '.fn-pop-i{display:block;width:100%;text-align:left;border:0;background:none;font:inherit;font-size:.875rem;color:var(--ink);' +
     'padding:.35rem .5rem;border-radius:7px;cursor:pointer}' +
@@ -393,21 +393,40 @@ function fnBuscaPop(sel, dica){
   desenhar();
 
   document.body.appendChild(p);
-  var r = sel.getBoundingClientRect(), w = p.offsetWidth, hh = p.offsetHeight;
+  fnBuscaPor(p);
+  q.focus();
+}
+
+/* Poe a janelinha por baixo do campo (ou por cima, se nao couber). E fixa, por
+   isso recalcula-se sempre que o que esta por baixo rola ou a janela muda. */
+function fnBuscaPor(p){
+  var sel = p._dono;
+  if (!sel || !sel.isConnected) { fnBuscaFechar(); return; }
+  var r = sel.getBoundingClientRect();
+  /* O campo saiu do ecra a rolar: a janelinha deixa de ter a que se agarrar. */
+  if (r.bottom < 0 || r.top > window.innerHeight) { fnBuscaFechar(); return; }
+  var w = p.offsetWidth, hh = p.offsetHeight;
   var x = Math.min(r.left, window.innerWidth - w - 12), y = r.bottom + 4;
   if (y + hh > window.innerHeight - 12) y = Math.max(12, r.top - hh - 4);
   p.style.left = Math.max(12, x) + 'px';
   p.style.top = y + 'px';
-  q.focus();
 }
 (function(){
-  /* Fecha-se a carregar fora, a rolar o que esta por baixo, ou a mudar a
-     largura da janela - a janelinha e fixa e ficaria no sitio errado. */
+  /* Fecha-se a carregar fora. Rolar a propria lista nao fecha nada - era o que
+     acontecia e nao deixava chegar as linhas de baixo. Rolar o que esta por
+     baixo nao fecha tambem: a janelinha e fixa, por isso muda-se de sitio para
+     continuar colada ao campo, e so sai quando o campo deixa de se ver. */
   document.addEventListener('mousedown', function(e){
     var p = document.querySelector('.fn-pop-busca');
     if (p && !p.contains(e.target) && !(e.target.classList && e.target.classList.contains('fn-busca'))) fnBuscaFechar();
   }, true);
-  document.addEventListener('scroll', function(){ fnBuscaFechar(); }, true);
+  document.addEventListener('scroll', function(e){
+    var p = document.querySelector('.fn-pop-busca');
+    if (!p) return;
+    var alvo = e.target && e.target.nodeType === 1 ? e.target : null;
+    if (alvo && (alvo === p || p.contains(alvo))) return;
+    fnBuscaPor(p);
+  }, true);
   window.addEventListener('resize', fnBuscaFechar);
 })();
 
