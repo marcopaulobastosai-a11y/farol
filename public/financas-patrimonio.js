@@ -1258,12 +1258,21 @@ function fnFichaBem(ctxId){
     var ul = h('div', { class: 'fn-ficha-docs' });
     lista.forEach(function(e){
       var ds = docs.filter(function(x){ return (x.kind || '') === e[0]; });
-      var ok = ds.length > 0, extra = '';
-      if (ok) {
-        var dd2 = ds[0], val = dd2.valid_on || dd2.valid_until;
-        extra = dd2.name + (val ? ' · válido até ' + fnData(String(val).slice(0, 10)) : '');
-      }
-      ul.appendChild(h('div', { class: ok ? 'ok' : 'falta' }, [h('b', null, ok ? '✓' : '○'), h('span', null, e[1]), h('small', null, ok ? extra : 'em falta')]));
+      var ok = ds.length > 0;
+      /* Cada papel abre-se dali: o nome e um link para o ficheiro. Havendo
+         varios do mesmo tipo (duas certidoes), aparecem todos, o mais
+         recente primeiro. */
+      var links = h('small', null, ok ? null : 'em falta');
+      ds.slice().sort(function(x, y){ return String(y.issued_on || '').localeCompare(String(x.issued_on || '')); }).forEach(function(dd2, i){
+        var val = dd2.valid_on || dd2.valid_until;
+        var vt = val ? ' · válido até ' + fnData(String(val).slice(0, 10)) : '';
+        var f = (dd2.ficheiros && dd2.ficheiros.length) ? dd2.ficheiros[0] : dd2.inbox_id;
+        if (i) links.appendChild(h('br'));
+        links.appendChild(f ? h('a', { href: '/api/inbox/' + f + '/ficheiro', target: '_blank', rel: 'noopener', title: 'Abrir o ficheiro' }, dd2.name)
+          : h('span', { title: 'Este papel não tem ficheiro' }, dd2.name + ' (sem ficheiro)'));
+        if (vt) links.appendChild(document.createTextNode(vt));
+      });
+      ul.appendChild(h('div', { class: ok ? 'ok' : 'falta' }, [h('b', null, ok ? '✓' : '○'), h('span', null, e[1]), links]));
     });
     card.appendChild(ul);
     card.appendChild(h('p', { class: 'fn-nota' }, 'Um papel conta quando está nesta sub-área com o tipo certo (Relacionar › Área / projeto).'));
@@ -1307,6 +1316,8 @@ function fnLigacaoBem(ctxId){
     '.fn-ficha .fn-ficha-docs div:first-child{border-top:0}' +
     '.fn-ficha .fn-ficha-docs small{margin-left:auto;color:var(--faint);font-size:.75rem;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:55%}' +
     '.fn-ficha .fn-ficha-docs .ok b{color:var(--good,#1baf7a)}' +
+    '.fn-ficha .fn-ficha-docs a{color:var(--accent-ink,inherit);text-decoration:underline;text-underline-offset:2px}' +
+    '.fn-ficha .fn-ficha-docs small{white-space:normal}' +
     '.fn-ficha .fn-ficha-docs .falta b,.fn-ficha .fn-ficha-docs .falta small{color:var(--warn,#c47f00)}' +
     '.fn-ficha-casa{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:.875rem;color:var(--ink-2);margin-top:12px}' +
     '@media (max-width:640px){.fn-ficha .fn-ficha-resumo{grid-template-columns:1fr}}';
