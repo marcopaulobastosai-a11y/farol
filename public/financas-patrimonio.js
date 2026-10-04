@@ -135,6 +135,7 @@ function fnLinhaBem(b, editar){
   var sub = [FN_CLASSES_BEM[b.classe] || b.classe, b.context_id ? fnNomeArea(b.context_id) : null, b.prestacao ? fnEur(b.prestacao) + '/mês' : null, b.termina ? 'acaba ' + fnData(b.termina) : null, b.valor_em ? 'valor de ' + fnData(b.valor_em) : null].filter(Boolean).join(' · ');
   return h('div', { class: 'fn-li' }, [h('div', { class: 'g' }, [b.nome, h('small', null, sub)]),
     h('span', { class: 'fn-n ' + (b.lado === 'passivo' ? 'fn-bad' : '') }, b.valor == null ? 'sem valor' : fnEur(b.lado === 'passivo' ? -Math.abs(b.valor) : b.valor)),
+    editar !== false && b.context_id ? fnBtn('Ficha', function(){ fnIrParaArea(b.context_id); }, 'small') : null,
     editar !== false ? fnDocsDoBem(b) : null,
     editar !== false ? fnBtn('Editar', function(){ fnBemJanela(b); }, 'small') : null]);
 }
@@ -1162,8 +1163,25 @@ function fnIrParaArea(ctxId){
   var a = (typeof AE_AREAS !== 'undefined' ? AE_AREAS : []).filter(function(x){ return nome.indexOf(x.nome) === 0; })[0];
   if (!a) return;
   AE.filtro[a.view] = Object.assign({}, AE.filtro[a.view] || {}, { subs: c.parent_id ? [String(c.id)] : [] });
+  /* Nas Financas e no Patrimonio o ecra da area vive no separador «Tarefas &
+     papeis»: sem isto abria-se a vista certa no separador errado. */
+  if (window.FN && FN.aba && typeof FN_ABAS !== 'undefined' && FN_ABAS[a.view]) { FN.aba[a.view] = 'area'; fnGuardar(); }
   show(a.view);
   if (typeof aeRender === 'function') aeRender();
+  if (typeof fnRender === 'function') fnRender(a.view);
+}
+
+/* Escolher um bem no menu (Patrimonio › BMW 216d) abre a ficha dele, que
+   esta no separador «Tarefas & papeis». */
+if (typeof aeNavFiltrar === 'function') {
+  var _fnNavFiltrar = aeNavFiltrar;
+  aeNavFiltrar = function(a, sub){
+    var bem = a && a.view === 'patrimonio' && sub;
+    if (bem && window.FN && FN.aba) { FN.aba.patrimonio = 'area'; fnGuardar(); }
+    var r = _fnNavFiltrar.apply(this, arguments);
+    if (bem && typeof fnRender === 'function') fnRender('patrimonio');
+    return r;
+  };
 }
 
 function fnFichaBem(ctxId){
