@@ -45,15 +45,118 @@
     '.rel-novo .rel-campos{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}',
     '.rel-novo input,.rel-novo select{padding:7px 9px;border:1px solid var(--line);border-radius:9px;font:inherit;font-size:.8125rem;background:var(--ground);color:var(--ink)}',
     '.rel-novo input.titulo{flex:1 1 100%;min-width:0}',
-    '.rel-novo .rel-dica{font-size:.75rem;color:var(--faint);margin-top:6px}'
+    '.rel-novo .rel-dica{font-size:.75rem;color:var(--faint);margin-top:6px}',
+    '.rel-arq{display:flex;flex-direction:column;gap:8px;margin-top:4px}',
+    '.rel-arq label{display:flex;flex-direction:column;gap:4px;font-size:.75rem;color:var(--faint)}',
+    '.rel-arq select{padding:7px 9px;border:1px solid var(--line);border-radius:9px;font:inherit;font-size:.875rem;background:var(--ground);color:var(--ink)}',
+    '.rel-arq .rel-arq-acoes{display:flex;justify-content:flex-end}'
   ].join('\n');
 
   var REL_PAPEIS = ['anexo', 'fatura', 'comprovativo', 'recibo'];
   var REL_TIPOS = [
+    ['arquivo', '\u00c1rea / projeto'],
     ['tarefa', 'Tarefa'],
     ['pagamento', 'Pagamento'],
     ['evento', 'Evento']
   ];
+
+  /* Arrumar um papel sem o pendurar em nada: uma escritura, um CPCV, uma
+     caderneta nao pertencem a uma tarefa, pertencem a um imovel. Fica na area
+     (ou sub-area) e, se houver, no projeto - e o bem do Patrimonio que vive
+     nessa sub-area passa a mostra-lo. */
+  var REL_KINDS = [
+    ['escritura', 'Escritura'], ['cpcv', 'CPCV / contrato-promessa'], ['contrato', 'Contrato'],
+    ['caderneta', 'Caderneta predial'], ['certidao', 'Certid\u00e3o'], ['planta', 'Planta / projeto'],
+    ['licenca', 'Licen\u00e7a / alvar\u00e1'], ['seguro', 'Ap\u00f3lice de seguro'],
+    ['fatura', 'Fatura'], ['comprovativo', 'Comprovativo'], ['recibo', 'Recibo'],
+    ['declaracao', 'Declara\u00e7\u00e3o'], ['cartao', 'Cart\u00e3o / identifica\u00e7\u00e3o'],
+    ['proposta', 'Proposta / or\u00e7amento'], ['correspondencia', 'Correspond\u00eancia'], ['outro', 'Outro']
+  ];
+
+  function relNomeArea(id) {
+    var cs = relAreas(), c = null, i;
+    for (i = 0; i < cs.length; i++) if (cs[i].id === Number(id)) c = cs[i];
+    if (!c) return '';
+    if (!c.parent_id) return c.name;
+    for (i = 0; i < cs.length; i++) if (cs[i].id === c.parent_id) return cs[i].name + ' \u203a ' + c.name;
+    return c.name;
+  }
+
+  function relBlocoArquivo(doc, estado, depois) {
+    var caixa = el('div', 'rel-arq');
+    var arq = estado.arquivo || {};
+
+    var area = el('select');
+    area.appendChild(new Option('\u2014 sem \u00e1rea \u2014', ''));
+    var cs = relAreas();
+    cs.filter(function (x) { return !x.parent_id; }).forEach(function (a) {
+      area.appendChild(new Option(a.name, a.id));
+      cs.filter(function (x) { return x.parent_id === a.id; }).forEach(function (sub) {
+        area.appendChild(new Option('\u00a0\u00a0' + a.name + ' \u203a ' + sub.name, sub.id));
+      });
+    });
+    area.value = String(arq.context_id || doc.context_id || '');
+
+    var proj = el('select');
+    function desenharProjetos() {
+      var atual = proj.value || String(arq.project_id || doc.project_id || '');
+      clear(proj);
+      proj.appendChild(new Option('\u2014 sem projeto \u2014', ''));
+      var ids = relIdsDaArea(area.value);
+      ((window.G && G.projects) || []).filter(function (p) {
+        if (String(p.id) === atual) return true;
+        if (p.status === 'arquivado' || p.status === 'concluido') return false;
+        return !ids || ids.indexOf(p.context_id) >= 0;
+      }).forEach(function (p) { proj.appendChild(new Option(p.name, p.id)); });
+      proj.value = atual;
+      if (proj.value !== atual) proj.value = '';
+    }
+    desenharProjetos();
+    area.addEventListener('change', desenharProjetos);
+
+    var kind = el('select');
+    var k = String(arq.kind || doc.kind || '');
+    var conhecido = REL_KINDS.some(function (x) { return x[0] === k; });
+    if (k && !conhecido) kind.appendChild(new Option(k, k));
+    if (!k) kind.appendChild(new Option('\u2014 escolher \u2014', ''));
+    REL_KINDS.forEach(function (x) { kind.appendChild(new Option(x[1], x[0])); });
+    kind.value = k;
+
+    var l1 = el('label'); l1.appendChild(document.createTextNode('\u00c1rea ou sub-\u00e1rea')); l1.appendChild(area);
+    var l2 = el('label'); l2.appendChild(document.createTextNode('Projeto (opcional)')); l2.appendChild(proj);
+    var l3 = el('label'); l3.appendChild(document.createTextNode('Que papel \u00e9')); l3.appendChild(kind);
+    caixa.appendChild(l1); caixa.appendChild(l2); caixa.appendChild(l3);
+    caixa.appendChild(el('div', 'rel-nota', 'Um im\u00f3vel, um carro: escolhe a sub-\u00e1rea dele em Patrim\u00f3nio e o papel aparece tamb\u00e9m no bem.'));
+
+    var acoes = el('div', 'rel-arq-acoes');
+    var guardar = el('button', 'btn primary', 'Guardar');
+    guardar.type = 'button';
+    acoes.appendChild(guardar);
+    caixa.appendChild(acoes);
+
+    guardar.addEventListener('click', function () {
+      var corpo = { context_id: area.value ? Number(area.value) : null,
+        project_id: proj.value ? Number(proj.value) : null, kind: kind.value || null };
+      guardar.disabled = true;
+      apiGestao('/api/documentos/' + doc.id, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(corpo)
+      }).then(function () {
+        guardar.disabled = false;
+        estado.arquivo = corpo;
+        doc.context_id = corpo.context_id; doc.project_id = corpo.project_id; doc.kind = corpo.kind;
+        toast('Arrumado.');
+        if (typeof estado.redesenhar === 'function') estado.redesenhar();
+        if (typeof depois === 'function') depois(estado.relacoes);
+        if (typeof load === 'function') load();
+      }).catch(function (e) {
+        guardar.disabled = false;
+        toast((e && e.message) || 'N\u00e3o foi poss\u00edvel gravar.');
+      });
+    });
+    return caixa;
+  }
 
   function relMontar() {
     if (document.getElementById('relCss')) return;
@@ -311,8 +414,11 @@
     if (!doc || !doc.id) { toast('Este ficheiro ainda não é um documento.'); return; }
     relMontar();
 
-    var estado = { tipo: 'pagamento', busca: '', relacoes: (doc.relacoes || []).slice(),
-      fechadas: {}, aCarregar: {} };
+    /* Uma fatura, um recibo, um comprovativo pertencem a um pagamento; o
+       resto (escrituras, contratos, cadernetas) arruma-se numa area. */
+    var estado = { tipo: relPapelProposto(doc) === 'anexo' ? 'arquivo' : 'pagamento', busca: '',
+      relacoes: (doc.relacoes || []).slice(), fechadas: {}, aCarregar: {},
+      arquivo: { context_id: doc.context_id || null, project_id: doc.project_id || null, kind: doc.kind || null } };
 
     var dlg = el('dialog', 'rel-dlg');
     var cx = el('div', 'rel-c');
@@ -346,7 +452,11 @@
     var lista = el('div', 'rel-lista');
     cx.appendChild(lista);
 
-    cx.appendChild(relBlocoCriar(doc, gravar));
+    var arquivoBox = el('div');
+    cx.appendChild(arquivoBox);
+
+    var criarBox = relBlocoCriar(doc, gravar);
+    cx.appendChild(criarBox);
 
     var ja = el('div', 'rel-ja');
     cx.appendChild(ja);
@@ -447,7 +557,22 @@
 
     function desenharJa() {
       clear(ja);
+      var a = estado.arquivo || {};
+      if (a.context_id || a.project_id) {
+        ja.appendChild(el('div', 'rel-lbl', 'Arrumado em'));
+        var la = el('div', 'rel-linha');
+        var partes = [];
+        if (a.context_id) partes.push(relNomeArea(a.context_id) || ('\u00e1rea #' + a.context_id));
+        if (a.project_id) {
+          var pj = ((window.G && G.projects) || []).filter(function (p) { return p.id === a.project_id; })[0];
+          partes.push('projeto ' + (pj ? pj.name : '#' + a.project_id));
+        }
+        la.appendChild(pill('\u00c1rea', 'good'));
+        la.appendChild(el('span', null, partes.join(' \u00b7 ')));
+        ja.appendChild(la);
+      }
       if (!estado.relacoes.length) {
+        if (a.context_id || a.project_id) return;
         ja.appendChild(el('div', 'rel-vazio', 'Este papel ainda não está relacionado com nada.'));
         return;
       }
@@ -465,7 +590,16 @@
       });
     }
 
-    function desenhar() { desenharTipos(); desenharEstado(); buscarFechadas(); desenharLista(); desenharJa(); }
+    function desenhar() {
+      var arq = estado.tipo === 'arquivo';
+      busca.hidden = arq; filtros.hidden = arq; papelLinha.hidden = arq; lista.hidden = arq; criarBox.hidden = arq;
+      clear(arquivoBox);
+      desenharTipos();
+      if (arq) arquivoBox.appendChild(relBlocoArquivo(doc, estado, depois));
+      else { desenharEstado(); buscarFechadas(); desenharLista(); }
+      desenharJa();
+    }
+    estado.redesenhar = desenhar;
 
     busca.addEventListener('input', function () { estado.busca = busca.value; desenharLista(); });
     fArea.addEventListener('change', function () { REL_FILTRO.area = fArea.value; buscarFechadas(); desenharLista(); });
@@ -476,6 +610,7 @@
     apiGestao('/api/documentos/' + doc.id + '/relacionar').then(function (d) {
       estado.relacoes = d.relacoes || [];
       doc.relacoes = estado.relacoes;
+      if (d.arquivo) estado.arquivo = d.arquivo;
       desenhar();
     }).catch(function () {});
 
@@ -483,7 +618,7 @@
     dlg.addEventListener('cancel', function () { setTimeout(function () { dlg.remove(); }, 0); });
     document.body.appendChild(dlg);
     dlg.showModal();
-    busca.focus();
+    if (estado.tipo !== 'arquivo') busca.focus();
   }
 
   /* O mesmo botao na janela de um documento, no ecra dos Documentos e nos
