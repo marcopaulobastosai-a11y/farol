@@ -1240,7 +1240,52 @@ async function partilhaDaDespesaSplitwise(movimentoId, expenseId, categoriaId) {
     categoria_id: categoriaId || m.categoria_id, linhas, splitwise_existente: existente });
 }
 
+/* As despesas do Splitwise perto deste movimento (data +-30 dias), para
+   escolher a que ja la esta: primeiro as do mesmo valor, depois as de data
+   mais perto. As ja ligadas a outra despesa partilhada vem marcadas. */
+async function despesasSplitwisePerto(movId, q) {
+  const m = (await all("SELECT id, to_char(data,'YYYY-MM-DD') AS data, valor FROM fin_movimentos WHERE id = $1", [movId]))[0];
+  if (!m) throw erro(404, 'Movimento não encontrado.');
+  const total = cent(-Number(m.valor));
+  const j = await splitwise.pedir('/get_expenses?dated_after=' + somaDias(m.data, -30) + '&dated_before=' + somaDias(m.data, 31) + '&limit=500');
+  const eu = Number((await splitwise.quemSou()).id);
+  const ps = await all('SELECT id, nome, splitwise_id::text AS sw FROM fin_cc_pessoas WHERE splitwise_id IS NOT NULL');
+  const grupos = await all('SELECT nome, splitwise_grupo_id::text AS g FROM fin_cc_contas WHERE splitwise_grupo_id IS NOT NULL');
+  const usadas = {};
+  (await all(
+    `SELECT f.id, f.splitwise, (SELECT MIN(pt.movimento_id) FROM fin_mov_partes pt WHERE pt.partilha_id = f.id) AS mov
+       FROM fin_partilhas f WHERE f.splitwise IS NOT NULL`)).forEach((x) => {
+    if (Number(x.mov) === m.id) return;
+    Object.values(x.splitwise || {}).forEach((v) => { if (v && v.expense_id) usadas[String(v.expense_id)] = x.mov || true; });
+  });
+  const tq = String(q || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+  const dias = (a, b) => Math.round((Date.parse(a) - Date.parse(b)) / 86400000);
+  return ((j && j.expenses) || [])
+    .filter((e) => !e.deleted_at && !e.payment)
+    .filter((e) => !tq || String(e.description || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().includes(tq))
+    .map((e) => {
+      const data = String(e.date || '').slice(0, 10);
+      const g = grupos.find((x) => Number(x.g) === Number(e.group_id || 0));
+      const pessoas = (e.users || []).map((u) => {
+        const uid = Number(u.user_id || (u.user && u.user.id));
+        const p = ps.find((x) => Number(x.sw) === uid);
+        return { eu: uid === eu, nome: uid === eu ? 'Eu' : (p ? p.nome : nomeDe(u.user || { id: uid })), pagou: cent(u.paid_share), deve: cent(u.owed_share) };
+      });
+      return {
+        id: Number(e.id), descricao: e.description, data, total: cent(e.cost), dias: dias(data, m.data),
+        grupo_nome: e.group_id ? (g ? g.nome : 'Grupo ' + e.group_id) : 'Sem grupo', pessoas,
+        igual: Math.abs(cent(e.cost) - total) < 0.006, usada: usadas[String(e.id)] || null
+      };
+    })
+    .sort((a, b) => (b.igual ? 1 : 0) - (a.igual ? 1 : 0) || (a.usada ? 1 : 0) - (b.usada ? 1 : 0) || Math.abs(a.dias) - Math.abs(b.dias))
+    .slice(0, 60);
+}
+
 function instalarContas(app, falha) {
+  app.get('/api/financas/movimentos/:id(\\d+)/splitwise-despesas', async (req, res) => {
+    try { res.json({ despesas: await despesasSplitwisePerto(Number(req.params.id), req.query.q) }); }
+    catch (e) { falha(res, e, 'as despesas do Splitwise'); }
+  });
   app.get('/api/financas/splitwise/despesas/:id(\\d+)', async (req, res) => {
     try { res.json({ despesa: await despesaSplitwise(req.params.id) }); } catch (e) { falha(res, e, 'a despesa do Splitwise'); }
   });
