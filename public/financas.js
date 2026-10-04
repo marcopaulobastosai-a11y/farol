@@ -135,6 +135,10 @@ var FN_CSS =
   '.fn-movtab td.fn-saldo{font-size:.8125rem;color:var(--ink-2);font-variant-numeric:tabular-nums}.fn-movtab td.fn-saldo.calc{color:var(--muted)}' +
   '.fn-movtab .fn-area.da-conta{color:var(--muted);font-style:italic}' +
   '.fn-dq-avs{display:inline-flex}.fn-dq-avs .ib-av + .ib-av{margin-left:-7px;box-shadow:0 0 0 2px var(--surface)}' +
+  '.fn-opcoes{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px}' +
+  '.fn-opcao{display:flex;flex-direction:column;gap:3px;text-align:left;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--surface);font:inherit;cursor:pointer}' +
+  '.fn-opcao b{font-weight:600;font-size:.875rem;color:var(--ink)}.fn-opcao small{color:var(--muted);font-size:.75rem;line-height:1.35}' +
+  '.fn-opcao:hover{border-color:var(--accent)}.fn-opcao.pri{border-color:var(--accent);background:var(--accent-soft)}' +
   '@media (max-width:720px){.fn-big{font-size:1.7rem}.fn-tab .d{max-width:200px}.fn-movtab .d{max-width:100%}}';
 
 /* ---------------- utilitários ---------------- */
