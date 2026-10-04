@@ -468,6 +468,8 @@ function fnPartilhaAbrir(movs, partilha, cc){
       swb.style.display = naSw ? '' : 'none';
       if (!naSw) { row._sw = null; swInfo.textContent = ''; }
       else if (row._sw) swInfo.textContent = 'Liga a «' + row._sw.descricao + '» (' + fnData(row._sw.data) + ', ' + fnEur(row._sw.valor) + ') — no Splitwise não se cria nada.';
+      else if (!(o.l && o.l.splitwise_despesa)) swInfo.textContent = 'Ao guardar, o Farol cria esta despesa no Splitwise (paga por ti, esta parte para esta pessoa) e fica ligada — a não ser que lá encontre uma igual. Se já lá está, usa «Já lá está…».';
+      else swInfo.textContent = '';
     };
     if (!eu) {
       opcoesConta(cs, porNome(ni.value), o.contaValor || 'f');
