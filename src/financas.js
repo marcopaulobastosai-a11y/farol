@@ -1446,6 +1446,9 @@ function instalar(app) {
           w.push('(' + dois.replace(/\$N/g, '$' + (v.length - 1)) + " OR to_char(abs(m.valor),'FM999999990.00') LIKE $" + v.length + " || '%')");
         } else { v.push('%' + q.q + '%'); w.push(dois.replace(/\$N/g, '$' + v.length)); }
       }
+      /* Credito ou debito: outra coisa que o estado, por isso somam-se. */
+      if (q.sinal === 'credito') w.push('m.valor > 0');
+      if (q.sinal === 'debito') w.push('m.valor < 0');
       if (q.estado === 'categorizar') w.push('m.categoria_id IS NULL');
       if (q.estado === 'sugestoes') w.push('m.categoria_id IS NULL AND m.ia_categoria_id IS NOT NULL');
       if (q.estado === 'semdespesa') w.push('m.valor < 0 AND m.expense_id IS NULL');
@@ -1589,6 +1592,8 @@ function instalar(app) {
         return res.json({ feitos: r.length });
       }
       const sets = [], vals = [ids];
+      /* O nome amigavel: vazio ou null limpa, ficando so a descricao do banco. */
+      if (b.titulo !== undefined) { vals.push((b.titulo === null ? '' : String(b.titulo)).trim() || null); sets.push('titulo = $' + vals.length); }
       if (b.categoria_id !== undefined) { vals.push(b.categoria_id || null); sets.push('categoria_id = $' + vals.length, "categoria_fonte = 'tu'", 'categoria_em = now()'); }
       if (b.context_id !== undefined) { vals.push(b.context_id || null); sets.push('context_id = $' + vals.length); }
       if (b.project_id !== undefined) { vals.push(b.project_id || null); sets.push('project_id = $' + vals.length); }
