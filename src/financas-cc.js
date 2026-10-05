@@ -287,6 +287,8 @@ function instalar(app, falha) {
       ['nome', 'person_id', 'ativo', 'nota'].forEach((k) => {
         if (b[k] !== undefined) { vals.push(b[k] === '' ? null : b[k]); campos.push(k + ' = $' + vals.length); }
       });
+      /* Passar uma conta corrente a de empresa (ou de volta a de pessoa). */
+      if (b.tipo !== undefined) { vals.push(b.tipo === 'empresa' ? 'empresa' : 'pessoa'); campos.push('tipo = $' + vals.length); }
       if (!campos.length) return res.json({ ok: true });
       vals.push(req.params.id);
       await query('UPDATE fin_cc_pessoas SET ' + campos.join(', ') + ' WHERE id = $' + vals.length, vals);
