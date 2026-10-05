@@ -639,7 +639,10 @@ function fnLinhaMov(m, aoMarcar){
     h('td', { class: 'fn-n', style: 'font-size:.75rem;white-space:nowrap' }, fnData(m.data)),
     h('td', { title: conta ? conta.nome : '', style: 'font-size:.75rem;line-height:1.25' }, conta ? conta.nome : h('span', { class: 'fn-muted' }, '—')),
     h('td', { style: 'min-width:0' }, [h('span', { class: 'd', title: fnMovNome(m) }, fnMovNome(m)),
-      fnMovOrig(m) ? h('small', { class: 'fn-orig', title: fnMovOrig(m) }, fnMovOrig(m)) : null,
+      (fnMovEnt(m) || fnMovOrig(m)) ? h('small', { class: 'fn-orig', title: [fnMovEnt(m), fnMovOrig(m)].filter(Boolean).join(' · ') }, [
+        /* Sem nome proprio, o texto do extrato ja esta em cima: aqui fica so
+           a entidade, para nao se ler duas vezes a mesma coisa. */
+        fnMovEnt(m) ? h('span', { class: 'fn-ent' + (fnMovOrig(m) ? '' : ' so') }, fnMovEnt(m)) : null, fnMovOrig(m) || '']) : null,
       m.categoria_fonte === 'regra' ? h('small', { class: 'd2' }, 'categoria por regra') : null]),
     h('td', { class: 'r ' + (m.valor > 0 ? 'fn-good' : '') }, [fnEur(m.valor, true), fnMinhaParte(m)]),
     h('td', { class: 'r fn-saldo' + (m.saldo_calculado ? ' calc' : ''), title: m.saldo == null ? '' : m.saldo_calculado ? 'Saldo calculado a partir dos saldos conhecidos da conta' : 'Saldo do extrato' }, m.saldo == null ? '—' : fnEur(m.saldo)),
@@ -774,6 +777,13 @@ function fnLoteFolha(ids, ms, limpar){
     snome.disabled = snomeLimpar.checked;
     if (snomeLimpar.checked) snome.value = '';
   });
+  /* A entidade, com a mesma regra: em branco nao se mexe, a cruzinha limpa. */
+  var sent = fnCampoEntidade('', '— não mexer —');
+  var sentLimpar = h('input', { type: 'checkbox' });
+  sentLimpar.addEventListener('change', function(){
+    sent.disabled = sentLimpar.checked;
+    if (sentLimpar.checked) sent.value = '';
+  });
   var sc = fnLoteSel(fnSelCategorias(''), '— sem categoria —');
   var sa = fnLoteSel(fnSelAreas(''), '— sem área —');
   var spj = fnLoteSel(fnSelProjetos(''), '— sem projeto —');
@@ -799,6 +809,11 @@ function fnLoteFolha(ids, ms, limpar){
       'Ficam todos com o mesmo nome, e o texto do extrato de cada um fica por baixo.'),
     h('label', { class: 'fn-check', style: 'margin:0 0 8px' }, [snomeLimpar,
       h('span', null, 'Limpar o nome — ficam só com o texto do extrato')]),
+    fnCampo('Entidade', sent),
+    h('small', { class: 'fn-muted', style: 'display:block;margin:-6px 0 2px' },
+      'De onde são: o restaurante, a empresa, quem prestou o serviço. Ficam todos com a mesma.'),
+    h('label', { class: 'fn-check', style: 'margin:0 0 8px' }, [sentLimpar,
+      h('span', null, 'Limpar a entidade')]),
     fnCampo('Categoria', sc), fnCampo('Área', sa), fnCampo('Projeto', spj),
     h('div', { class: 'fn-campo' }, [h('span', null, 'De quem é (agregado) · uma ou mais pessoas'), spe]),
     h('hr', { style: 'border:0;border-top:1px solid var(--line);margin:4px 0' }),
@@ -811,6 +826,8 @@ function fnLoteFolha(ids, ms, limpar){
     var corpo = {};
     if (snomeLimpar.checked) corpo.titulo = null;
     else if (snome.value.trim()) corpo.titulo = snome.value.trim();
+    if (sentLimpar.checked) corpo.entidade = null;
+    else if (sent.value.trim()) corpo.entidade = sent.value.trim();
     var c = fnLoteValor(sc); if (c !== undefined) corpo.categoria_id = c;
     var a = fnLoteValor(sa); if (a !== undefined) corpo.context_id = a;
     var p = fnLoteValor(spj); if (p !== undefined) corpo.project_id = p;
@@ -872,6 +889,9 @@ function fnPainelMov(p, m, emJanela){
   /* O nome que se le na lista. Vazio, fica o do extrato - a descricao do banco
      nao se apaga nunca, so passa para baixo. */
   var titulo = h('input', { class: 'fn-in', value: m.titulo || '', placeholder: m.descricao });
+  /* De onde e: o restaurante, a empresa, o servico. Completa-se com as que ja
+     se usaram, para nao haver tres grafias da mesma casa. */
+  var ent = fnCampoEntidade(m.entidade);
   var nota = h('input', { class: 'fn-in', value: m.nota || '', placeholder: 'Nota' });
   var regra = h('input', { type: 'checkbox' });
   var padrao = h('input', { class: 'fn-in', value: fnChaveDesc(m.descricao), 'aria-label': 'Texto da regra' });
@@ -880,6 +900,9 @@ function fnPainelMov(p, m, emJanela){
   p.appendChild(fnCampo('Nome', titulo));
   p.appendChild(h('small', { class: 'fn-muted', style: 'display:block;margin:-6px 0 8px' },
     'Em branco fica o texto do extrato. Dando-lhe um nome, é esse que se lê e o do extrato fica por baixo — procura-se pelos dois.'));
+  p.appendChild(fnCampo('Entidade', ent));
+  p.appendChild(h('small', { class: 'fn-muted', style: 'display:block;margin:-6px 0 8px' },
+    'De onde é o movimento: o restaurante, a empresa, quem prestou o serviço. Também se procura por aqui.'));
   p.appendChild(h('div', { class: 'fn-campos' }, [catCampo, fnCampo('Área', sa)]));
   if (m.valor !== 0) p.appendChild(h('div', { class: 'fn-acoes', style: 'margin-top:-4px' }, [
     minhas.length > 1 ? h('small', { class: 'fn-muted' }, 'Repartido: ' + minhas.map(function(x){ return fnCatNome(x.categoria_id, true) + ' ' + fnEur(Math.abs(x.valor)); }).join(' · ')) : null,
@@ -894,7 +917,7 @@ function fnPainelMov(p, m, emJanela){
   p.appendChild(padrao);
   p.appendChild(h('div', { class: 'fn-acoes' }, [fnBtn('Guardar', function(){
     var corpo = { categoria_id: sc.value ? Number(sc.value) : null, context_id: sa.value ? Number(sa.value) : null, nota: nota.value,
-      titulo: titulo.value.trim(), project_id: spj.value ? Number(spj.value) : null, person_ids: spe.valor(),
+      titulo: titulo.value.trim(), entidade: ent.value.trim(), project_id: spj.value ? Number(spj.value) : null, person_ids: spe.valor(),
       aceite: !m.categoria_id && m.ia_categoria_id && String(m.ia_categoria_id) === sc.value };
     if (regra.checked) { corpo.criar_regra = true; corpo.regra_padrao = padrao.value; }
     var mudouCat = corpo.categoria_id && corpo.categoria_id !== m.categoria_id && !corpo.aceite;

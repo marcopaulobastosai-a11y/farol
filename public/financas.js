@@ -155,6 +155,10 @@ var FN_CSS =
   /* A descricao do extrato por baixo do nome dado: mais pequena e em italico,
      para se ver que e a do banco e nao a que se escreveu. */
   '.fn-orig{display:block;font-style:italic;color:var(--faint);font-size:.6875rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}' +
+  /* De onde e o movimento: fica na mesma linha do texto do extrato, mas direito e um pouco mais forte. */
+  '.fn-orig .fn-ent{font-style:normal;color:var(--muted);font-weight:500}' +
+  '.fn-orig .fn-ent::after{content:" · ";font-weight:400;color:var(--faint)}' +
+  '.fn-orig .fn-ent.so::after{content:none}' +
   '.fn-movtab td.r{font-size:.875rem;font-weight:500}.fn-movtab .fn-area{font-size:.75rem;white-space:nowrap;text-overflow:ellipsis}' +
   '.fn-movtab .fn-pill{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block;vertical-align:middle}' +
   '.fn-dq{display:inline-flex;align-items:center;gap:6px;max-width:100%;padding:2px 6px 2px 2px;border-radius:999px;border:1px solid transparent;background:none;font:inherit;font-size:.8125rem;color:var(--ink);cursor:pointer;white-space:nowrap;overflow:hidden}' +
@@ -231,6 +235,7 @@ function fnBtn(txt, fn, cls){ return h('button', { type: 'button', class: 'btn' 
    A descricao do banco nunca se perde - mostra-se por baixo, mais pequena, e
    a procura corre nas duas. */
 function fnMovNome(m){ return (m && String(m.titulo || '').trim()) || (m && m.descricao) || ''; }
+function fnMovEnt(m){ return (m && String(m.entidade || '').trim()) || ''; }
 function fnMovOrig(m){ return m && String(m.titulo || '').trim() && m.descricao !== m.titulo ? m.descricao : null; }
 function fnCard(titulo, direita, corpo, cls){
   var hd = h('header', null, [h('h3', null, titulo)]);
@@ -271,7 +276,7 @@ function fnMudou(){
   /* Uma mudança feita na janela de um movimento fecha-a: a lista por baixo
      volta a ler-se com o que mudou. */
   if (FN.movJanela) { FN.movJanela.fechar(); FN.movJanela = null; }
-  FN.cache = {}; FN.base = null;
+  FN.cache = {}; FN.base = null; FN.ents = null;
   fnRender();
 }
 function fnLer(chave, url){
@@ -513,6 +518,28 @@ function fnJanela(titulo, corpo, botoes, o){
   return { fechar: fechar, ov: ov, mod: mod };
 }
 function fnCampo(rot, ctrl){ return h('label', { class: 'fn-campo' }, [h('span', null, rot), ctrl]); }
+
+/* A caixa da entidade: texto livre, mas com as que ja se usaram a sugerir-se
+   (datalist do proprio browser) para nao ficarem tres grafias da mesma casa.
+   A lista le-se uma vez por sessao e volta a ler-se quando algo muda. */
+function fnEntidades(){
+  if (FN.ents) return Promise.resolve(FN.ents);
+  return apiGestao('/api/financas/entidades').then(function(r){
+    FN.ents = (r && r.entidades) || [];
+    return FN.ents;
+  }, function(){ return []; });
+}
+function fnCampoEntidade(valor, dica){
+  var id = 'fnEntLista';
+  var inp = h('input', { class: 'fn-in', value: valor || '', list: id, placeholder: dica || 'Ex.: Tasty Grill, MEO, SIMAS…', 'aria-label': 'Entidade' });
+  fnEntidades().then(function(es){
+    var dl = document.getElementById(id);
+    if (!dl) { dl = h('datalist', { id: id }); document.body.appendChild(dl); }
+    clear(dl);
+    es.forEach(function(e){ dl.appendChild(h('option', { value: e.nome })); });
+  });
+  return inp;
+}
 function fnErro(e){ fnAviso((e && e.message) || 'Não foi possível.'); return false; }
 
 /* ---------------- gráficos ---------------- */
