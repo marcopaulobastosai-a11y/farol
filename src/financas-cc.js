@@ -185,17 +185,14 @@ async function resumo() {
             COALESCE(SUM(m.valor) FILTER (WHERE NOT m.apagado AND m.origem IN ('tu', 'partilha', 'reembolso')), 0) AS saldo_tu,
             COALESCE(SUM(m.valor) FILTER (WHERE NOT m.apagado AND m.origem IN ('partilha', 'reembolso')), 0) AS saldo_partilhas,
             to_char(MAX(m.data) FILTER (WHERE NOT m.apagado), 'YYYY-MM-DD') AS ultimo,
-            COUNT(m.id) FILTER (WHERE NOT m.apagado) AS n,
-            COALESCE(SUM(m.valor) FILTER (WHERE NOT m.apagado AND m.estado = 'adiantado'), 0) AS por_apresentar,
-            COALESCE(SUM(m.valor) FILTER (WHERE NOT m.apagado AND m.estado IN ('adiantado','apresentado')), 0) AS por_receber
+            COUNT(m.id) FILTER (WHERE NOT m.apagado) AS n
        FROM fin_cc_pessoas p LEFT JOIN fin_cc_mov m ON m.pessoa_id = p.id
       GROUP BY p.id ORDER BY p.ativo DESC, p.nome`);
   const pessoas = ps.map((p) => {
     const x = Object.assign({}, p, {
       saldo: cent(p.saldo), saldo_fora: cent(p.saldo_fora), saldo_sw_lido: cent(p.saldo_sw_lido),
       saldo_splitwise: p.saldo_splitwise == null ? null : cent(p.saldo_splitwise), n: Number(p.n), saldo_tu: cent(p.saldo_tu),
-      saldo_partilhas: cent(p.saldo_partilhas),
-      por_apresentar: cent(p.por_apresentar), por_receber: cent(p.por_receber)
+      saldo_partilhas: cent(p.saldo_partilhas)
     });
     /* O Splitwise e a referencia: se o que se leu despesa a despesa nao bate
        com o saldo que ele da, diz-se - e conta o dele. */
@@ -222,6 +219,26 @@ async function resumo() {
       .map((c) => ({ data: c.data, descricao: c.descricao, valor: cent(c.valor), total: c.total == null ? null : cent(c.total), movimento_id: c.movimento_id }));
     /* Em aberto: ha saldo por acertar. Saldada: ja nao deve nem se lhe deve. */
     p.estado = Math.abs(p.saldo) >= 0.01 ? 'aberta' : 'saldada';
+  });
+  /* Despesas de representacao: o que esta por apresentar e por receber le-se
+     do proprio movimento (serve as pagas do bolso e as do cartao da empresa). */
+  const rep = await all(
+    `SELECT m.repres_empresa_id AS id,
+            (c.empresa_id IS NOT NULL AND c.empresa_id = m.repres_empresa_id) AS cartao,
+            COALESCE(m.repres_estado,'') AS estado, SUM(abs(m.valor)) AS total, COUNT(*)::int AS n,
+            to_char(MIN(m.data),'YYYY-MM-DD') AS primeiro
+       FROM fin_movimentos m LEFT JOIN fin_contas c ON c.id = m.conta_id
+      WHERE m.repres_empresa_id IS NOT NULL GROUP BY 1, 2, 3`);
+  pessoas.forEach((p) => {
+    const meus = rep.filter((r) => r.id === p.id);
+    const soma = (f) => cent(meus.filter(f).reduce((s, r) => s + Number(r.total), 0));
+    p.rep_bolso = soma((r) => !r.cartao);
+    p.rep_cartao = soma((r) => r.cartao);
+    p.por_apresentar = soma((r) => ['adiantado', 'registada', ''].indexOf(r.estado) >= 0);
+    p.por_receber = soma((r) => !r.cartao && ['adiantado', 'apresentado', ''].indexOf(r.estado) >= 0);
+    const velhos = meus.filter((r) => ['adiantado', 'registada', ''].indexOf(r.estado) >= 0 && r.primeiro)
+      .map((r) => r.primeiro).sort();
+    p.por_apresentar_desde = velhos[0] || null;
   });
   const ativos = pessoas.filter((p) => p.ativo);
   const contasCc = await lerContas(pessoas);

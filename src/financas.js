@@ -76,7 +76,7 @@ function chave(s) {
 /* ---------------- dados de base ---------------- */
 async function base() {
   const [contas, cats, ctx] = await Promise.all([
-    all('SELECT id, nome, tipo, instituicao, context_id, pessoal, saldo_inicial, saldo_inicial_em, ativo, sort, nota, identificadores, (mapa IS NOT NULL) AS tem_mapa FROM fin_contas ORDER BY ativo DESC, sort, nome'),
+    all('SELECT id, nome, tipo, instituicao, context_id, pessoal, saldo_inicial, saldo_inicial_em, ativo, sort, nota, identificadores, empresa_id, (mapa IS NOT NULL) AS tem_mapa FROM fin_contas ORDER BY ativo DESC, sort, nome'),
     all('SELECT id, grupo, nome, natureza, fixa, context_id, ativo, sort FROM fin_categorias ORDER BY sort, grupo, nome'),
     all('SELECT id, name, parent_id FROM contexts')
   ]);
@@ -97,6 +97,11 @@ function natureza(m, B) {
   if (c) return c.natureza;
   return Number(m.valor) < 0 ? 'despesa' : 'receita';
 }
+
+/* Os pes de uma despesa de representacao. Pagas pelo cartao da empresa nao
+   tem «reembolsado»: nunca saiu dinheiro do bolso dele, so interessa saber se
+   ja foi entregue. */
+const REPRES_PES = (cartao) => (cartao ? ['registada', 'apresentada'] : ['adiantado', 'apresentado', 'reembolsado']);
 
 /* Os movimentos de uma janela, com o filtro de ambito e de area. */
 async function movimentosEntre(de, ate, f, B) {
@@ -538,6 +543,37 @@ async function resumo(ym, f) {
     }
   }
 
+  /* Despesas de representação por apresentar. Avisa-se sempre, haja ou não
+     tendências ligadas: é dinheiro que se perde por esquecimento, e o que
+     pesa é a idade da mais velha, não o valor. Um aviso por empresa, mesmo
+     quando há das duas formas - é uma ida ao mesmo sítio. */
+  const repAbertas = await all(
+    `SELECT p.nome AS empresa, COUNT(*)::int AS n, SUM(abs(m.valor)) AS total,
+            SUM(abs(m.valor)) FILTER (WHERE c.empresa_id IS NOT NULL AND c.empresa_id = m.repres_empresa_id) AS no_cartao,
+            SUM(abs(m.valor)) FILTER (WHERE c.empresa_id IS NULL OR c.empresa_id <> m.repres_empresa_id) AS do_bolso,
+            to_char(MIN(m.data),'YYYY-MM-DD') AS desde,
+            (CURRENT_DATE - MIN(m.data))::int AS dias
+       FROM fin_movimentos m
+       JOIN fin_cc_pessoas p ON p.id = m.repres_empresa_id
+       LEFT JOIN fin_contas c ON c.id = m.conta_id
+      WHERE m.repres_empresa_id IS NOT NULL AND COALESCE(m.repres_estado,'') IN ('adiantado','registada','')
+      GROUP BY 1`);
+  repAbertas.forEach((r) => {
+    const total = cent(Number(r.total)), cartao = cent(Number(r.no_cartao || 0)), bolso = cent(Number(r.do_bolso || 0));
+    /* Um mês é o ciclo normal de apresentar: a partir daí é esquecimento. */
+    if (r.dias < 30 && total < 150) return;
+    const como = cartao && bolso ? ' — ' + fmt(cartao) + ' no cartão da empresa e ' + fmt(bolso) + ' que adiantaste'
+      : cartao ? ' no cartão da empresa' : ' que adiantaste';
+    tend.push({
+      tipo: 'representacao', nivel: r.dias >= 60 ? 'bad' : 'warn',
+      titulo: fmt(total) + ' por apresentar · ' + r.empresa,
+      texto: r.n + (r.n === 1 ? ' despesa' : ' despesas') + ' de representação' + como +
+        ', a mais antiga de ' + r.desde.split('-').reverse().slice(0, 2).join('/') +
+        ' (há ' + (r.dias >= 60 ? Math.round(r.dias / 30) + ' meses' : r.dias + ' dias') + ').',
+      representacao: true
+    });
+  });
+
   const contagens = (await all(
     `SELECT COUNT(*) FILTER (WHERE categoria_id IS NULL) AS por_cat,
             COUNT(*) FILTER (WHERE categoria_id IS NULL AND ia_categoria_id IS NOT NULL) AS sugestoes
@@ -816,6 +852,7 @@ async function detalharMovimentos(ids, B, sug) {
   if (!ids.length) return [];
   const rows = await all(
     `SELECT m.id, m.conta_id, to_char(m.data,'YYYY-MM-DD') AS data, m.descricao, m.titulo, m.entidade, m.valor, m.saldo, m.categoria_id, m.categoria_fonte,
+            m.repres_empresa_id, m.repres_estado, rep.nome AS repres_empresa, (ct.empresa_id IS NOT NULL AND ct.empresa_id = m.repres_empresa_id) AS repres_cartao,
             m.context_id, m.person_id, m.expense_id, m.ia_categoria_id, m.ia_confianca, m.ia_fonte, m.nota, m.origem,
             m.project_id, pj.name AS projeto,
             m.par_id, pm.conta_id AS par_conta_id, to_char(pm.data,'YYYY-MM-DD') AS par_data,
@@ -842,6 +879,8 @@ async function detalharMovimentos(ids, B, sug) {
                     LEFT JOIN fin_cc_mov ccp2 ON ccp2.parte_id = pt.id AND NOT ccp2.apagado
               WHERE pt.movimento_id = m.id) AS partes
        FROM fin_movimentos m
+       LEFT JOIN fin_cc_pessoas rep ON rep.id = m.repres_empresa_id
+       LEFT JOIN fin_contas ct ON ct.id = m.conta_id
        LEFT JOIN expenses e ON e.id = m.expense_id
        LEFT JOIN fin_cc_mov ccm ON ccm.movimento_id = m.id
        LEFT JOIN fin_cc_pessoas ccp ON ccp.id = ccm.pessoa_id
@@ -1338,16 +1377,16 @@ function instalar(app) {
   });
 
   /* ---- contas ---- */
-  const CAMPOS_CONTA = ['nome', 'tipo', 'instituicao', 'context_id', 'pessoal', 'saldo_inicial', 'saldo_inicial_em', 'ativo', 'sort', 'nota', 'identificadores'];
+  const CAMPOS_CONTA = ['nome', 'tipo', 'instituicao', 'context_id', 'pessoal', 'saldo_inicial', 'saldo_inicial_em', 'ativo', 'sort', 'nota', 'identificadores', 'empresa_id'];
   app.post('/api/financas/contas', async (req, res) => {
     try {
       const b = req.body || {};
       if (!String(b.nome || '').trim()) throw erro(400, 'Falta o nome da conta.');
       const r = (await all(
-        `INSERT INTO fin_contas (nome, tipo, instituicao, context_id, pessoal, saldo_inicial, saldo_inicial_em, nota, identificadores, ativo)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id`,
+        `INSERT INTO fin_contas (nome, tipo, instituicao, context_id, pessoal, saldo_inicial, saldo_inicial_em, nota, identificadores, ativo, empresa_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,
         [b.nome.trim(), b.tipo || 'ordem', b.instituicao || null, b.context_id || null, b.pessoal !== false,
-          cent(b.saldo_inicial || 0), b.saldo_inicial_em || null, b.nota || null, b.identificadores || null, b.ativo !== false]))[0];
+          cent(b.saldo_inicial || 0), b.saldo_inicial_em || null, b.nota || null, b.identificadores || null, b.ativo !== false, b.empresa_id || null]))[0];
       const lig = b.identificadores ? await ligarIdentificadores(await base()) : null;
       res.json({ id: r.id, identificados: lig });
     } catch (e) { falha(res, e, 'a conta'); }
@@ -1458,11 +1497,9 @@ function instalar(app) {
           WHERE abs(e.amount - abs(m.valor)) < 0.006 AND e.spent_on BETWEEN m.data - 12 AND m.data + 6
             AND NOT EXISTS (SELECT 1 FROM fin_movimentos x WHERE x.expense_id = e.id))`);
       if (q.estado === 'divididos') w.push('EXISTS (SELECT 1 FROM fin_mov_partes pt WHERE pt.movimento_id = m.id)');
-      /* Adiantado a uma empresa e ainda nao devolvido. */
-      if (q.estado === 'reembolsar') w.push(`EXISTS (SELECT 1 FROM fin_mov_partes pt
-          JOIN fin_cc_mov cm ON cm.parte_id = pt.id AND NOT cm.apagado
-          JOIN fin_cc_pessoas cp ON cp.id = cm.pessoa_id AND cp.tipo = 'empresa'
-         WHERE pt.movimento_id = m.id AND cm.estado IN ('adiantado','apresentado'))`);
+      /* Despesa de representacao ainda nao fechada. */
+      if (q.estado === 'reembolsar') w.push("m.repres_empresa_id IS NOT NULL AND COALESCE(m.repres_estado,'') NOT IN ('reembolsado','apresentada')");
+      if (q.estado === 'representacao') w.push('m.repres_empresa_id IS NOT NULL');
       if (q.estado === 'reembolsos') w.push('m.valor > 0 AND NOT EXISTS (SELECT 1 FROM fin_cc_mov c WHERE c.movimento_id = m.id)');
       if (q.estado === 'repetidos') w.push(`EXISTS (SELECT 1 FROM fin_movimentos y WHERE y.id <> m.id AND y.conta_id = m.conta_id
           AND y.data = m.data AND y.valor = m.valor AND lower(y.descricao) = lower(m.descricao))`);
@@ -1565,7 +1602,7 @@ function instalar(app) {
         set('categoria_fonte', !cat ? null : (b.aceite ? 'ia-aceite' : (m.ia_categoria_id && m.ia_categoria_id !== Number(cat) ? 'tu-corrigiu' : 'tu')));
         sets.push('categoria_em = now()');
       }
-      ['context_id', 'nota', 'expense_id', 'data', 'descricao', 'titulo', 'entidade', 'project_id', 'para_conta_id'].forEach((k) => { if (b[k] !== undefined) set(k, b[k] === '' ? null : b[k]); });
+      ['context_id', 'nota', 'expense_id', 'data', 'descricao', 'titulo', 'entidade', 'project_id', 'para_conta_id', 'repres_empresa_id', 'repres_estado'].forEach((k) => { if (b[k] !== undefined) set(k, b[k] === '' ? null : b[k]); });
       /* De quem: uma ou varias pessoas (person_id fica com a primeira). */
       if (b.person_ids !== undefined || b.person_id !== undefined) {
         const ps = b.person_ids !== undefined ? [...new Set((b.person_ids || []).map(Number).filter(Boolean))] : (b.person_id ? [Number(b.person_id)] : []);
@@ -1612,6 +1649,8 @@ function instalar(app) {
       /* O nome amigavel: vazio ou null limpa, ficando so a descricao do banco. */
       if (b.titulo !== undefined) { vals.push((b.titulo === null ? '' : String(b.titulo)).trim() || null); sets.push('titulo = $' + vals.length); }
       if (b.entidade !== undefined) { vals.push((b.entidade === null ? '' : String(b.entidade)).trim() || null); sets.push('entidade = $' + vals.length); }
+      if (b.repres_estado !== undefined) { vals.push(b.repres_estado || null); sets.push('repres_estado = $' + vals.length); }
+      if (b.repres_empresa_id !== undefined) { vals.push(b.repres_empresa_id || null); sets.push('repres_empresa_id = $' + vals.length); }
       if (b.categoria_id !== undefined) { vals.push(b.categoria_id || null); sets.push('categoria_id = $' + vals.length, "categoria_fonte = 'tu'", 'categoria_em = now()'); }
       if (b.context_id !== undefined) { vals.push(b.context_id || null); sets.push('context_id = $' + vals.length); }
       if (b.project_id !== undefined) { vals.push(b.project_id || null); sets.push('project_id = $' + vals.length); }
@@ -1885,17 +1924,60 @@ function instalar(app) {
       if (!empresa) throw erro(400, 'Falta a empresa.');
       const ids = (b.ids || []).map(Number).filter(Boolean);
       if (!ids.length) throw erro(400, 'Nenhum movimento escolhido.');
-      const estado = ['adiantado', 'apresentado', 'reembolsado'].indexOf(String(b.estado || '')) >= 0 ? String(b.estado) : 'adiantado';
-      const ms = await all('SELECT id, valor FROM fin_movimentos WHERE id = ANY($1::int[]) AND valor < 0', [ids]);
+      const ms = await all(
+        `SELECT m.id, m.valor, (c.empresa_id IS NOT NULL AND c.empresa_id = $2) AS cartao
+           FROM fin_movimentos m JOIN fin_contas c ON c.id = m.conta_id
+          WHERE m.id = ANY($1::int[]) AND m.valor < 0`, [ids, empresa]);
       if (!ms.length) throw erro(400, 'Só entram pagamentos que saíram da conta.');
-      let feitos = 0;
+      let doBolso = 0, doCartao = 0;
       for (const m of ms) {
-        await cc.dividir(m.id, { outros: [{ pessoa_id: empresa, valor: Math.abs(Number(m.valor)) }],
-          manter_categoria: true, estado: estado, descricao: b.descricao });
-        feitos++;
+        /* Pago pelo cartao da empresa: ela ja pagou, nao ha divida nenhuma -
+           so se regista a quem diz respeito e em que pe esta. Pago do bolso
+           dele: a conta corrente da empresa fica a dever-lhe. */
+        const estado = REPRES_PES(m.cartao).indexOf(String(b.estado || '')) >= 0 ? String(b.estado) : REPRES_PES(m.cartao)[0];
+        if (m.cartao) { doCartao++; }
+        else {
+          await cc.dividir(m.id, { outros: [{ pessoa_id: empresa, valor: Math.abs(Number(m.valor)) }],
+            manter_categoria: true, descricao: b.descricao });
+          doBolso++;
+        }
+        await query('UPDATE fin_movimentos SET repres_empresa_id = $1, repres_estado = $2 WHERE id = $3', [empresa, estado, m.id]);
       }
-      res.json({ feitos, de: ms.length });
-    } catch (e) { falha(res, e, 'as despesas a reembolsar'); }
+      res.json({ feitos: doBolso + doCartao, de: ms.length, bolso: doBolso, cartao: doCartao });
+    } catch (e) { falha(res, e, 'as despesas de representação'); }
+  });
+
+  /* Deixa de ser despesa de representacao: tira a marca e, se tinha divida,
+     desfaz a divisao. */
+  app.post('/api/financas/movimentos/representacao/desfazer', async (req, res) => {
+    try {
+      const ids = ((req.body && req.body.ids) || []).map(Number).filter(Boolean);
+      if (!ids.length) throw erro(400, 'Nenhum movimento escolhido.');
+      for (const id of ids) await cc.desfazerDivisao(id).catch(() => {});
+      const r = await all('UPDATE fin_movimentos SET repres_empresa_id = NULL, repres_estado = NULL WHERE id = ANY($1::int[]) RETURNING id', [ids]);
+      res.json({ feitos: r.length });
+    } catch (e) { falha(res, e, 'as despesas de representação'); }
+  });
+
+  /* O quadro das despesas de representacao: por empresa e por quem pagou. */
+  app.get('/api/financas/representacao', async (req, res) => {
+    try {
+      const v = [], w = ['m.repres_empresa_id IS NOT NULL'];
+      if (req.query.de) { v.push(req.query.de); w.push('m.data >= $' + v.length); }
+      if (req.query.ate) { v.push(req.query.ate); w.push('m.data <= $' + v.length); }
+      const r = await all(
+        `SELECT m.repres_empresa_id AS empresa_id, p.nome AS empresa,
+                (c.empresa_id IS NOT NULL AND c.empresa_id = m.repres_empresa_id) AS cartao,
+                COALESCE(m.repres_estado, '') AS estado,
+                COUNT(*)::int AS n, SUM(abs(m.valor)) AS total,
+                to_char(MIN(m.data),'YYYY-MM-DD') AS primeiro, to_char(MAX(m.data),'YYYY-MM-DD') AS ultimo
+           FROM fin_movimentos m
+           JOIN fin_cc_pessoas p ON p.id = m.repres_empresa_id
+           LEFT JOIN fin_contas c ON c.id = m.conta_id
+          WHERE ${w.join(' AND ')}
+          GROUP BY 1, 2, 3, 4 ORDER BY 2, 3, 4`, v);
+      res.json({ linhas: r.map((x) => Object.assign(x, { total: Number(x.total), cartao: Boolean(x.cartao) })) });
+    } catch (e) { falha(res, e, 'as despesas de representação'); }
   });
 
   /* Dividir a conta: a parte do Marco e a de cada pessoa. */
