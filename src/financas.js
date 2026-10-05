@@ -1980,6 +1980,54 @@ function instalar(app) {
     } catch (e) { falha(res, e, 'as despesas de representação'); }
   });
 
+  /* O dinheiro voltou: um (ou varios) movimentos de credito sao o reembolso
+     que a empresa fez. Cada credito entra como acerto na conta corrente dela
+     e as despesas escolhidas passam a «reembolsado». Fecha-se o ciclo:
+     adiantado -> apresentado -> reembolsado. */
+  app.get('/api/financas/representacao/por-reembolsar', async (req, res) => {
+    try {
+      const empresa = Number(req.query.empresa);
+      if (!empresa) throw erro(400, 'Falta a empresa.');
+      const r = await all(
+        `SELECT m.id, to_char(m.data,'YYYY-MM-DD') AS data, m.descricao, m.titulo, m.entidade, abs(m.valor) AS valor,
+                COALESCE(m.repres_estado, '') AS estado
+           FROM fin_movimentos m
+           JOIN fin_contas c ON c.id = m.conta_id
+          WHERE m.repres_empresa_id = $1 AND m.valor < 0
+            AND COALESCE(m.repres_estado, '') <> 'reembolsado'
+            AND (c.empresa_id IS NULL OR c.empresa_id <> $1)
+          ORDER BY m.data, m.id`, [empresa]);
+      res.json({ despesas: r.map((m) => Object.assign(m, { valor: cent(m.valor) })) });
+    } catch (e) { falha(res, e, 'as despesas de representação'); }
+  });
+
+  app.post('/api/financas/representacao/reembolso', async (req, res) => {
+    try {
+      const b = req.body || {};
+      const empresa = Number(b.empresa_id);
+      if (!empresa) throw erro(400, 'Falta a empresa.');
+      const creditos = (b.creditos || []).map(Number).filter(Boolean);
+      const despesas = (b.despesas || []).map(Number).filter(Boolean);
+      if (!creditos.length) throw erro(400, 'Falta o movimento do reembolso.');
+      if (!despesas.length) throw erro(400, 'Falta dizer que despesas é que este dinheiro paga.');
+      const cs = await all('SELECT id, valor FROM fin_movimentos WHERE id = ANY($1::int[]) AND valor > 0', [creditos]);
+      if (!cs.length) throw erro(400, 'O reembolso tem de ser dinheiro que entrou.');
+      /* O acerto e que faz a conta corrente da empresa descer. Um credito que
+         ja esteja ligado a outra coisa fica como esta. */
+      let acertos = 0;
+      for (const c of cs) {
+        const ja = (await all('SELECT 1 FROM fin_cc_mov WHERE movimento_id = $1 AND NOT apagado', [c.id]))[0];
+        if (ja) continue;
+        await cc.registarAcerto(c.id, { pessoa_id: empresa });
+        acertos++;
+      }
+      const r = await all(
+        `UPDATE fin_movimentos SET repres_estado = 'reembolsado'
+          WHERE id = ANY($1::int[]) AND repres_empresa_id = $2 AND valor < 0 RETURNING id`, [despesas, empresa]);
+      res.json({ feitos: r.length, acertos, total: cent(cs.reduce((t, c) => t + Number(c.valor), 0)) });
+    } catch (e) { falha(res, e, 'o reembolso'); }
+  });
+
   /* Deixa de ser despesa de representacao: tira a marca e, se tinha divida,
      desfaz a divisao. */
   app.post('/api/financas/movimentos/representacao/desfazer', async (req, res) => {

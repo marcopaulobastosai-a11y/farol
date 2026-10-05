@@ -1132,7 +1132,11 @@ async function apagarPartilha(pid) {
    So conta o que e do Farol; o do Splitwise acerta-se la. */
 async function pagoPorParte() {
   const ms = await all(
-    `SELECT m.id, m.pessoa_id, m.conta_id, m.valor, m.parte_id, m.data FROM fin_cc_mov m JOIN fin_cc_pessoas p ON p.id = m.pessoa_id
+    `SELECT m.id, m.pessoa_id, m.conta_id, m.valor, m.parte_id, m.data,
+            (mv.repres_estado = 'reembolsado') AS reembolsada
+       FROM fin_cc_mov m JOIN fin_cc_pessoas p ON p.id = m.pessoa_id
+       LEFT JOIN fin_mov_partes pt ON pt.id = m.parte_id
+       LEFT JOIN fin_movimentos mv ON mv.id = COALESCE(pt.movimento_id, m.movimento_id)
       WHERE NOT m.apagado AND (m.origem IN ('tu', 'partilha', 'reembolso') OR (m.origem = 'banco' AND p.splitwise_id IS NULL))
       ORDER BY m.data, m.id`);
   const porPessoa = {};
@@ -1140,7 +1144,13 @@ async function pagoPorParte() {
   const pago = {};
   Object.values(porPessoa).forEach((lista) => {
     let credito = cent(-lista.filter((m) => m.valor < 0).reduce((t, m) => t + m.valor, 0));
-    lista.filter((m) => m.valor > 0).forEach((m) => {
+    const dividas = lista.filter((m) => m.valor > 0);
+    /* As despesas que ja foram dadas como reembolsadas levam o dinheiro
+       primeiro: foi ele que disse quais e que aquele reembolso pagou, e a
+       empresa nem sempre paga pela ordem das datas. O resto segue a ordem
+       do costume, a mais antiga a frente. */
+    const ordem = dividas.filter((m) => m.reembolsada).concat(dividas.filter((m) => !m.reembolsada));
+    ordem.forEach((m) => {
       const p = Math.min(credito, m.valor);
       credito = cent(credito - p);
       if (m.parte_id) pago[m.parte_id] = cent(p);
