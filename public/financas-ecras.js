@@ -1063,12 +1063,19 @@ function fnPerguntasMov(p, m){
   /* Partilhas e acertos. */
   var outros = (m.partes || []).filter(function(x){ return x.pessoa_id; });
   var tem3 = Boolean(outros.length || m.repres_empresa_id || m.cc_pessoa_id || (m.valor < 0 && m.despesa_splitwise));
-  var resumo3 = m.repres_empresa_id
-      ? fnRepNome(m.repres_estado, m.repres_cartao) + ' · ' + (m.repres_empresa || '')
+  var resumo3 = m.repres_empresa_id ? 'A divisão é da despesa de representação'
     : outros.length ? 'Dividido com ' + outros.map(function(x){ return (x.pessoa || '').split(' ')[0]; }).join(', ')
     : m.cc_pessoa_id ? (m.valor > 0 ? 'Acerto · ' : 'Empréstimo devolvido · ') + m.cc_pessoa
     : m.valor < 0 && m.despesa_splitwise ? 'Dividida no Splitwise' : null;
-  var q3 = fnPergunta(p, { titulo: m.valor < 0 ? 'É partilhado, a reembolsar ou um acerto com alguém?' : 'É alguém a pagar-te (acerto ou reembolso)?', sim: tem3, resumo: resumo3,
+  /* A representação tem pergunta sua: estava escondida dentro da das
+     partilhas e ninguém lá ia dar. Só faz sentido no que sai da conta. */
+  if (m.valor < 0) fnPergunta(p, {
+    titulo: 'É uma despesa de representação?',
+    sim: Boolean(m.repres_empresa_id),
+    resumo: m.repres_empresa_id ? fnRepNome(m.repres_estado, m.repres_cartao) + ' · ' + (m.repres_empresa || '') : null,
+    desenhar: function(c){ fnPainelRepres(c, m); } });
+
+  var q3 = fnPergunta(p, { titulo: m.valor < 0 ? 'É partilhado ou um acerto com alguém?' : 'É alguém a pagar-te (acerto ou reembolso)?', sim: tem3, resumo: resumo3,
     desenhar: function(c){ fnPainelPartilhas(c, m); } });
   if (!tem3 && m.reembolso) fnDica(q3, 'Parece um reembolso de ' + m.reembolso.nome + '.', null, [
     fnBtn('Sim, é', function(){ fnApi('/api/financas/movimentos/' + m.id, 'PATCH', { cc_pessoa_id: m.reembolso.pessoa_id }).then(function(){ fnAviso('Reembolso de ' + m.reembolso.nome + '.'); fnMudou(); }, fnErro); }, 'primary small'),
@@ -1368,13 +1375,10 @@ function fnSemelhantes(m, catId){
   }, function(){});
 }
 
-/* Partilhas e acertos: o que este movimento é entre ti e os outros.
-   Saída: despesa partilhada, paguei por alguém, ou empréstimo que devolvo.
-   Entrada: acerto de contas (alguém a pagar-te o que devia). */
-function fnPainelPartilhas(p, m){
-  var outros = (m.partes || []).filter(function(x){ return x.pessoa_id; });
-  /* Despesa de representação: a caixa diz em que pé está e deixa fazê-la
-     andar sem sair daqui. */
+/* A representação de um movimento: já marcada, diz em que pé está e deixa
+   fazê-la andar; por marcar, pergunta de que empresa é e em que pé — sem
+   abrir janela nenhuma, que era o que fazia ninguém dar com isto. */
+function fnPainelRepres(p, m){
   if (m.repres_empresa_id){
     var pes = fnRepPes(m.repres_cartao);
     var o = pes.filter(function(y){ return y[0] === (m.repres_estado || pes[0][0]); })[0] || pes[0];
@@ -1402,6 +1406,67 @@ function fnPainelPartilhas(p, m){
     }, 'small'));
     cx.appendChild(acoes);
     p.appendChild(cx);
+    cx.appendChild(acoes);
+    p.appendChild(cx);
+    return;
+  }
+  var cx = h('div', { class: 'fn-caixa' }, [h('small', { class: 'fn-muted' }, 'A ler as empresas…')]);
+  p.appendChild(cx);
+  apiGestao('/api/financas/cc').then(function(cc){
+    clear(cx);
+    var empresas = (cc.pessoas || []).filter(function(x){ return x.empresa && x.ativo; });
+    var se = h('select', { class: 'fn-sel' });
+    empresas.forEach(function(e){ se.appendChild(h('option', { value: String(e.id) }, e.nome)); });
+    se.appendChild(h('option', { value: 'nova' }, '+ Nova empresa…'));
+    var nova = h('input', { class: 'fn-in', placeholder: 'Nome da empresa', style: 'display:none;margin-top:6px' });
+    if (!empresas.length) { se.value = 'nova'; nova.style.display = ''; }
+    var st = h('select', { class: 'fn-sel' });
+    var dica = h('small', { class: 'fn-muted', style: 'display:block;margin-top:4px' });
+    /* Quem pagou lê-se da conta: sendo dela, foi o cartão da empresa. */
+    var doCartao = function(){ var c = fnConta(m.conta_id); return Boolean(c && se.value !== 'nova' && Number(c.empresa_id) === Number(se.value)); };
+    var acertar = function(){
+      nova.style.display = se.value === 'nova' ? '' : 'none';
+      var pes = fnRepPes(doCartao());
+      clear(st);
+      pes.forEach(function(o){ st.appendChild(h('option', { value: o[0] }, o[1])); });
+      dica.textContent = pes[0][2] + (doCartao()
+        ? ' Não há nada a receber: o dinheiro nunca saiu do teu bolso.'
+        : ' Saiu do teu bolso: fica na conta corrente da empresa e deixa de contar como gasto teu.');
+    };
+    se.addEventListener('change', function(){ acertar(); if (se.value === 'nova') nova.focus(); });
+    st.addEventListener('change', function(){
+      var d = fnRepPes(doCartao()).filter(function(y){ return y[0] === st.value; })[0];
+      if (d) dica.textContent = d[2];
+    });
+    acertar();
+    var marcar = function(empresaId){
+      return fnApi('/api/financas/movimentos/reembolsar', 'POST', { ids: [m.id], empresa_id: empresaId, estado: st.value })
+        .then(function(){ fnAviso('Despesa de representação.'); fnMudou(); }, fnErro);
+    };
+    cx.appendChild(h('div', { class: 'fn-campos' }, [fnCampo('Empresa', se), fnCampo('Em que pé está', st)]));
+    cx.appendChild(nova);
+    cx.appendChild(dica);
+    cx.appendChild(h('div', { class: 'fn-acoes', style: 'margin-top:8px' }, [fnBtn('Marcar', function(){
+      if (se.value !== 'nova') return marcar(Number(se.value));
+      var n = nova.value.trim();
+      if (!n) { fnAviso('Falta o nome da empresa.'); return; }
+      fnApi('/api/financas/cc/pessoas', 'POST', { nome: n, tipo: 'empresa' })
+        .then(function(r){ return marcar(Number(r.id)); }, fnErro);
+    }, 'primary small')]));
+  }, function(e){ clear(cx); cx.appendChild(h('small', { class: 'fn-muted' }, 'Não foi possível ler as empresas: ' + e.message)); });
+}
+
+/* Partilhas e acertos: o que este movimento é entre ti e os outros.
+   Saída: despesa partilhada, paguei por alguém, ou empréstimo que devolvo.
+   Entrada: acerto de contas (alguém a pagar-te o que devia). */
+function fnPainelPartilhas(p, m){
+  var outros = (m.partes || []).filter(function(x){ return x.pessoa_id; });
+  /* Marcado como representação: a divisão (quando a há) é dela, por isso
+     aqui só se diz isso — o resto trata-se na pergunta da representação. */
+  if (m.repres_empresa_id){
+    p.appendChild(h('div', { class: 'fn-caixa' }, [
+      h('small', { class: 'fn-muted' }, 'Este pagamento está marcado como despesa de representação de ' + (m.repres_empresa || 'uma empresa') +
+        '. A divisão é dela — trata-se na pergunta «É uma despesa de representação?», aqui em cima.')]));
     return;
   }
   if (outros.length){
@@ -1441,7 +1506,6 @@ function fnPainelPartilhas(p, m){
       h('div', { class: 'fn-opcoes', style: 'margin-top:6px' }, [
         opcao('Despesa partilhada', 'Dividir de outra maneira.', function(){ fnPartilhaJanela([m]); }),
         opcao('Paguei por alguém', 'É tudo de outra pessoa.', function(){ fnAmigoJanela(m); }),
-        opcao('Despesa de representação', 'De uma das empresas, do teu bolso ou do cartão dela.', function(){ fnReembolsarJanela([m]); }),
         opcao('Empréstimo', 'Alguém pagou por ti e estás a devolver.', function(){ fnAcertoJanela(m); })])]);
     p.appendChild(outras);
     apiGestao('/api/financas/splitwise/despesas/' + m.despesa_splitwise).then(function(r){
@@ -1467,7 +1531,6 @@ function fnPainelPartilhas(p, m){
     p.appendChild(h('div', { class: 'fn-opcoes' }, [
       opcao('Despesa partilhada', 'Pagaste e divides: tudo teu, 50/50, partes, percentagens… (conta corrente aqui ou no Splitwise).', function(){ fnPartilhaJanela([m]); }),
       opcao('Paguei por alguém', 'É tudo dessa pessoa: fica a dever-to e entra nas contas partilhadas.', function(){ fnAmigoJanela(m); }),
-      opcao('Despesa de representação', 'Almoço de equipa, lavagem, deslocação: dizes de que empresa é. Se foi do teu bolso, ela fica a dever-to; se foi do cartão dela, fica só registada para apresentares.', function(){ fnReembolsarJanela([m]); }),
       opcao('Empréstimo', 'Alguém pagou por ti e estás a devolver.', function(){ fnAcertoJanela(m); })]));
     return;
   }
