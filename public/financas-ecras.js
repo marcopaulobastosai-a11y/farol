@@ -511,10 +511,20 @@ function fnPainelPar(p, m){
   if (m.valor === 0) return;
   if (m.par_id){
     var pc = fnConta(m.par_conta_id);
-    p.appendChild(h('div', { class: 'fn-caixa melhor' }, [
+    var outros = m.par_outros || [];
+    var cxl = h('div', { class: 'fn-caixa melhor' }, [
       h('b', null, m.valor < 0 ? 'Saiu desta conta para ' + (pc ? pc.nome : 'outra conta') : 'Entrou nesta conta vindo de ' + (pc ? pc.nome : 'outra conta')),
-      h('small', { class: 'fn-muted' }, 'O outro lado foi a ' + fnData(m.par_data) + '. Não conta como despesa nem como receita.'),
-      h('div', { class: 'fn-acoes' }, [fnBtn('Desligar', function(){ fnApi('/api/financas/movimentos/' + m.id + '/par', 'DELETE').then(function(){ fnMudou(); }, fnErro); }, 'small')])]));
+      h('small', { class: 'fn-muted' }, outros.length > 1
+        ? 'Esta transferência são ' + (outros.length + 1) + ' movimentos — chegou repartida. Não conta como despesa nem como receita.'
+        : 'O outro lado foi a ' + fnData(m.par_data) + '. Não conta como despesa nem como receita.')]);
+    /* Com mais de dois, «o outro lado» nao chega: listam-se todos. */
+    if (outros.length > 1) outros.forEach(function(o){
+      cxl.appendChild(h('small', { class: 'fn-muted', style: 'display:block' },
+        '· ' + fnData(o.data) + ' · ' + ((fnConta(o.conta_id) || {}).nome || 'outra conta') + ' · ' + fnEur(o.valor, true)));
+    });
+    cxl.appendChild(h('div', { class: 'fn-acoes' }, [fnBtn(outros.length > 1 ? 'Desligar todos' : 'Desligar', function(){
+      fnApi('/api/financas/movimentos/' + m.id + '/par', 'DELETE').then(function(){ fnMudou(); }, fnErro); }, 'small')]));
+    p.appendChild(cxl);
     return;
   }
   /* A conta do outro lado, quando o movimento de lá não está no Farol (o
@@ -530,6 +540,9 @@ function fnPainelPar(p, m){
     }, 'small')])]));
   var cx = h('div', { class: 'fn-lista' }, [h('p', { class: 'fn-nota' }, 'A procurar o outro lado…')]);
   p.appendChild(cx);
+  /* Quando o outro lado nao e um movimento so: monta-se a mao. */
+  p.appendChild(h('div', { class: 'fn-acoes', style: 'margin-top:4px' }, [
+    fnBtn('O outro lado são vários movimentos…', function(){ fnParGrupoJanela(m); }, 'small')]));
   apiGestao('/api/financas/movimentos/' + m.id + '/pares').then(function(r){
     clear(cx);
     if (!r.pares.length){ if (cx.parentNode) cx.parentNode.removeChild(cx); return; }
@@ -544,6 +557,63 @@ function fnPainelPar(p, m){
     });
   }, function(){ clear(cx); });
 }
+/* Uma transferência que chegou repartida: um pagamento de 250 € que entra em
+ * duas parcelas de 125 €, ou duas saídas que do outro lado são uma entrada só.
+ *
+ * Aqui escolhem-se à mão os movimentos do outro lado. O que tem de bater é a
+ * soma — o botão só acende quando as contas fecham, porque meia transferência
+ * ligada é pior do que nenhuma. */
+function fnParGrupoJanela(m){
+  var alvo = Number(m.valor);
+  var marc = {}, cands = [];
+  var lista = h('div', { style: 'max-height:44vh;overflow:auto;margin-top:6px' });
+  var soma = h('p', { class: 'fn-nota' });
+  var guardar = null;
+
+  var contar = function(){
+    var t = cands.filter(function(c){ return marc[c.id]; }).reduce(function(a, c){ return a + Number(c.valor); }, 0);
+    var dif = Math.round((alvo + t) * 100) / 100;
+    var fecha = Math.abs(dif) < 0.005 && t !== 0;
+    soma.textContent = (alvo < 0 ? 'Saíram ' : 'Entraram ') + fnEur(Math.abs(alvo)) + ' · do outro lado ' + fnEur(Math.abs(t)) +
+      (fecha ? ' — as contas fecham.'
+       : t === 0 ? ' — escolhe o outro lado.'
+       : ' — ' + (dif * (alvo < 0 ? 1 : -1) > 0 ? 'sobram ' : 'faltam ') + fnEur(Math.abs(dif)) + '.');
+    if (guardar) guardar.disabled = !fecha;
+  };
+  var desenhar = function(){
+    clear(lista);
+    if (!cands.length) { lista.appendChild(h('p', { class: 'fn-nota' }, 'Não há movimentos do outro lado por estes dias.')); contar(); return; }
+    cands.forEach(function(c){
+      var cx = h('input', { type: 'checkbox' });
+      cx.checked = Boolean(marc[c.id]);
+      cx.addEventListener('change', function(){ marc[c.id] = cx.checked; contar(); });
+      lista.appendChild(h('label', { class: 'fn-check', style: 'display:flex;gap:8px;align-items:baseline;padding:3px 0' }, [cx,
+        h('span', null, [h('b', null, fnEur(c.valor, true)), ' · ' + fnData(c.data) + ' · ' + c.conta + ' · ' + (c.titulo || c.descricao || '')])]));
+    });
+    contar();
+  };
+
+  var j = fnJanela('Ligar a mais do que um movimento', [
+    h('p', { class: 'fn-nota' }, fnMovNome(m) + ' · ' + fnData(m.data) + ' · ' + fnEur(alvo, true) +
+      '. Marca os movimentos das outras contas que, somados, fazem este. Serve para quando o dinheiro vem ou vai repartido.'),
+    soma, lista
+  ], [{ txt: 'Ligar', pri: true, fn: function(){
+    var ids = cands.filter(function(c){ return marc[c.id]; }).map(function(c){ return c.id; });
+    if (!ids.length) { fnAviso('Não escolheste nenhum.'); return false; }
+    return fnApi('/api/financas/pares', 'POST', { ids: ids.concat([m.id]) }).then(function(r){
+      fnAviso((r.ligados || ids.length + 1) + ' movimentos numa transferência só.'); fnMudou();
+    }, fnErro);
+  } }]);
+  /* O botao fica apagado ate as contas fecharem. */
+  guardar = j && j.ov ? j.ov.querySelector('.acoes .btn.primary') : null;
+  if (guardar) guardar.disabled = true;
+
+  clear(lista); lista.appendChild(h('p', { class: 'fn-nota' }, 'A procurar…'));
+  apiGestao('/api/financas/movimentos/' + m.id + '/par-candidatos').then(function(r){
+    cands = (r && r.candidatos) || []; desenhar();
+  }, function(){ clear(lista); lista.appendChild(h('p', { class: 'fn-nota' }, 'Não deu para procurar.')); });
+}
+
 /* Aviso por cima da lista: transferências que parecem ir de uma conta tua
    para outra e ainda não estão ligadas. Lê-se uma vez (fica na cache). */
 function fnAvisoPares(zona){
