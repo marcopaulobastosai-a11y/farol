@@ -111,6 +111,8 @@ function fnPeriodoMov(){
   if (p === 'mes') return { de: FN.mes + '-01', ate: fnFimMes(FN.mes) };
   if (p === 'm3') return { de: fnSomaMes(FN.mes, -2) + '-01', ate: fnFimMes(FN.mes) };
   if (p === 'm12') return { de: fnSomaMes(FN.mes, -11) + '-01', ate: fnFimMes(FN.mes) };
+  /* Entre duas datas à escolha. Com só uma posta, vale como «desde» ou «até». */
+  if (p === 'datas') return { de: FN.mov.de || '', ate: FN.mov.ate || '' };
   return { de: '', ate: '' };
 }
 function fn_financas_movimentos(corpo){
@@ -128,7 +130,7 @@ function fn_financas_movimentos(corpo){
   /* As duas linhas de filtros ficam juntas numa caixa só, para poderem ficar
      presas por baixo dos separadores quando a página ainda rola. */
   var presa = h('div', { class: 'fn-presa' });
-  fnBarraFiltros(presa, FN.mov.periodo !== 'tudo', [fnBtn('Importar extrato', function(){ fnImportar(); }), fnBtn('+ Movimento', function(){ fnNovoMovimento(); }, 'primary')], qi);
+  fnBarraFiltros(presa, !fnSemMes(FN.mov.periodo), [fnBtn('Importar extrato', function(){ fnImportar(); }), fnBtn('+ Movimento', function(){ fnNovoMovimento(); }, 'primary')], qi);
   var mudar = function(){ FN.mov.sel = {}; FN.mov.mostrar = 0; desenharFiltros(); fnMovLista(zona); };
   var f = h('div', { class: 'fn-barra' });
   var desenharFiltros = function(){
@@ -152,11 +154,26 @@ function fn_financas_movimentos(corpo){
     sc.addEventListener('change', function(){ FN.mov.categoria = sc.value; mudar(); });
     f.appendChild(sc);
     var sp = h('select', { class: 'fn-sel', 'aria-label': 'Período' });
-    [['mes','O mês'],['m3','3 meses'],['m12','12 meses'],['tudo','Tudo']].forEach(function(o){ sp.appendChild(h('option', { value: o[0] }, o[1])); });
-    /* O período «tudo» esconde o mês na barra de cima: aí redesenha-se tudo. */
+    [['mes','O mês'],['m3','3 meses'],['m12','12 meses'],['datas','Entre datas…'],['tudo','Tudo']].forEach(function(o){ sp.appendChild(h('option', { value: o[0] }, o[1])); });
+    /* «Tudo» e «Entre datas» escondem o mês na barra de cima: aí redesenha-se tudo. */
     sp.value = FN.mov.periodo; sp.addEventListener('change', function(){ var antes = FN.mov.periodo; FN.mov.periodo = sp.value; FN.mov.sel = {}; FN.mov.mostrar = 0;
-      if ((antes === 'tudo') !== (sp.value === 'tudo')) fnRender('financas'); else mudar(); });
+      if (fnSemMes(antes) !== fnSemMes(sp.value)) fnRender('financas'); else mudar(); });
     f.appendChild(sp);
+    if (FN.mov.periodo === 'datas'){
+      /* Uma data só também serve: a de início vale como «desde», a de fim como «até». */
+      var mudouData = null;
+      var pordata = function(qual, inp){
+        return function(){ clearTimeout(mudouData); mudouData = setTimeout(function(){
+          if (FN.mov[qual] === inp.value) return;
+          FN.mov[qual] = inp.value; FN.mov.sel = {}; FN.mov.mostrar = 0; fnMovLista(zona); }, 250); };
+      };
+      var d1 = h('input', { class: 'fn-sel', type: 'date', value: FN.mov.de || '', 'aria-label': 'De', title: 'De' });
+      var d2 = h('input', { class: 'fn-sel', type: 'date', value: FN.mov.ate || '', 'aria-label': 'Até', title: 'Até' });
+      d1.addEventListener('change', pordata('de', d1));
+      d2.addEventListener('change', pordata('ate', d2));
+      f.appendChild(h('span', { class: 'fn-datas' }, [h('span', { class: 'fn-muted' }, 'de'), d1, h('span', { class: 'fn-muted' }, 'a'), d2,
+        fnBtn('×', function(){ FN.mov.de = ''; FN.mov.ate = ''; mudar(); }, 'small')]));
+    }
     if (FN.mov.pessoa) f.appendChild(h('span', { class: 'fn-pill tr', style: 'display:inline-flex;align-items:center;gap:6px;padding:4px 10px' }, [
       'Pessoa: ' + (fnPessoaNome(FN.mov.pessoa) || FN.mov.pessoa),
       h('button', { type: 'button', class: 'btn small', 'aria-label': 'Tirar o filtro da pessoa', style: 'padding:0 6px;min-height:0', onclick: function(){ FN.mov.pessoa = ''; mudar(); } }, '×')]));
@@ -391,9 +408,9 @@ function fnMovDesenhar(zona, d, qs){
     var b2 = fnBtn('Mostrar todos', function(){ pedir(falta, b2); }, 'small');
     maisZona.appendChild(b1); maisZona.appendChild(b2);
   };
-  var caixa = h('div', { class: 'fn-scroll' }, [h('table', { class: 'fn-tab fn-movtab', style: 'min-width:1230px' }, [
-    h('colgroup', null, [h('col', { style: 'width:30px' }), h('col', { style: 'width:62px' }), h('col', { style: 'width:140px' }), h('col'), h('col', { style: 'width:118px' }), h('col', { style: 'width:104px' }), h('col', { style: 'width:240px' }), h('col', { style: 'width:120px' }), h('col', { style: 'width:140px' }), h('col', { style: 'width:160px' })]),
-    h('thead', null, [h('tr', null, [h('th', null, [todos]), h('th', null, 'Data'), h('th', null, 'Conta'), h('th', null, 'Descrição'), h('th', { class: 'r' }, 'Valor'), h('th', { class: 'r' }, 'Saldo'), h('th', null, 'Categoria'), h('th', null, 'Área'), h('th', null, 'De quem'), h('th', null, 'Ligado a')])]),
+  var caixa = h('div', { class: 'fn-scroll' }, [h('table', { class: 'fn-tab fn-movtab', style: 'min-width:1370px' }, [
+    h('colgroup', null, [h('col', { style: 'width:30px' }), h('col', { style: 'width:62px' }), h('col', { style: 'width:140px' }), h('col'), h('col', { style: 'width:140px' }), h('col', { style: 'width:118px' }), h('col', { style: 'width:104px' }), h('col', { style: 'width:240px' }), h('col', { style: 'width:120px' }), h('col', { style: 'width:140px' }), h('col', { style: 'width:160px' })]),
+    h('thead', null, [h('tr', null, [h('th', null, [todos]), h('th', null, 'Data'), h('th', null, 'Conta'), h('th', null, 'Descrição'), h('th', null, 'Entidade'), h('th', { class: 'r' }, 'Valor'), h('th', { class: 'r' }, 'Saldo'), h('th', null, 'Categoria'), h('th', null, 'Área'), h('th', null, 'De quem'), h('th', null, 'Ligado a')])]),
     tb])]);
   cartao.appendChild(caixa);
   cartao.appendChild(maisZona);
@@ -639,11 +656,9 @@ function fnLinhaMov(m, aoMarcar){
     h('td', { class: 'fn-n', style: 'font-size:.75rem;white-space:nowrap' }, fnData(m.data)),
     h('td', { title: conta ? conta.nome : '', style: 'font-size:.75rem;line-height:1.25' }, conta ? conta.nome : h('span', { class: 'fn-muted' }, '—')),
     h('td', { style: 'min-width:0' }, [h('span', { class: 'd', title: fnMovNome(m) }, fnMovNome(m)),
-      (fnMovEnt(m) || fnMovOrig(m)) ? h('small', { class: 'fn-orig', title: [fnMovEnt(m), fnMovOrig(m)].filter(Boolean).join(' · ') }, [
-        /* Sem nome proprio, o texto do extrato ja esta em cima: aqui fica so
-           a entidade, para nao se ler duas vezes a mesma coisa. */
-        fnMovEnt(m) ? h('span', { class: 'fn-ent' + (fnMovOrig(m) ? '' : ' so') }, fnMovEnt(m)) : null, fnMovOrig(m) || '']) : null,
+      fnMovOrig(m) ? h('small', { class: 'fn-orig', title: fnMovOrig(m) }, fnMovOrig(m)) : null,
       m.categoria_fonte === 'regra' ? h('small', { class: 'd2' }, 'categoria por regra') : null]),
+    h('td', { title: fnMovEnt(m) }, fnMovEnt(m) ? h('span', { class: 'fn-ent' }, fnMovEnt(m)) : h('span', { class: 'fn-muted' }, '—')),
     h('td', { class: 'r ' + (m.valor > 0 ? 'fn-good' : '') }, [fnEur(m.valor, true), fnMinhaParte(m)]),
     h('td', { class: 'r fn-saldo' + (m.saldo_calculado ? ' calc' : ''), title: m.saldo == null ? '' : m.saldo_calculado ? 'Saldo calculado a partir dos saldos conhecidos da conta' : 'Saldo do extrato' }, m.saldo == null ? '—' : fnEur(m.saldo)),
     h('td', null, [cat]),

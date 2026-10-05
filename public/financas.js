@@ -19,7 +19,7 @@ var FN = {
   aba: { financas: 'resumo', patrimonio: 'visao' },
   mes: null, ambito: 'tudo', area: '', empresas: false,
   base: null, cache: {},
-  mov: { estado: '', sinal: '', conta: '', categoria: '', periodo: 'mes', q: '', sel: {}, aberto: null },
+  mov: { estado: '', sinal: '', conta: '', categoria: '', periodo: 'mes', de: '', ate: '', q: '', sel: {}, aberto: null },
   orcVista: 'mes', catNatureza: 'despesa', ccAberta: null
 };
 (function(){
@@ -155,10 +155,10 @@ var FN_CSS =
   /* A descricao do extrato por baixo do nome dado: mais pequena e em italico,
      para se ver que e a do banco e nao a que se escreveu. */
   '.fn-orig{display:block;font-style:italic;color:var(--faint);font-size:.6875rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}' +
-  /* De onde e o movimento: fica na mesma linha do texto do extrato, mas direito e um pouco mais forte. */
-  '.fn-orig .fn-ent{font-style:normal;color:var(--muted);font-weight:500}' +
-  '.fn-orig .fn-ent::after{content:" · ";font-weight:400;color:var(--faint)}' +
-  '.fn-orig .fn-ent.so::after{content:none}' +
+  /* De onde e o movimento: tem coluna propria no quadro. */
+  '.fn-movtab .fn-ent{font-size:.75rem;color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block}' +
+  '.fn-datas{display:inline-flex;align-items:center;gap:6px;font-size:.8125rem}' +
+  '.fn-datas input{min-width:9.5rem}' +
   '.fn-movtab td.r{font-size:.875rem;font-weight:500}.fn-movtab .fn-area{font-size:.75rem;white-space:nowrap;text-overflow:ellipsis}' +
   '.fn-movtab .fn-pill{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block;vertical-align:middle}' +
   '.fn-dq{display:inline-flex;align-items:center;gap:6px;max-width:100%;padding:2px 6px 2px 2px;border-radius:999px;border:1px solid transparent;background:none;font:inherit;font-size:.8125rem;color:var(--ink);cursor:pointer;white-space:nowrap;overflow:hidden}' +
@@ -518,6 +518,8 @@ function fnJanela(titulo, corpo, botoes, o){
   return { fechar: fechar, ov: ov, mod: mod };
 }
 function fnCampo(rot, ctrl){ return h('label', { class: 'fn-campo' }, [h('span', null, rot), ctrl]); }
+/* Periodos que nao sao o mes: a barra de cima deixa de mostrar o mes. */
+function fnSemMes(p){ return p === 'tudo' || p === 'datas'; }
 
 /* A caixa da entidade: texto livre, mas com as que ja se usaram a sugerir-se
    (datalist do proprio browser) para nao ficarem tres grafias da mesma casa.
