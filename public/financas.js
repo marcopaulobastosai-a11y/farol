@@ -97,7 +97,9 @@ var FN_CSS =
   /* Em ecras baixos a pagina ainda rola um pouco: os separadores e os
      filtros ficam presos por cima, para nunca saírem da vista. */
   '.fn-presas .fn-abas{position:sticky;top:var(--fn-abas-topo,0px);z-index:5;background:var(--ground)}' +
-  '.fn-presa{position:sticky;top:var(--fn-presa-topo,0px);z-index:4;background:var(--ground);padding:2px 0 6px}' +
+  '.fn-presa{position:sticky;top:var(--fn-presa-topo,0px);z-index:4;background:var(--ground);padding:2px 0 8px}' +
+  /* As duas linhas precisam de ar entre si para se lerem como duas. */
+  '.fn-presa > .fn-barra + .fn-barra{margin-top:10px}' +
   '.fn-banner{display:flex;align-items:center;gap:12px;flex-wrap:wrap;border:1px solid var(--accent);background:var(--accent-soft);border-radius:var(--radius);padding:10px 14px}' +
   '.fn-banner .g{flex:1;min-width:220px}' +
   '.fn-vazio{padding:28px 18px;text-align:center;color:var(--muted);display:flex;flex-direction:column;gap:10px;align-items:center}' +

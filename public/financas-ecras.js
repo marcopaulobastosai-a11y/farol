@@ -166,6 +166,9 @@ function fn_financas_movimentos(corpo){
     if (FN.mov.categoria) sc.value = FN.mov.categoria;
     sc.addEventListener('change', function(){ FN.mov.categoria = sc.value; mudar(); });
     f.appendChild(sc);
+    /* O tempo fica todo junto: o mês a que se está, depois o período e, sendo
+       «Entre datas», as duas pontas. */
+    if (!fnSemMes(FN.mov.periodo)) f.appendChild(fnPassoMes());
     var sp = h('select', { class: 'fn-sel', 'aria-label': 'Período' });
     [['mes','O mês'],['m3','3 meses'],['m12','12 meses'],['datas','Entre datas…'],['tudo','Tudo']].forEach(function(o){ sp.appendChild(h('option', { value: o[0] }, o[1])); });
     /* «Tudo» e «Entre datas» escondem o mês na barra de cima: aí redesenha-se tudo. */
@@ -194,7 +197,6 @@ function fn_financas_movimentos(corpo){
       'Projeto: ' + (fnProjetoNome(FN.mov.projeto) || FN.mov.projeto),
       h('button', { type: 'button', class: 'btn small', 'aria-label': 'Tirar o filtro do projeto', style: 'padding:0 6px;min-height:0', onclick: function(){ FN.mov.projeto = ''; mudar(); } }, '×')]));
     f.appendChild(h('span', { class: 'fn-esp' }));
-    if (!fnSemMes(FN.mov.periodo)) f.appendChild(fnPassoMes());
     f.appendChild(fnBtn('Importar extrato', function(){ fnImportar(); }));
     f.appendChild(fnBtn('+ Movimento', function(){ fnNovoMovimento(); }, 'primary'));
   };
