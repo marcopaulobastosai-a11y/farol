@@ -166,6 +166,25 @@ function fn_financas_movimentos(corpo){
     if (FN.mov.categoria) sc.value = FN.mov.categoria;
     sc.addEventListener('change', function(){ FN.mov.categoria = sc.value; mudar(); });
     f.appendChild(sc);
+    /* Credor ou devedor: tudo o que liga o movimento a uma conta corrente — a
+       parte numa conta dividida, o acerto que a saldou, ou a empresa de uma
+       despesa de representação. É por aqui que se vê tudo o que é do CA. */
+    var scc = h('select', { class: 'fn-sel', 'aria-label': 'Credor ou devedor' }, [h('option', { value: '' }, 'Com quem — todos')]);
+    scc.value = FN.mov.cc || '';
+    scc.addEventListener('change', function(){ FN.mov.cc = scc.value; mudar(); });
+    f.appendChild(scc);
+    fnCcNomes().then(function(ns){
+      if (!scc.isConnected) return;
+      var emp = ns.filter(function(x){ return x.empresa; }), pes = ns.filter(function(x){ return !x.empresa; });
+      var junta = function(rot, lista){
+        if (!lista.length) return;
+        var g = h('optgroup', { label: rot });
+        lista.forEach(function(x){ g.appendChild(h('option', { value: String(x.id) }, x.nome)); });
+        scc.appendChild(g);
+      };
+      junta('Empresas', emp); junta('Pessoas', pes);
+      scc.value = FN.mov.cc || '';
+    });
     /* O tempo fica todo junto: o mês a que se está, depois o período e, sendo
        «Entre datas», as duas pontas. */
     if (!fnSemMes(FN.mov.periodo)) f.appendChild(fnPassoMes());
@@ -287,7 +306,7 @@ function fnTopos(){
 var FN_MOV_PAG = 200;
 function fnMovQs(){
   var per = fnPeriodoMov();
-  return fnQs({ id: FN.mov.so || '', estado: FN.mov.estado, sinal: FN.mov.sinal || '', conta: FN.mov.conta, categoria: FN.mov.categoria, projeto: FN.mov.projeto || '', pessoa: FN.mov.pessoa || '', q: FN.mov.q, de: per.de, ate: per.ate, ambito: FN.ambito, area: FN.area });
+  return fnQs({ id: FN.mov.so || '', estado: FN.mov.estado, sinal: FN.mov.sinal || '', cc_pessoa: FN.mov.cc || '', conta: FN.mov.conta, categoria: FN.mov.categoria, projeto: FN.mov.projeto || '', pessoa: FN.mov.pessoa || '', q: FN.mov.q, de: per.de, ate: per.ate, ambito: FN.ambito, area: FN.area });
 }
 /* A lista dos projetos, para pôr um movimento num (o casamento, a casa nova).
    Os programas ficam de fora: guardam projetos, não movimentos. */

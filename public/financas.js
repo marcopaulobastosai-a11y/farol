@@ -19,7 +19,7 @@ var FN = {
   aba: { financas: 'resumo', patrimonio: 'visao' },
   mes: null, ambito: 'tudo', area: '', empresas: false,
   base: null, cache: {},
-  mov: { estado: '', sinal: '', conta: '', categoria: '', periodo: 'mes', de: '', ate: '', q: '', so: '', sel: {}, aberto: null },
+  mov: { estado: '', sinal: '', conta: '', categoria: '', periodo: 'mes', de: '', ate: '', q: '', so: '', cc: '', sel: {}, aberto: null },
   orcVista: 'mes', catNatureza: 'despesa', ccAberta: null
 };
 (function(){
@@ -278,7 +278,7 @@ function fnMudou(){
   /* Uma mudança feita na janela de um movimento fecha-a: a lista por baixo
      volta a ler-se com o que mudou. */
   if (FN.movJanela) { FN.movJanela.fechar(); FN.movJanela = null; }
-  FN.cache = {}; FN.base = null; FN.ents = null;
+  FN.cache = {}; FN.base = null; FN.ents = null; FN.ccNomes = null;
   fnRender();
 }
 function fnLer(chave, url){
@@ -526,6 +526,17 @@ function fnSemMes(p){ return p === 'tudo' || p === 'datas'; }
 /* A caixa da entidade: texto livre, mas com as que ja se usaram a sugerir-se
    (datalist do proprio browser) para nao ficarem tres grafias da mesma casa.
    A lista le-se uma vez por sessao e volta a ler-se quando algo muda. */
+/* As contas correntes (pessoas e empresas), para o filtro dos movimentos.
+   Lê-se uma vez por sessão e volta a ler-se quando algo muda. */
+function fnCcNomes(){
+  if (FN.ccNomes) return Promise.resolve(FN.ccNomes);
+  return apiGestao('/api/financas/cc').then(function(r){
+    FN.ccNomes = (r.pessoas || []).filter(function(p){ return p.ativo; })
+      .map(function(p){ return { id: p.id, nome: p.nome, empresa: Boolean(p.empresa), saldo: p.saldo }; })
+      .sort(function(a, b){ return (b.empresa ? 1 : 0) - (a.empresa ? 1 : 0) || a.nome.localeCompare(b.nome); });
+    return FN.ccNomes;
+  }, function(){ return []; });
+}
 function fnEntidades(){
   if (FN.ents) return Promise.resolve(FN.ents);
   return apiGestao('/api/financas/entidades').then(function(r){

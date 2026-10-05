@@ -505,8 +505,10 @@ function fn_financas_partilhadas(corpo){
     var quem = {};
     ps.forEach(function(p){ p.linhas.forEach(function(l){ if (l.pessoa_id) quem[l.pessoa_id] = l.nome; }); });
     if (FN.ptQuem && !quem[FN.ptQuem]) FN.ptQuem = '';
+    var pePt = function(p){ return p.representacao ? (p.representacao.estado || 'adiantado') : ''; };
     var vis = ps.filter(function(p){ return (FN.ptEstado === 'todas' || p.estado === FN.ptEstado) &&
       (!FN.ptQuem || p.linhas.some(function(l){ return String(l.pessoa_id) === String(FN.ptQuem); })) &&
+      (!FN.ptPe || (FN.ptPe === 'nenhuma' ? !p.representacao : pePt(p) === FN.ptPe)) &&
       (!q || (p.descricao + ' ' + p.linhas.map(function(l){ return l.nome; }).join(' ')).toLowerCase().indexOf(q) >= 0); });
     var sq = h('select', { class: 'fn-sel', 'aria-label': 'Com quem' }, [h('option', { value: '' }, 'Com toda a gente')]);
     Object.keys(quem).sort(function(a, b){ return quem[a].localeCompare(quem[b]); }).forEach(function(id){
@@ -515,11 +517,23 @@ function fn_financas_partilhadas(corpo){
     });
     sq.value = FN.ptQuem || '';
     sq.addEventListener('change', function(){ FN.ptQuem = sq.value; fnRender('financas'); });
+    /* Em que pé está a despesa de representação: é por aqui que se vê o que
+       já foi apresentado e o que já voltou. */
+    var conta = function(k){ return ps.filter(function(p){ return k === 'nenhuma' ? !p.representacao : pePt(p) === k; }).length; };
+    var sp = h('select', { class: 'fn-sel', 'aria-label': 'Representação' }, [h('option', { value: '' }, 'Em qualquer pé')]);
+    [['adiantado','Adiantado'],['registada','Registada'],['apresentado','Apresentado'],['apresentada','Apresentada'],
+     ['reembolsado','Reembolsado'],['nenhuma','Não é representação']].forEach(function(o){
+      var n = conta(o[0]);
+      if (n) sp.appendChild(h('option', { value: o[0] }, o[1] + ' · ' + n));
+    });
+    if (FN.ptPe && ![].slice.call(sp.options).some(function(o){ return o.value === FN.ptPe; })) FN.ptPe = '';
+    sp.value = FN.ptPe || '';
+    sp.addEventListener('change', function(){ FN.ptPe = sp.value; fnRender('financas'); });
     var procura = h('input', { class: 'fn-in', type: 'search', placeholder: 'Procurar descrição ou pessoa', value: FN.ptQ || '', style: 'max-width:280px' });
     procura.addEventListener('input', function(){ FN.ptQ = procura.value; clearTimeout(FN.ptT); FN.ptT = setTimeout(function(){ fnRender('financas'); setTimeout(function(){ var i = document.querySelector('#fnc-financas input[type=search]'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } }, 0); }, 250); });
     corpo.appendChild(h('div', { class: 'fn-barra' }, [
       fnSegFiltro('ptEstado', [['aberta', 'Por receber'], ['saldada', 'Saldadas'], ['todas', 'Todas']], function(k){ return ps.filter(function(p){ return k === 'todas' || p.estado === k; }).length; }),
-      sq, procura, h('span', { class: 'fn-esp' }),
+      sq, sp, procura, h('span', { class: 'fn-esp' }),
       h('span', { class: 'fn-nota' }, 'Nasce de um pagamento: em Movimentos, abre-o e carrega em «Partilhar a conta…», ou escolhe vários e «Partilhar…».')]));
     /* Com alguém escolhido, os números passam a ser os dele: é o que se quer
        saber («quanto tenho com o Crédito Agrícola»). */
@@ -547,11 +561,20 @@ function fn_financas_partilhadas(corpo){
         h('td', { class: 'r' }, fnEur(p.total)),
         h('td', { class: 'r fn-muted' }, fnEur(p.minha)),
         h('td', null, p.linhas.map(function(l){ return fnPillLinha(l); })),
-        h('td', null, h('span', { class: 'fn-pill ' + (p.estado === 'aberta' ? 'warn' : 'good') }, p.estado === 'aberta' ? 'falta ' + fnEur(p.a_receber) : 'saldada'))
+        h('td', null, p.representacao
+          ? h('span', { class: 'fn-pill ' + fnRepCor(p.representacao.estado),
+              title: 'Despesa de representação de ' + (p.representacao.empresa || '') + ' · ' + (p.representacao.cartao ? 'cartão da empresa' : 'do teu bolso') },
+            fnRepNome(p.representacao.estado, p.representacao.cartao))
+          : h('span', { class: 'fn-muted', style: 'font-size:.75rem' }, '—')),
+        h('td', null, [h('span', { class: 'fn-pill ' + (p.estado === 'aberta' ? 'warn' : 'good') }, p.estado === 'aberta' ? 'falta ' + fnEur(p.a_receber) : 'saldada'),
+          /* Dizer que já foi reembolsada é uma coisa; ligar a entrada que a
+             saldou é outra. Enquanto não se ligar, diz-se o que falta fazer. */
+          p.representacao && p.representacao.estado === 'reembolsado' && p.estado === 'aberta'
+            ? h('small', { class: 'fn-muted', style: 'display:block' }, 'dizes que já recebeste — falta ligar a entrada') : null])
       ]));
     });
-    cartao.appendChild(h('div', { class: 'fn-scroll' }, [h('table', { class: 'fn-tab', style: 'min-width:820px' }, [
-      h('thead', null, [h('tr', null, [h('th', null, 'Data'), h('th', null, 'Descrição'), h('th', { class: 'r' }, 'Total'), h('th', { class: 'r' }, 'Eu pago'), h('th', null, 'Pessoas'), h('th', null, 'Estado')])]), tb])]));
+    cartao.appendChild(h('div', { class: 'fn-scroll' }, [h('table', { class: 'fn-tab', style: 'min-width:940px' }, [
+      h('thead', null, [h('tr', null, [h('th', null, 'Data'), h('th', null, 'Descrição'), h('th', { class: 'r' }, 'Total'), h('th', { class: 'r' }, 'Eu pago'), h('th', null, 'Pessoas'), h('th', null, 'Representação'), h('th', null, 'Estado')])]), tb])]));
     corpo.appendChild(cartao);
   });
 }
