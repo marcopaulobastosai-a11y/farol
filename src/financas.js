@@ -1267,6 +1267,10 @@ async function paresCandidatos(B, soId) {
       cands.push({ saida: s, entrada: e, dias, conf, ambos: t1 && t2 });
     }
   }
+  /* Os que o Marco ja disse que nao sao: ficam de fora para sempre. */
+  const naos = new Set((await all('SELECT saida_id, entrada_id FROM fin_pares_nao')).map((x) => x.saida_id + ':' + x.entrada_id));
+  const semNaos = cands.filter((c) => !naos.has(c.saida.id + ':' + c.entrada.id));
+  cands.length = 0; cands.push(...semNaos);
   cands.sort((a, b) => b.conf - a.conf || Math.abs(a.dias) - Math.abs(b.dias));
   if (soId) return cands.slice(0, 10);
   const usados = new Set(), out = [];
@@ -1751,6 +1755,18 @@ function instalar(app) {
   });
 
   /* Transferencias entre contas: os pares sugeridos, ligar e desligar. */
+  /* «Nao sao a mesma transferencia»: a sugestao desaparece e nao volta. */
+  app.post('/api/financas/pares/nao', async (req, res) => {
+    try {
+      const ps = ((req.body && req.body.pares) || []).map((p) => [Number(p[0]), Number(p[1])]).filter((p) => p[0] && p[1]);
+      if (!ps.length) throw erro(400, 'Nenhum par.');
+      for (const [sa, en] of ps) {
+        await query('INSERT INTO fin_pares_nao (saida_id, entrada_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [sa, en]);
+      }
+      res.json({ feitos: ps.length });
+    } catch (e) { falha(res, e, 'os pares'); }
+  });
+
   app.get('/api/financas/pares/sugeridos', async (req, res) => {
     try {
       const B = await base();
