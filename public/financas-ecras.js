@@ -373,10 +373,12 @@ function fnMovDesenhar(zona, d, qs){
   cartao.appendChild(maisZona);
   acrescentar(ms);
   desenharLote();
-  fnCongelar(caixa, lote);
   var total = d.total != null ? d.total : ms.length;
   cartao.appendChild(h('p', { class: 'fn-nota', style: 'padding:8px' }, total + ' movimentos · entradas ' + fnEur(rs.entradas != null ? rs.entradas : 0) +
     ' · saídas ' + fnEur(rs.saidas != null ? rs.saidas : 0) + ' · saldo ' + fnEur(rs.saldo != null ? rs.saldo : 0, true)));
+  /* Só agora, com o «mostrar mais» e a linha dos totais já no sítio: é por
+     eles que se mede o que tem de sobrar por baixo do quadro. */
+  fnCongelar(caixa, lote);
 }
 
 /* Depois de gravar um movimento, troca-se só a linha dele: lê-se esse
