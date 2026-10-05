@@ -92,6 +92,13 @@ ALTER TABLE fin_movimentos ADD COLUMN IF NOT EXISTS titulo TEXT;
 -- De onde e o movimento: o restaurante, a empresa, o servico.
 ALTER TABLE fin_movimentos ADD COLUMN IF NOT EXISTS entidade TEXT;
 CREATE INDEX IF NOT EXISTS fin_mov_entidade ON fin_movimentos (entidade);
+
+-- Contas correntes com empresas: as despesas de representacao que o Marco
+-- adianta e depois apresenta (Credito Agricola, Cupula Arejada, Falua).
+ALTER TABLE fin_cc_pessoas ADD COLUMN IF NOT EXISTS tipo TEXT NOT NULL DEFAULT 'pessoa';
+-- Em que pe esta cada despesa adiantada: adiantado | apresentado | reembolsado.
+ALTER TABLE fin_cc_mov ADD COLUMN IF NOT EXISTS estado TEXT;
+CREATE INDEX IF NOT EXISTS fin_cc_mov_estado ON fin_cc_mov (estado) WHERE estado IS NOT NULL;
 CREATE INDEX IF NOT EXISTS fin_mov_par_idx ON fin_movimentos (par_id) WHERE par_id IS NOT NULL;
 -- Transferencia para (ou de) uma conta cujo outro lado nao esta no Farol (o
 -- cartao cujo extrato ainda nao veio, o cartao da Sofia, as poupancas das
