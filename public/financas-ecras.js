@@ -142,7 +142,6 @@ function fn_financas_movimentos(corpo){
     clear(f1); clear(f);
     /* ---- em cima: as pastilhas, e à direita os botões ---- */
     f1.appendChild(fnSegAmbito());
-    f1.appendChild(fnFiltroContas(mudar));
     var seg = h('div', { class: 'fn-seg', role: 'group', 'aria-label': 'Estado' });
     [['','Todos'],['categorizar','Por categorizar'],['sugestoes','Sugestões da IA'],['reconciliar','Por reconciliar'],['semdespesa','Sem despesa'],['reembolsos','Reembolsos'],['divididos','Divididos'],['reembolsar','Por reembolsar'],['repetidos','Repetidos']].forEach(function(o){
       seg.appendChild(h('button', { type: 'button', class: FN.mov.estado === o[0] ? 'on' : '', onclick: function(){ FN.mov.estado = o[0]; mudar(); } }, o[1]));
@@ -157,7 +156,9 @@ function fn_financas_movimentos(corpo){
     /* O do estado e o mais comprido: vai em ultimo, para passar de linha
        inteiro quando nao couber, em vez de se partir pelo meio. */
     f1.appendChild(seg);
-    /* ---- em baixo: as caixas quadradas, e à direita o mês e os botões ---- */
+    /* ---- em baixo: as caixas quadradas, e à direita o mês e os botões ----
+       As contas vêm à frente: é por onde se começa a estreitar a lista. */
+    f.appendChild(fnFiltroContas(mudar));
     f.appendChild(fnSelArea());
     f.appendChild(qi);
     var sc = fnSelCategorias(FN.mov.categoria, 'Todas as categorias'); sc.setAttribute('aria-label', 'Categoria');
