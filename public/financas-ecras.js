@@ -180,26 +180,35 @@ function fnCongelar(caixa, acima){
   FN.congela = null;
   if (!caixa) return;
 
+  /* Mede-se sempre por cima e por baixo do quadro, nunca pelo proprio quadro:
+     assim o observador nao se dispara a si mesmo e nao ha salto no ecra. */
   var acertar = function(){
     if (!caixa.isConnected) return;
-    caixa.style.maxHeight = '';
-    if (window.innerWidth < FN_CONGELA_MIN) { caixa.classList.remove('fn-congela'); return; }
+    if (window.innerWidth < FN_CONGELA_MIN) { caixa.style.maxHeight = ''; caixa.classList.remove('fn-congela'); return; }
     caixa.classList.add('fn-congela');
-    var r = caixa.getBoundingClientRect();
-    /* Tudo o que fica por baixo do quadro — o «mostrar mais», a linha dos
-       totais e a margem do fim da página — tem de continuar a caber, senão
-       a página volta a rolar e leva o painel de cima com ela. */
-    var baixo = Math.max(0, document.documentElement.scrollHeight - (r.bottom + window.scrollY));
-    var sobra = window.innerHeight - (r.top + window.scrollY) - baixo - 4;
-    caixa.style.maxHeight = Math.max(240, Math.round(sobra)) + 'px';
+    var topo = caixa.getBoundingClientRect().top + window.scrollY;
+    /* O que fica por baixo do quadro: o «mostrar mais», a linha dos totais, o
+       resto do cartao e a margem do fim da pagina. */
+    var baixo = 0;
+    for (var n = caixa.nextSibling; n; n = n.nextSibling) if (n.nodeType === 1) baixo += n.getBoundingClientRect().height;
+    var cartao = caixa.parentNode, principal = document.querySelector('main');
+    if (cartao) baixo += parseFloat(getComputedStyle(cartao).paddingBottom) || 0;
+    if (principal) baixo += parseFloat(getComputedStyle(principal).paddingBottom) || 0;
+    var alt = Math.max(240, Math.round(window.innerHeight - topo - baixo - 4));
+    if (caixa.style.maxHeight !== alt + 'px') caixa.style.maxHeight = alt + 'px';
   };
 
   var janela = function(){ acertar(); };
   window.addEventListener('resize', janela);
   var obs = null;
-  /* A barra dos escolhidos nasce e morre acima do quadro: quando muda de
-     altura, o quadro tem de encolher ou crescer na mesma medida. */
-  if (acima && window.ResizeObserver){ obs = new ResizeObserver(acertar); obs.observe(acima); }
+  /* A barra dos escolhidos nasce e morre acima do quadro, e os avisos (pares,
+     tarefas, reembolsos) chegam do servidor depois de o quadro ja estar posto:
+     em qualquer dos casos o quadro desce ou sobe e a altura tem de acertar. */
+  if (window.ResizeObserver){
+    obs = new ResizeObserver(acertar);
+    var zona = caixa.parentNode && caixa.parentNode.parentNode;
+    [acima, zona].forEach(function(x){ if (x) obs.observe(x); });
+  }
   FN.congela = { caixa: caixa, obs: obs, janela: janela, acertar: acertar };
   acertar();
 }
