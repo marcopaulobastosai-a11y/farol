@@ -134,7 +134,7 @@ function fn_financas_movimentos(corpo){
      estado, entradas/saídas), em baixo as caixas quadradas (área, procura,
      categoria, período e as datas). Assim lê-se cada linha de enfiada. */
   var presa = h('div', { class: 'fn-presa' });
-  var mudar = function(){ FN.mov.sel = {}; FN.mov.mostrar = 0; desenharFiltros(); fnMovLista(zona); };
+  var mudar = function(){ FN.mov.so = ''; FN.mov.sel = {}; FN.mov.mostrar = 0; desenharFiltros(); fnMovLista(zona); };
   var f1 = h('div', { class: 'fn-barra' });
   var f = h('div', { class: 'fn-barra' });
   presa.appendChild(f1); presa.appendChild(f);
@@ -190,6 +190,11 @@ function fn_financas_movimentos(corpo){
       f.appendChild(h('span', { class: 'fn-datas' }, [h('span', { class: 'fn-muted' }, 'de'), d1, h('span', { class: 'fn-muted' }, 'a'), d2,
         fnBtn('×', function(){ FN.mov.de = ''; FN.mov.ate = ''; mudar(); }, 'small')]));
     }
+    /* Acabado de criar: a lista fica só com ele, e esta pastilha é a porta
+       de saída — os outros filtros ficam como estavam, à espera. */
+    if (FN.mov.so) f.appendChild(h('span', { class: 'fn-pill', style: 'display:inline-flex;align-items:center;gap:6px;padding:4px 10px' }, [
+      'Só o movimento que criaste',
+      h('button', { type: 'button', class: 'btn small', 'aria-label': 'Ver todos outra vez', style: 'padding:0 6px;min-height:0', onclick: function(){ FN.mov.so = ''; mudar(); } }, '×')]));
     if (FN.mov.pessoa) f.appendChild(h('span', { class: 'fn-pill tr', style: 'display:inline-flex;align-items:center;gap:6px;padding:4px 10px' }, [
       'Pessoa: ' + (fnPessoaNome(FN.mov.pessoa) || FN.mov.pessoa),
       h('button', { type: 'button', class: 'btn small', 'aria-label': 'Tirar o filtro da pessoa', style: 'padding:0 6px;min-height:0', onclick: function(){ FN.mov.pessoa = ''; mudar(); } }, '×')]));
@@ -282,7 +287,7 @@ function fnTopos(){
 var FN_MOV_PAG = 200;
 function fnMovQs(){
   var per = fnPeriodoMov();
-  return fnQs({ estado: FN.mov.estado, sinal: FN.mov.sinal || '', conta: FN.mov.conta, categoria: FN.mov.categoria, projeto: FN.mov.projeto || '', pessoa: FN.mov.pessoa || '', q: FN.mov.q, de: per.de, ate: per.ate, ambito: FN.ambito, area: FN.area });
+  return fnQs({ id: FN.mov.so || '', estado: FN.mov.estado, sinal: FN.mov.sinal || '', conta: FN.mov.conta, categoria: FN.mov.categoria, projeto: FN.mov.projeto || '', pessoa: FN.mov.pessoa || '', q: FN.mov.q, de: per.de, ate: per.ate, ambito: FN.ambito, area: FN.area });
 }
 /* A lista dos projetos, para pôr um movimento num (o casamento, a casa nova).
    Os programas ficam de fora: guardam projetos, não movimentos. */
@@ -1718,7 +1723,12 @@ function fnNovoMovimento(){
     var v = Number(String(vl.value).replace(/\s/g, '').replace(',', '.'));
     if (!sc.value || !v) { fnAviso('Faltam a conta e o valor.'); return false; }
     return fnApi('/api/financas/movimentos', 'POST', { conta_id: Number(sc.value), data: dt.value, descricao: ds.value || 'Movimento', valor: Math.abs(v) * Number(sen.value),
-      categoria_id: cat.value ? Number(cat.value) : null, context_id: ar.value ? Number(ar.value) : null }).then(function(){ fnMudou(); }, fnErro);
+      categoria_id: cat.value ? Number(cat.value) : null, context_id: ar.value ? Number(ar.value) : null }).then(function(r){
+      /* A lista fica só com ele: criado numa data ou conta que os filtros não
+         apanhavam, dava a sensação de que não tinha sido criado. */
+      if (r && r.id) { FN.mov.so = String(r.id); FN.aba.financas = 'movimentos'; FN.tocados = {}; FN.tocados[r.id] = true; }
+      fnMudou();
+    }, fnErro);
   } }]);
 }
 

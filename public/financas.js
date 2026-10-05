@@ -19,7 +19,7 @@ var FN = {
   aba: { financas: 'resumo', patrimonio: 'visao' },
   mes: null, ambito: 'tudo', area: '', empresas: false,
   base: null, cache: {},
-  mov: { estado: '', sinal: '', conta: '', categoria: '', periodo: 'mes', de: '', ate: '', q: '', sel: {}, aberto: null },
+  mov: { estado: '', sinal: '', conta: '', categoria: '', periodo: 'mes', de: '', ate: '', q: '', so: '', sel: {}, aberto: null },
   orcVista: 'mes', catNatureza: 'despesa', ccAberta: null
 };
 (function(){
