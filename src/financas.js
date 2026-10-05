@@ -1484,6 +1484,16 @@ function instalar(app) {
       }
       if (q.projeto && !soEstes.length) add('m.project_id = ?', Number(q.projeto));
       if (q.pessoa && !soEstes.length) add('? = ANY(m.person_ids)', Number(q.pessoa));
+      /* Credor ou devedor: tudo o que liga este movimento a uma conta corrente
+         - a parte que lhe cabe numa conta dividida, o acerto que a saldou, ou
+         a empresa de uma despesa de representacao. */
+      if (q.cc_pessoa && !soEstes.length) {
+        v.push(Number(q.cc_pessoa));
+        const n = '$' + v.length;
+        w.push(`(EXISTS (SELECT 1 FROM fin_mov_partes pt WHERE pt.movimento_id = m.id AND pt.pessoa_id = ${n})
+             OR EXISTS (SELECT 1 FROM fin_cc_mov cm WHERE cm.movimento_id = m.id AND NOT cm.apagado AND cm.pessoa_id = ${n})
+             OR m.repres_empresa_id = ${n})`);
+      }
       if (q.q && !soEstes.length) {
         /* Procura nos dois textos - o nome que o Marco deu e o do extrato - e,
            se o que se escreveu parecer um valor, tambem no montante. */
