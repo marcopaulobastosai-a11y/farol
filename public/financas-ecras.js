@@ -115,11 +115,17 @@ function fnPeriodoMov(){
 }
 function fn_financas_movimentos(corpo){
   if (!FN.base.contas.length) { corpo.appendChild(fnSemContas()); return; }
-  fnBarraFiltros(corpo, FN.mov.periodo !== 'tudo', [fnBtn('Importar extrato', function(){ fnImportar(); }), fnBtn('+ Movimento', function(){ fnNovoMovimento(); }, 'primary')]);
 
   /* Os filtros mudam só a lista: a barra fica, a lista recarrega por baixo
      (sem «A ler…» a tapar o ecrã e sem saltar para o topo). */
   var zona = h('div', { class: 'fn-movzona' });
+  /* A procura vai para a barra de cima, a seguir as areas, e nao se redesenha
+     com os filtros: assim nao se perde o cursor a meio de escrever. */
+  var qi = h('input', { class: 'fn-sel', type: 'search', placeholder: 'Procurar nome, descrição ou valor', value: FN.mov.q, 'aria-label': 'Procurar',
+    style: 'flex:1 1 240px;min-width:190px;max-width:430px' });
+  var tmr = null;
+  qi.addEventListener('input', function(){ clearTimeout(tmr); tmr = setTimeout(function(){ if (FN.mov.q !== qi.value.trim()) { FN.mov.q = qi.value.trim(); FN.mov.sel = {}; FN.mov.mostrar = 0; fnMovLista(zona); } }, 350); });
+  fnBarraFiltros(corpo, FN.mov.periodo !== 'tudo', [fnBtn('Importar extrato', function(){ fnImportar(); }), fnBtn('+ Movimento', function(){ fnNovoMovimento(); }, 'primary')], qi);
   var mudar = function(){ FN.mov.sel = {}; FN.mov.mostrar = 0; desenharFiltros(); fnMovLista(zona); };
   var f = h('div', { class: 'fn-barra' });
   var desenharFiltros = function(){
@@ -154,15 +160,48 @@ function fn_financas_movimentos(corpo){
     if (FN.mov.projeto) f.appendChild(h('span', { class: 'fn-pill tr', style: 'display:inline-flex;align-items:center;gap:6px;padding:4px 10px' }, [
       'Projeto: ' + (fnProjetoNome(FN.mov.projeto) || FN.mov.projeto),
       h('button', { type: 'button', class: 'btn small', 'aria-label': 'Tirar o filtro do projeto', style: 'padding:0 6px;min-height:0', onclick: function(){ FN.mov.projeto = ''; mudar(); } }, '×')]));
-    var qi = h('input', { class: 'fn-sel', type: 'search', placeholder: 'Procurar nome, descrição ou valor', value: FN.mov.q, 'aria-label': 'Procurar', style: 'flex:1 1 180px' });
-    var tmr = null;
-    qi.addEventListener('input', function(){ clearTimeout(tmr); tmr = setTimeout(function(){ if (FN.mov.q !== qi.value.trim()) { FN.mov.q = qi.value.trim(); FN.mov.sel = {}; FN.mov.mostrar = 0; fnMovLista(zona); } }, 350); });
-    f.appendChild(qi);
   };
   desenharFiltros();
   corpo.appendChild(f);
   corpo.appendChild(zona);
   fnMovLista(zona);
+}
+
+/* Congelar painéis, como no Excel: em vez de ser a página a rolar (e levar
+   consigo o título, os separadores e os filtros), é o quadro que rola por
+   dentro, com a linha dos títulos presa ao topo. A altura do quadro é o que
+   sobra do ecrã, e volta a acertar-se quando a janela muda de tamanho ou
+   quando a barra dos escolhidos aparece e empurra o quadro para baixo.
+   Em ecrãs estreitos não se congela nada: lá vale mais rolar a página. */
+var FN_CONGELA_MIN = 980;
+function fnCongelar(caixa, acima){
+  if (FN.congela && FN.congela.obs) FN.congela.obs.disconnect();
+  if (FN.congela && FN.congela.janela) window.removeEventListener('resize', FN.congela.janela);
+  FN.congela = null;
+  if (!caixa) return;
+
+  var acertar = function(){
+    if (!caixa.isConnected) return;
+    caixa.style.maxHeight = '';
+    if (window.innerWidth < FN_CONGELA_MIN) { caixa.classList.remove('fn-congela'); return; }
+    caixa.classList.add('fn-congela');
+    var r = caixa.getBoundingClientRect();
+    /* Tudo o que fica por baixo do quadro — o «mostrar mais», a linha dos
+       totais e a margem do fim da página — tem de continuar a caber, senão
+       a página volta a rolar e leva o painel de cima com ela. */
+    var baixo = Math.max(0, document.documentElement.scrollHeight - (r.bottom + window.scrollY));
+    var sobra = window.innerHeight - (r.top + window.scrollY) - baixo - 4;
+    caixa.style.maxHeight = Math.max(240, Math.round(sobra)) + 'px';
+  };
+
+  var janela = function(){ acertar(); };
+  window.addEventListener('resize', janela);
+  var obs = null;
+  /* A barra dos escolhidos nasce e morre acima do quadro: quando muda de
+     altura, o quadro tem de encolher ou crescer na mesma medida. */
+  if (acima && window.ResizeObserver){ obs = new ResizeObserver(acertar); obs.observe(acima); }
+  FN.congela = { caixa: caixa, obs: obs, janela: janela, acertar: acertar };
+  acertar();
 }
 
 /* A lista de movimentos, aos bocados de 200 pedidos ao servidor. Guarda-se
@@ -255,7 +294,7 @@ function fnMovDesenhar(zona, d, qs){
   fnAvisoTarefas(zona);
   var cartao = h('div', { class: 'card', style: 'padding:6px 10px' });
   zona.appendChild(cartao);
-  if (!ms.length) { cartao.appendChild(fnVazio('Nenhum movimento com estes filtros.', (FN.mov.estado || FN.mov.sinal) ? 'Experimenta «Todos» ou outro período.' : null)); return; }
+  if (!ms.length) { fnCongelar(null); cartao.appendChild(fnVazio('Nenhum movimento com estes filtros.', (FN.mov.estado || FN.mov.sinal) ? 'Experimenta «Todos» ou outro período.' : null)); return; }
   /* A barra do lote redesenha-se sozinha quando se marca uma linha. */
   var lote = h('div');
   cartao.appendChild(lote);
@@ -317,13 +356,15 @@ function fnMovDesenhar(zona, d, qs){
     var b2 = fnBtn('Mostrar todos', function(){ pedir(falta, b2); }, 'small');
     maisZona.appendChild(b1); maisZona.appendChild(b2);
   };
-  cartao.appendChild(h('div', { class: 'fn-scroll' }, [h('table', { class: 'fn-tab fn-movtab', style: 'min-width:1230px' }, [
+  var caixa = h('div', { class: 'fn-scroll' }, [h('table', { class: 'fn-tab fn-movtab', style: 'min-width:1230px' }, [
     h('colgroup', null, [h('col', { style: 'width:30px' }), h('col', { style: 'width:62px' }), h('col', { style: 'width:140px' }), h('col'), h('col', { style: 'width:118px' }), h('col', { style: 'width:104px' }), h('col', { style: 'width:240px' }), h('col', { style: 'width:120px' }), h('col', { style: 'width:140px' }), h('col', { style: 'width:160px' })]),
     h('thead', null, [h('tr', null, [h('th', null, [todos]), h('th', null, 'Data'), h('th', null, 'Conta'), h('th', null, 'Descrição'), h('th', { class: 'r' }, 'Valor'), h('th', { class: 'r' }, 'Saldo'), h('th', null, 'Categoria'), h('th', null, 'Área'), h('th', null, 'De quem'), h('th', null, 'Ligado a')])]),
-    tb])]));
+    tb])]);
+  cartao.appendChild(caixa);
   cartao.appendChild(maisZona);
   acrescentar(ms);
   desenharLote();
+  fnCongelar(caixa, lote);
   var total = d.total != null ? d.total : ms.length;
   cartao.appendChild(h('p', { class: 'fn-nota', style: 'padding:8px' }, total + ' movimentos · entradas ' + fnEur(rs.entradas != null ? rs.entradas : 0) +
     ' · saídas ' + fnEur(rs.saidas != null ? rs.saidas : 0) + ' · saldo ' + fnEur(rs.saldo != null ? rs.saldo : 0, true)));

@@ -91,6 +91,9 @@ var FN_CSS =
   '.fn-tab .d{font-weight:500;display:block;max-width:420px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}' +
   '.fn-tab small{color:var(--muted);font-size:.6875rem}' +
   '.fn-scroll{overflow-x:auto}' +
+  /* Congelar paineis: o quadro rola por dentro e a linha dos titulos fica. */
+  '.fn-congela{overflow:auto;overscroll-behavior:contain}' +
+  '.fn-congela thead th{position:sticky;top:0;z-index:3;background:var(--surface);box-shadow:inset 0 -1px 0 var(--line)}' +
   '.fn-banner{display:flex;align-items:center;gap:12px;flex-wrap:wrap;border:1px solid var(--accent);background:var(--accent-soft);border-radius:var(--radius);padding:10px 14px}' +
   '.fn-banner .g{flex:1;min-width:220px}' +
   '.fn-vazio{padding:28px 18px;text-align:center;color:var(--muted);display:flex;flex-direction:column;gap:10px;align-items:center}' +
@@ -682,7 +685,7 @@ function fnCarregar(alvo, promessa, desenhar){
 }
 
 /* A barra de filtros das Finanças: âmbito, área e mês. */
-function fnBarraFiltros(corpo, comMes, extra){
+function fnBarraFiltros(corpo, comMes, extra, aposArea){
   var b = h('div', { class: 'fn-barra' });
   var seg = h('div', { class: 'fn-seg', role: 'group', 'aria-label': 'Âmbito' });
   [['tudo','Tudo'],['pessoal','Pessoal'],['profissional','Profissional']].forEach(function(o){
@@ -693,6 +696,8 @@ function fnBarraFiltros(corpo, comMes, extra){
   sa.setAttribute('aria-label', 'Área');
   sa.addEventListener('change', function(){ FN.area = sa.value; FN.cache = {}; fnRender(); });
   b.appendChild(sa);
+  /* A procura fica aqui, logo a seguir a area: e o que mais se usa. */
+  if (aposArea) b.appendChild(aposArea);
   if (comMes){
     var m = h('div', { class: 'fn-acoes' }, [
       h('button', { type: 'button', class: 'btn small', 'aria-label': 'Mês anterior', onclick: function(){ FN.mes = fnSomaMes(FN.mes, -1); fnRender(); } }, '‹'),
