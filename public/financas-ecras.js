@@ -975,6 +975,31 @@ function fnLoteFolha(ids, ms, limpar){
     fnLoteFechar();
     if (d.length) fnReembolsarJanela(d); else fnReembolsoRecebidoJanela(c);
   }, 'small');
+  /* Um pagamento que corresponde a dois movimentos: escolhem-se os dois (ou
+     os tres) e liga-se tudo como uma transferencia so. E a mesma pergunta do
+     detalhe - «veio de outra conta tua?» - mas para varios de uma vez. */
+  var bPar = fnBtn('São a mesma transferência…', function(){
+    var ms = FN.lote.escolhidos();
+    var sai = ms.filter(function(m){ return Number(m.valor) < 0; });
+    var ent = ms.filter(function(m){ return Number(m.valor) > 0; });
+    if (!sai.length || !ent.length) { fnAviso('Tem de haver dinheiro a sair e dinheiro a entrar.'); return; }
+    var soma = Math.round(ms.reduce(function(t, m){ return t + Number(m.valor); }, 0) * 100) / 100;
+    if (Math.abs(soma) > 0.005) {
+      fnAviso('As contas não batem: saíram ' + fnEur(-sai.reduce(function(t, m){ return t + Number(m.valor); }, 0)) +
+        ' e entraram ' + fnEur(ent.reduce(function(t, m){ return t + Number(m.valor); }, 0)) + '.');
+      return;
+    }
+    fnLoteFechar();
+    fnApi('/api/financas/pares', 'POST', { ids: ms.map(function(m){ return m.id; }) }).then(function(r){
+      fnAviso((r.ligados || ms.length) + ' movimentos numa transferência só.'); fnMudou();
+    }, fnErro);
+  }, 'small');
+  /* E a outra pergunta do detalhe: alguem a pagar-te. Vale para as entradas. */
+  var bAcerto = fnBtn('Alguém pagou-te…', function(){
+    var c = FN.lote.creds();
+    if (!c.length) { fnAviso('Isto só serve para entradas.'); return; }
+    fnLoteFechar(); fnAcertoDeVarios(c);
+  }, 'small');
   var avSaidas = h('small', { class: 'fn-nota', style: 'display:none' });
   var bSug = fnBtn('Aceitar as sugestões da IA', function(){ fnLoteApi({ aceitar: true }, 'categorizados'); }, 'small');
   var bApagar = fnBtn('Apagar', function(){
@@ -1000,8 +1025,8 @@ function fnLoteFolha(ids, ms, limpar){
     h('div', { class: 'fn-campo' }, [h('span', null, 'De quem é (agregado) · uma ou mais pessoas'), spe]),
     h('hr', { style: 'border:0;border-top:1px solid var(--line);margin:4px 0' }),
     h('div', { class: 'fn-campo' }, [h('span', null, 'Relacionar todos com uma coisa só'),
-      h('div', { class: 'fn-acoes', style: 'flex-wrap:wrap' }, [bPart, bTar, bReemb]), avSaidas]),
-    h('small', { class: 'fn-muted' }, 'A partilha divide estes pagamentos com alguém de uma vez; a tarefa liga-os todos ao mesmo pagamento do Farol; «representação» marca-os todos como despesa de uma empresa.'),
+      h('div', { class: 'fn-acoes', style: 'flex-wrap:wrap' }, [bPart, bTar, bReemb, bPar, bAcerto]), avSaidas]),
+    h('small', { class: 'fn-muted' }, 'A partilha divide estes pagamentos com alguém de uma vez; a tarefa liga-os todos ao mesmo pagamento do Farol; «representação» marca-os todos como despesa de uma empresa. «Mesma transferência» junta saídas e entradas de contas tuas num movimento só de dinheiro — serve para um pagamento que chegou repartido.'),
     h('hr', { style: 'border:0;border-top:1px solid var(--line);margin:4px 0' }),
     h('div', { class: 'fn-acoes', style: 'flex-wrap:wrap' }, [bSug, bApagar])
   ], [{ txt: 'Guardar', pri: true, fn: function(){
@@ -1022,6 +1047,7 @@ function fnLoteFolha(ids, ms, limpar){
     j: j, ids: ids, ms: ms || [], limpar: limpar,
     debs: function(){ return FN.lote.ms.filter(function(m){ return FN.mov.sel[m.id] && Number(m.valor) < 0; }); },
     creds: function(){ return FN.lote.ms.filter(function(m){ return FN.mov.sel[m.id] && Number(m.valor) > 0; }); },
+    escolhidos: function(){ return FN.lote.ms.filter(function(m){ return FN.mov.sel[m.id]; }); },
     refrescar: function(novosIds, novosMs){
       FN.lote.ids = novosIds; FN.lote.ms = novosMs || FN.lote.ms;
       var n = novosIds.length;
@@ -1033,6 +1059,11 @@ function fnLoteFolha(ids, ms, limpar){
       bTar.textContent = 'Ligar a uma tarefa…' + (d ? ' (' + d + ')' : '');
       var c = FN.lote.creds().length;
       bReemb.textContent = (d ? 'Representação… (' + d + ')' : c ? 'Reembolso recebido… (' + c + ')' : 'Representação…');
+      bAcerto.textContent = 'Alguém pagou-te…' + (c ? ' (' + c + ')' : '');
+      /* A transferencia precisa dos dois lados: sem isso nem vale a pena. */
+      var soma = Math.round(FN.lote.escolhidos().reduce(function(t, m){ return t + Number(m.valor || 0); }, 0) * 100) / 100;
+      bPar.style.display = (d && c) ? '' : 'none';
+      bPar.textContent = 'São a mesma transferência…' + (Math.abs(soma) < 0.005 ? ' (bate certo)' : '');
       avSaidas.style.display = (d && d === n) ? 'none' : 'block';
       avSaidas.textContent = !d && c
         ? 'Só há entradas escolhidas: a representação abre o lado do dinheiro que voltou; partilhar e tarefa só mexem com saídas.'

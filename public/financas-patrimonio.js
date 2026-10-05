@@ -1041,6 +1041,55 @@ function fnReembolsarJanela(movs){
   }, fnErro);
 }
 
+/* Alguem a pagar-te, mas varias entradas de uma vez: a mesma pergunta do
+ * detalhe («e alguem a pagar-te?») aplicada a escolha multipla. Cada entrada
+ * entra como acerto na conta corrente da pessoa, pela ordem das datas. */
+function fnAcertoDeVarios(movs){
+  movs = (movs || []).filter(function(m){ return Number(m.valor) > 0; });
+  if (!movs.length) { fnAviso('Só entram as entradas.'); return; }
+  var total = movs.reduce(function(t, m){ return t + Number(m.valor); }, 0);
+  apiGestao('/api/financas/cc').then(function(cc){
+    var pessoas = (cc.pessoas || []).filter(function(x){ return x.ativo; })
+      .sort(function(a, b){ return a.nome.localeCompare(b.nome); });
+    if (!pessoas.length) { fnAviso('Ainda não há ninguém em contas correntes.'); return; }
+    var se = h('select', { class: 'fn-sel' });
+    pessoas.forEach(function(x){
+      se.appendChild(h('option', { value: String(x.id) }, x.nome + (x.saldo ? ' · ' + fnEur(x.saldo) : '')));
+    });
+    var nota = h('small', { class: 'fn-muted', style: 'display:block;margin-top:6px' });
+    var acertar = function(){
+      var x = pessoas.filter(function(y){ return String(y.id) === se.value; })[0];
+      nota.textContent = x && x.saldo
+        ? x.nome + ' tem ' + fnEur(x.saldo) + ' em aberto contigo; isto abate ' + fnEur(total) + '.'
+        : 'Entra na conta corrente e abate o que está em aberto, do mais antigo para a frente.';
+    };
+    se.addEventListener('change', acertar);
+    acertar();
+    fnJanela(movs.length > 1 ? 'Alguém pagou-te · ' + movs.length + ' entradas' : 'Alguém pagou-te', [
+      h('p', { class: 'fn-nota' }, (movs.length > 1 ? movs.length + ' entradas · ' : fnMovNome(movs[0]) + ' · ') + fnEur(total) + '.'),
+      fnCampo('Quem', se), nota
+    ], [{ txt: 'Registar o acerto', pri: true, fn: function(){
+      var id = Number(se.value);
+      /* Uma a uma: cada entrada e um acerto seu, e assim uma que falhe nao
+         leva as outras atras. */
+      var feitos = 0, erros = [];
+      var seguinte = function(i){
+        if (i >= movs.length) {
+          if (feitos) fnAviso(feitos + (feitos === 1 ? ' acerto registado' : ' acertos registados') + ' · ' + fnEur(total) +
+            (erros.length ? ' (' + erros.length + ' não deu)' : '') + '.');
+          else fnAviso(erros[0] || 'Não deu para registar.');
+          fnMudou();
+          return true;
+        }
+        return fnApi('/api/financas/movimentos/' + movs[i].id + '/acerto', 'POST', { pessoa_id: id })
+          .then(function(){ feitos++; return seguinte(i + 1); },
+                function(e){ erros.push(e.message); return seguinte(i + 1); });
+      };
+      return seguinte(0);
+    } }]);
+  }, fnErro);
+}
+
 /* A célula da representação nas contas partilhadas: carrega-se nela e muda-se
  * o pé ali mesmo. Mudar de «adiantado» para «apresentado» é o que ele faz
  * todos os meses — não pode obrigar a abrir o detalhe de cada uma. */
