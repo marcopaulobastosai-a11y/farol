@@ -150,7 +150,7 @@ var FN_CSS =
   '.fn-sn{border:0;background:none;padding:4px 12px;font:inherit;font-size:.8125rem;color:var(--muted);cursor:pointer}' +
   '.fn-sn.on{background:var(--accent-soft);color:var(--accent-ink);font-weight:500}' +
   '.fn-perg-d:empty,.fn-perg-c:empty{display:none!important}.fn-perg-c{display:flex;flex-direction:column;gap:8px}' +
-  '.fn-movtab{table-layout:fixed;min-width:860px}.fn-movtab td{overflow:hidden}.fn-movtab .d{max-width:100%}' +
+  '.fn-movtab{table-layout:fixed;min-width:920px}.fn-movtab td{overflow:hidden}.fn-movtab .d{max-width:100%}' +
   '.fn-movtab .d2{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}' +
   /* A descricao do extrato por baixo do nome dado: mais pequena e em italico,
      para se ver que e a do banco e nao a que se escreveu. */
