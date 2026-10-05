@@ -89,6 +89,9 @@ ALTER TABLE fin_movimentos ADD COLUMN IF NOT EXISTS par_id INTEGER REFERENCES fi
 -- O nome que o Marco da ao movimento. A descricao do extrato fica como esta
 -- (e por ela que se reconhece a linha no banco); o titulo e o que se le.
 ALTER TABLE fin_movimentos ADD COLUMN IF NOT EXISTS titulo TEXT;
+-- De onde e o movimento: o restaurante, a empresa, o servico.
+ALTER TABLE fin_movimentos ADD COLUMN IF NOT EXISTS entidade TEXT;
+CREATE INDEX IF NOT EXISTS fin_mov_entidade ON fin_movimentos (entidade);
 CREATE INDEX IF NOT EXISTS fin_mov_par_idx ON fin_movimentos (par_id) WHERE par_id IS NOT NULL;
 -- Transferencia para (ou de) uma conta cujo outro lado nao esta no Farol (o
 -- cartao cujo extrato ainda nao veio, o cartao da Sofia, as poupancas das
