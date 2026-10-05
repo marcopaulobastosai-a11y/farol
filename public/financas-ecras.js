@@ -424,7 +424,7 @@ function fnMovDesenhar(zona, d, qs){
     maisZona.appendChild(b1); maisZona.appendChild(b2);
   };
   var caixa = h('div', { class: 'fn-scroll' }, [h('table', { class: 'fn-tab fn-movtab', style: 'min-width:1370px' }, [
-    h('colgroup', null, [h('col', { style: 'width:30px' }), h('col', { style: 'width:62px' }), h('col', { style: 'width:140px' }), h('col'), h('col', { style: 'width:140px' }), h('col', { style: 'width:118px' }), h('col', { style: 'width:104px' }), h('col', { style: 'width:240px' }), h('col', { style: 'width:120px' }), h('col', { style: 'width:140px' }), h('col', { style: 'width:160px' })]),
+    h('colgroup', null, [h('col', { style: 'width:30px' }), h('col', { style: 'width:62px' }), h('col', { style: 'width:200px' }), h('col'), h('col', { style: 'width:140px' }), h('col', { style: 'width:118px' }), h('col', { style: 'width:104px' }), h('col', { style: 'width:240px' }), h('col', { style: 'width:120px' }), h('col', { style: 'width:140px' }), h('col', { style: 'width:160px' })]),
     h('thead', null, [h('tr', null, [h('th', null, [todos]), h('th', null, 'Data'), h('th', null, 'Conta'), h('th', null, 'Descrição'), h('th', null, 'Entidade'), h('th', { class: 'r' }, 'Valor'), h('th', { class: 'r' }, 'Saldo'), h('th', null, 'Categoria'), h('th', null, 'Área'), h('th', null, 'De quem'), h('th', null, 'Ligado a')])]),
     tb])]);
   cartao.appendChild(caixa);
@@ -675,7 +675,7 @@ function fnLinhaMov(m, aoMarcar){
   var outra = m.par_id ? fnConta(m.par_conta_id) : null;
   var origem = outra && m.valor > 0 ? outra : conta, destino = outra ? (m.valor > 0 ? conta : outra) : null;
   var celConta = destino ? h('span', { title: (origem ? origem.nome : '') + ' → ' + destino.nome },
-      [(origem ? origem.nome : '—'), h('small', { class: 'fn-muted', style: 'display:block' }, '→ ' + destino.nome)])
+      [h('span', { style: 'display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis' }, origem ? origem.nome : '—'), h('small', { class: 'fn-muted', style: 'display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis' }, '→ ' + destino.nome)])
     : (conta ? conta.nome : h('span', { class: 'fn-muted' }, '—'));
   var tr = h('tr', { class: 'clic' + (FN.tocados && FN.tocados[m.id] ? ' fn-tocada' : '') + (FN.mov.sel[m.id] ? ' fn-sel' : ''), 'data-id': m.id, onclick: function(){ fnMovJanela(m); } }, [
     h('td', { onclick: function(e){ e.stopPropagation(); } }, [h('input', { type: 'checkbox', 'aria-label': 'Escolher', checked: !!FN.mov.sel[m.id], onchange: function(e){
@@ -684,7 +684,7 @@ function fnLinhaMov(m, aoMarcar){
       tr.classList.toggle('fn-sel', e.target.checked);
       if (aoMarcar) aoMarcar(); else fnRender('financas'); } })]),
     h('td', { class: 'fn-n', style: 'font-size:.75rem;white-space:nowrap' }, fnData(m.data)),
-    h('td', { title: conta ? conta.nome : '', style: 'font-size:.75rem;line-height:1.25' }, celConta),
+    h('td', { title: conta ? conta.nome : '', style: 'font-size:.75rem;line-height:1.25;white-space:nowrap;text-overflow:ellipsis' }, celConta),
     h('td', { style: 'min-width:0' }, [h('span', { class: 'd', title: fnMovNome(m) }, fnMovNome(m)),
       fnMovOrig(m) ? h('small', { class: 'fn-orig', title: fnMovOrig(m) }, fnMovOrig(m)) : null,
       m.categoria_fonte === 'regra' ? h('small', { class: 'd2' }, 'categoria por regra') : null]),
