@@ -2066,6 +2066,7 @@ function instalar(app) {
     try {
       const empresa = Number(req.query.empresa);
       if (!empresa) throw erro(400, 'Falta a empresa.');
+      const nomeEmpresa = ((await all('SELECT nome FROM fin_cc_pessoas WHERE id = $1', [empresa]))[0] || {}).nome || '';
       const r = await all(
         `SELECT m.id, to_char(m.data,'YYYY-MM-DD') AS data, m.descricao, m.titulo, m.entidade, abs(m.valor) AS valor,
                 COALESCE(m.repres_estado, '') AS estado
@@ -2075,7 +2076,24 @@ function instalar(app) {
             AND COALESCE(m.repres_estado, '') <> 'reembolsado'
             AND (c.empresa_id IS NULL OR c.empresa_id <> $1)
           ORDER BY m.data, m.id`, [empresa]);
-      res.json({ despesas: r.map((m) => Object.assign(m, { valor: cent(m.valor) })) });
+      /* As que parecem ser mas nunca foram marcadas: tem a categoria de
+         representacao, ou a area da empresa. A categoria e a area sao
+         arrumacao - o que poe uma despesa na conta da empresa e ser marcada -
+         mas escondê-las aqui era deixar o Marco a procura-las uma a uma. */
+      const parecidas = await all(
+        `SELECT m.id, to_char(m.data,'YYYY-MM-DD') AS data, m.descricao, m.titulo, m.entidade, abs(m.valor) AS valor,
+                cat.nome AS categoria
+           FROM fin_movimentos m
+           JOIN fin_contas c ON c.id = m.conta_id
+           LEFT JOIN fin_categorias cat ON cat.id = m.categoria_id
+           LEFT JOIN contexts ctx ON ctx.id = m.context_id
+          WHERE m.repres_empresa_id IS NULL AND m.valor < 0
+            AND (c.empresa_id IS NULL OR c.empresa_id <> $1)
+            AND NOT EXISTS (SELECT 1 FROM fin_mov_partes pt WHERE pt.movimento_id = m.id AND pt.pessoa_id IS NOT NULL)
+            AND (cat.nome ILIKE '%representa%' OR lower(ctx.name) = lower($2))
+          ORDER BY m.data DESC LIMIT 60`, [empresa, nomeEmpresa]);
+      res.json({ despesas: r.map((m) => Object.assign(m, { valor: cent(m.valor) })),
+                 parecidas: parecidas.map((m) => Object.assign(m, { valor: cent(m.valor) })) });
     } catch (e) { falha(res, e, 'as despesas de representação'); }
   });
 
