@@ -836,8 +836,10 @@ async function detalharMovimentos(ids, B, sug) {
             ccm.sw_pagamento_id::text AS cc_sw_pagamento, ccm.sw_criado AS cc_sw_criado,
             (SELECT json_agg(json_build_object('id', pt.id, 'valor', pt.valor, 'categoria_id', pt.categoria_id,
                                                'pessoa_id', pt.pessoa_id, 'pessoa', cp2.nome, 'partilha_id', pt.partilha_id,
+                                               'tipo', cp2.tipo, 'cc_mov_id', ccp2.id, 'estado', ccp2.estado,
                                                'conta_id', pt.cc_conta_id, 'conta', ccx.nome) ORDER BY pt.id)
                FROM fin_mov_partes pt LEFT JOIN fin_cc_pessoas cp2 ON cp2.id = pt.pessoa_id LEFT JOIN fin_cc_contas ccx ON ccx.id = pt.cc_conta_id
+                    LEFT JOIN fin_cc_mov ccp2 ON ccp2.parte_id = pt.id AND NOT ccp2.apagado
               WHERE pt.movimento_id = m.id) AS partes
        FROM fin_movimentos m
        LEFT JOIN expenses e ON e.id = m.expense_id
@@ -1456,6 +1458,11 @@ function instalar(app) {
           WHERE abs(e.amount - abs(m.valor)) < 0.006 AND e.spent_on BETWEEN m.data - 12 AND m.data + 6
             AND NOT EXISTS (SELECT 1 FROM fin_movimentos x WHERE x.expense_id = e.id))`);
       if (q.estado === 'divididos') w.push('EXISTS (SELECT 1 FROM fin_mov_partes pt WHERE pt.movimento_id = m.id)');
+      /* Adiantado a uma empresa e ainda nao devolvido. */
+      if (q.estado === 'reembolsar') w.push(`EXISTS (SELECT 1 FROM fin_mov_partes pt
+          JOIN fin_cc_mov cm ON cm.parte_id = pt.id AND NOT cm.apagado
+          JOIN fin_cc_pessoas cp ON cp.id = cm.pessoa_id AND cp.tipo = 'empresa'
+         WHERE pt.movimento_id = m.id AND cm.estado IN ('adiantado','apresentado'))`);
       if (q.estado === 'reembolsos') w.push('m.valor > 0 AND NOT EXISTS (SELECT 1 FROM fin_cc_mov c WHERE c.movimento_id = m.id)');
       if (q.estado === 'repetidos') w.push(`EXISTS (SELECT 1 FROM fin_movimentos y WHERE y.id <> m.id AND y.conta_id = m.conta_id
           AND y.data = m.data AND y.valor = m.valor AND lower(y.descricao) = lower(m.descricao))`);
@@ -1855,6 +1862,30 @@ function instalar(app) {
         { categoria_id: b.categoria_id, descricao: b.descricao });
       res.json(r);
     } catch (e) { falha(res, e, 'a divisão'); }
+  });
+
+  /* Despesas de representacao: o Marco adianta e a empresa devolve. Cada
+     movimento fica 100% a cargo da empresa - a conta corrente dela regista o
+     que lhe e devido, a categoria real do gasto mantem-se, e porque o
+     movimento fica dividido deixa de contar como gasto dele. */
+  app.post('/api/financas/movimentos/reembolsar', async (req, res) => {
+    try {
+      const b = req.body || {};
+      const empresa = Number(b.empresa_id);
+      if (!empresa) throw erro(400, 'Falta a empresa.');
+      const ids = (b.ids || []).map(Number).filter(Boolean);
+      if (!ids.length) throw erro(400, 'Nenhum movimento escolhido.');
+      const estado = ['adiantado', 'apresentado', 'reembolsado'].indexOf(String(b.estado || '')) >= 0 ? String(b.estado) : 'adiantado';
+      const ms = await all('SELECT id, valor FROM fin_movimentos WHERE id = ANY($1::int[]) AND valor < 0', [ids]);
+      if (!ms.length) throw erro(400, 'Só entram pagamentos que saíram da conta.');
+      let feitos = 0;
+      for (const m of ms) {
+        await cc.dividir(m.id, { outros: [{ pessoa_id: empresa, valor: Math.abs(Number(m.valor)) }],
+          manter_categoria: true, estado: estado, descricao: b.descricao });
+        feitos++;
+      }
+      res.json({ feitos, de: ms.length });
+    } catch (e) { falha(res, e, 'as despesas a reembolsar'); }
   });
 
   /* Dividir a conta: a parte do Marco e a de cada pessoa. */

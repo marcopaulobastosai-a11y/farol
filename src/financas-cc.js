@@ -177,7 +177,7 @@ async function arrancar() {
 async function resumo() {
   await organizarContas().catch((e) => console.error('[farol] contas correntes (organizar):', e.message));
   const ps = await all(
-    `SELECT p.id, p.nome, p.person_id, p.splitwise_id::text AS splitwise_id, p.saldo_splitwise, p.por_grupo,
+    `SELECT p.id, p.nome, p.person_id, p.tipo AS natureza, p.splitwise_id::text AS splitwise_id, p.saldo_splitwise, p.por_grupo,
             to_char(p.lido_em AT TIME ZONE 'Europe/Lisbon','YYYY-MM-DD HH24:MI') AS lido_em, p.ativo, p.nota,
             COALESCE(SUM(m.valor) FILTER (WHERE NOT m.apagado), 0) AS saldo,
             COALESCE(SUM(m.valor) FILTER (WHERE NOT m.apagado AND m.origem = 'splitwise'), 0) AS saldo_sw_lido,
@@ -185,14 +185,17 @@ async function resumo() {
             COALESCE(SUM(m.valor) FILTER (WHERE NOT m.apagado AND m.origem IN ('tu', 'partilha', 'reembolso')), 0) AS saldo_tu,
             COALESCE(SUM(m.valor) FILTER (WHERE NOT m.apagado AND m.origem IN ('partilha', 'reembolso')), 0) AS saldo_partilhas,
             to_char(MAX(m.data) FILTER (WHERE NOT m.apagado), 'YYYY-MM-DD') AS ultimo,
-            COUNT(m.id) FILTER (WHERE NOT m.apagado) AS n
+            COUNT(m.id) FILTER (WHERE NOT m.apagado) AS n,
+            COALESCE(SUM(m.valor) FILTER (WHERE NOT m.apagado AND m.estado = 'adiantado'), 0) AS por_apresentar,
+            COALESCE(SUM(m.valor) FILTER (WHERE NOT m.apagado AND m.estado IN ('adiantado','apresentado')), 0) AS por_receber
        FROM fin_cc_pessoas p LEFT JOIN fin_cc_mov m ON m.pessoa_id = p.id
       GROUP BY p.id ORDER BY p.ativo DESC, p.nome`);
   const pessoas = ps.map((p) => {
     const x = Object.assign({}, p, {
       saldo: cent(p.saldo), saldo_fora: cent(p.saldo_fora), saldo_sw_lido: cent(p.saldo_sw_lido),
       saldo_splitwise: p.saldo_splitwise == null ? null : cent(p.saldo_splitwise), n: Number(p.n), saldo_tu: cent(p.saldo_tu),
-      saldo_partilhas: cent(p.saldo_partilhas)
+      saldo_partilhas: cent(p.saldo_partilhas),
+      por_apresentar: cent(p.por_apresentar), por_receber: cent(p.por_receber)
     });
     /* O Splitwise e a referencia: se o que se leu despesa a despesa nao bate
        com o saldo que ele da, diz-se - e conta o dele. */
@@ -213,6 +216,8 @@ async function resumo() {
       WHERE c.origem = 'partilha' AND NOT c.apagado ORDER BY c.data DESC, c.id DESC`);
   pessoas.forEach((p) => {
     p.tipo = p.splitwise_id ? 'splitwise' : 'farol';
+    /* `tipo` ja queria dizer de onde vem a conta: pessoa ou empresa vai a parte. */
+    p.empresa = p.natureza === 'empresa';
     p.contas = contas.filter((c) => c.pessoa_id === p.id).slice(0, 6)
       .map((c) => ({ data: c.data, descricao: c.descricao, valor: cent(c.valor), total: c.total == null ? null : cent(c.total), movimento_id: c.movimento_id }));
     /* Em aberto: ha saldo por acertar. Saldada: ja nao deve nem se lhe deve. */
@@ -269,8 +274,8 @@ function instalar(app, falha) {
     try {
       const nome = String((req.body && req.body.nome) || '').trim();
       if (!nome) return res.status(400).json({ error: 'Falta o nome.' });
-      const r = (await all('INSERT INTO fin_cc_pessoas (nome, person_id, nota) VALUES ($1, $2, $3) RETURNING id',
-        [nome, req.body.person_id || null, req.body.nota || null]))[0];
+      const r = (await all('INSERT INTO fin_cc_pessoas (nome, person_id, nota, tipo) VALUES ($1, $2, $3, $4) RETURNING id',
+        [nome, req.body.person_id || null, req.body.nota || null, req.body.tipo === 'empresa' ? 'empresa' : 'pessoa']))[0];
       res.json({ id: r.id });
     } catch (e) { falha(res, e, 'cc nova pessoa'); }
   });
@@ -300,6 +305,17 @@ function instalar(app, falha) {
         [req.params.id, b.data || null, String(b.descricao || 'Acerto').trim(), valor, b.conta_id ? Number(b.conta_id) : await contaDireta(Number(req.params.id))]))[0];
       res.json({ id: r.id });
     } catch (e) { falha(res, e, 'cc lancamento'); }
+  });
+
+  /* Em que pe esta uma despesa adiantada. */
+  app.patch('/api/financas/cc/mov/:id(\\d+)/estado', async (req, res) => {
+    try {
+      const e = String((req.body && req.body.estado) || '');
+      if (['adiantado', 'apresentado', 'reembolsado'].indexOf(e) < 0) throw erro(400, 'Estado desconhecido.');
+      const r = await all('UPDATE fin_cc_mov SET estado = $1 WHERE id = $2 RETURNING id', [e, Number(req.params.id)]);
+      if (!r.length) throw erro(404, 'Entrada não encontrada.');
+      res.json({ ok: true, estado: e });
+    } catch (e) { falha(res, e, 'o estado da despesa'); }
   });
 
   app.delete('/api/financas/cc/mov/:id(\\d+)', async (req, res) => {
@@ -444,7 +460,13 @@ async function dividir(movimentoId, b) {
   const minha = cent(total - soma);
   const descricao = String(b.descricao || '').trim().slice(0, 200) || m.descricao;
   const acertos = (await all("SELECT id FROM fin_categorias WHERE natureza = 'transferencia' AND nome ILIKE '%acerto%' ORDER BY id LIMIT 1"))[0];
-  const categoria = minha > 0.005 ? (b.categoria_id ? Number(b.categoria_id) : null) : (acertos ? acertos.id : null);
+  /* Numa despesa adiantada a uma empresa a categoria real interessa (almocos
+     de equipa, lavagens): guarda-se. Como o movimento fica dividido, a analise
+     passa a contar pelas partes, por isso nao conta como gasto do Marco. */
+  const categoria = minha > 0.005 ? (b.categoria_id ? Number(b.categoria_id) : null)
+    : (b.manter_categoria ? null : (acertos ? acertos.id : null));
+  /* adiantado | apresentado | reembolsado - so nas contas de empresa. */
+  const estado = ['adiantado', 'apresentado', 'reembolsado'].indexOf(String(b.estado || '')) >= 0 ? String(b.estado) : null;
 
   const cli = await pool.connect();
   try {
@@ -459,8 +481,8 @@ async function dividir(movimentoId, b) {
       const pt = (await cli.query('INSERT INTO fin_mov_partes (movimento_id, valor, pessoa_id) VALUES ($1, $2, $3) RETURNING id',
         [m.id, -porPessoa[pid], Number(pid)])).rows[0];
       await cli.query(
-        `INSERT INTO fin_cc_mov (pessoa_id, data, descricao, valor, origem, total, parte_id)
-         VALUES ($1, $2, $3, $4, 'partilha', $5, $6)`, [Number(pid), m.data, descricao, porPessoa[pid], total, pt.id]);
+        `INSERT INTO fin_cc_mov (pessoa_id, data, descricao, valor, origem, total, parte_id, estado)
+         VALUES ($1, $2, $3, $4, 'partilha', $5, $6, $7)`, [Number(pid), m.data, descricao, porPessoa[pid], total, pt.id, estado]);
     }
     if (categoria) {
       await cli.query(`UPDATE fin_movimentos SET categoria_id = $1, categoria_fonte = 'tu', categoria_em = now() WHERE id = $2`, [categoria, m.id]);
