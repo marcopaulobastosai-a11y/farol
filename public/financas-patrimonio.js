@@ -564,11 +564,9 @@ function fn_financas_partilhadas(corpo){
         h('td', { class: 'r' }, fnEur(p.total)),
         h('td', { class: 'r fn-muted' }, fnEur(p.minha)),
         h('td', null, p.linhas.map(function(l){ return fnPillLinha(l); })),
-        h('td', null, p.representacao
-          ? h('span', { class: 'fn-pill ' + fnRepCor(p.representacao.estado),
-              title: 'Despesa de representação de ' + (p.representacao.empresa || '') + ' · ' + (p.representacao.cartao ? 'cartão da empresa' : 'do teu bolso') },
-            fnRepNome(p.representacao.estado, p.representacao.cartao))
-          : h('span', { class: 'fn-muted', style: 'font-size:.75rem' }, '—')),
+        /* O pé muda-se aqui mesmo: ir ao detalhe de cada uma para carregar
+           em «Apresentado» era o caminho longo para a coisa mais repetida. */
+        h('td', null, [fnRepresCel(p)]),
         h('td', null, [h('span', { class: 'fn-pill ' + (p.estado === 'aberta' ? 'warn' : 'good') }, p.estado === 'aberta' ? 'falta ' + fnEur(p.a_receber) : 'saldada'),
           /* Dizer que já foi reembolsada é uma coisa; ligar a entrada que a
              saldou é outra. Enquanto não se ligar, diz-se o que falta fazer. */
@@ -1038,6 +1036,62 @@ function fnReembolsarJanela(movs){
         .then(function(r){ return manda(Number(r.id)); }, fnErro);
     } }]);
   }, fnErro);
+}
+
+/* A célula da representação nas contas partilhadas: carrega-se nela e muda-se
+ * o pé ali mesmo. Mudar de «adiantado» para «apresentado» é o que ele faz
+ * todos os meses — não pode obrigar a abrir o detalhe de cada uma. */
+function fnRepresCel(p){
+  var r = p.representacao;
+  var ids = (p.movimentos || []).map(function(m){ return m.id; });
+  var b = h('button', {
+    type: 'button',
+    class: r ? 'fn-pill clic ' + fnRepCor(r.estado) : 'fn-pill clic',
+    style: 'cursor:pointer;border:0;font:inherit' + (r ? '' : ';background:transparent;color:var(--muted);font-size:.75rem'),
+    title: r ? 'Despesa de representação de ' + (r.empresa || '') + ' · ' + (r.cartao ? 'cartão da empresa' : 'do teu bolso') + ' · carrega para mudar o pé'
+             : 'Carrega para marcar como despesa de representação'
+  }, r ? fnRepNome(r.estado, r.cartao) : '—');
+  b.addEventListener('click', function(e){
+    e.stopPropagation();
+    if (!r) {
+      /* Ainda não é representação: abre-se a janela de marcar. */
+      fnReembolsarJanela((p.movimentos || []).filter(function(m){ return Number(m.valor) < 0; }));
+      return;
+    }
+    fnRepresPeJanela(p, ids, r);
+  });
+  return b;
+}
+
+/* A janelinha de mudar o pé: só os pés que fazem sentido para o caso (bolso
+ * ou cartão da empresa) e a saída para deixar de ser representação. */
+function fnRepresPeJanela(p, ids, r){
+  var pes = fnRepPes(r.cartao);
+  var acoes = h('div', { class: 'fn-acoes', style: 'flex-wrap:wrap;margin-top:6px' });
+  var j;
+  var mudar = function(estado, nome){
+    return fnApi('/api/financas/movimentos/lote', 'POST', { ids: ids, repres_estado: estado }).then(function(){
+      fnAviso((r.empresa || 'Representação') + ': ' + nome.toLowerCase() + '.');
+      fnMudou();
+    }, fnErro);
+  };
+  pes.forEach(function(y){
+    var agora = y[0] === (r.estado || pes[0][0]);
+    acoes.appendChild(fnBtn(y[1] + (agora ? ' · agora' : ''), function(){
+      if (agora) { if (j) j.fechar(); return; }
+      mudar(y[0], y[1]).then(function(){ if (j) j.fechar(); });
+    }, agora ? 'small primary' : 'small'));
+  });
+  j = fnJanela('Em que pé está', [
+    h('p', { class: 'fn-nota' }, p.descricao + ' · ' + fnEur(p.total) + ' · ' + (r.empresa || '') + '.'),
+    h('small', { class: 'fn-muted', style: 'display:block' }, pes.filter(function(y){ return y[0] === (r.estado || pes[0][0]); }).map(function(y){ return y[2]; })[0] || ''),
+    acoes,
+    h('div', { class: 'fn-acoes', style: 'margin-top:10px' }, [
+      fnBtn('Já não é representação', function(){
+        fnApi('/api/financas/movimentos/representacao/desfazer', 'POST', { ids: ids })
+          .then(function(){ fnAviso('Deixou de ser despesa de representação.'); fnMudou(); if (j) j.fechar(); }, fnErro);
+      }, 'small danger')])
+  ], []);
 }
 
 /* O dinheiro voltou. Este é o outro lado da representação: um movimento de

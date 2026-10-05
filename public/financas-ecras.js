@@ -1550,8 +1550,6 @@ function fnPainelRepres(p, m){
     }, 'small'));
     cx.appendChild(acoes);
     p.appendChild(cx);
-    cx.appendChild(acoes);
-    p.appendChild(cx);
     return;
   }
   var cx = h('div', { class: 'fn-caixa' }, [h('small', { class: 'fn-muted' }, 'A ler as empresas…')]);

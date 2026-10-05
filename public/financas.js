@@ -87,6 +87,8 @@ var FN_CSS =
   '.fn-tab td.r{font-family:var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap}' +
   '.fn-tab tr.grp td{background:var(--surface-2);font-weight:600}' +
   '.fn-tab tr.clic{cursor:pointer}.fn-tab tr.clic:hover td{background:var(--surface-2)}' +
+  /* Uma pastilha em que se pode carregar tem de parecer que se pode. */
+  '.fn-pill.clic{cursor:pointer;border:0;font:inherit}.fn-pill.clic:hover{filter:brightness(.94);text-decoration:underline}' +
   '.fn-tab tr.on td{background:var(--accent-soft)}' +
   '.fn-tab .d{font-weight:500;display:block;max-width:420px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}' +
   '.fn-tab small{color:var(--muted);font-size:.6875rem}' +
