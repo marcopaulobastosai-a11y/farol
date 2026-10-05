@@ -1177,7 +1177,7 @@ async function listarPartilhas(filtro) {
        LEFT JOIN fin_cc_pessoas dp ON dp.id = c.pessoa_direta_id
       WHERE pt.partilha_id = ANY($1::int[]) ORDER BY pt.id`, [ids]);
   const movs = await all(
-    `SELECT m.id, to_char(m.data,'YYYY-MM-DD') AS data, m.descricao, m.valor, m.conta_id,
+    `SELECT m.id, to_char(m.data,'YYYY-MM-DD') AS data, m.descricao, m.valor, m.conta_id, m.categoria_id,
             m.repres_empresa_id, m.repres_estado, rp.nome AS repres_empresa,
             (ct.empresa_id IS NOT NULL AND ct.empresa_id = m.repres_empresa_id) AS repres_cartao
        FROM fin_movimentos m
@@ -1204,7 +1204,10 @@ async function listarPartilhas(filtro) {
     return {
       id: f.id, descricao: f.descricao, data: f.data, total: cent(f.total), minha: cent(f.minha), iguais: f.iguais, nota: f.nota,
       metodo: f.metodo || (f.iguais ? 'iguais' : 'valores'), entradas: f.entradas || null,
-      categoria_id: f.categoria_id || (minhaParte && minhaParte.categoria_id) || null,
+      /* Numa despesa que vai toda para a empresa nao ha parte dele, por isso
+         nao ha categoria na parte: vale a do proprio movimento. */
+      categoria_id: f.categoria_id || (minhaParte && minhaParte.categoria_id)
+        || (movs.filter((m) => mIds.indexOf(m.id) >= 0 && m.categoria_id)[0] || {}).categoria_id || null,
       linhas: ls.sort((a, b) => a.nome.localeCompare(b.nome)),
       movimentos: movs.filter((m) => mIds.indexOf(m.id) >= 0).map((m) => Object.assign(m, { valor: cent(m.valor) })),
       /* Despesa de representacao: o pe vem do movimento. Com varios, vale o

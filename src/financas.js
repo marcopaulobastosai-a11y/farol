@@ -2069,9 +2069,10 @@ function instalar(app) {
       const nomeEmpresa = ((await all('SELECT nome FROM fin_cc_pessoas WHERE id = $1', [empresa]))[0] || {}).nome || '';
       const r = await all(
         `SELECT m.id, to_char(m.data,'YYYY-MM-DD') AS data, m.descricao, m.titulo, m.entidade, abs(m.valor) AS valor,
-                COALESCE(m.repres_estado, '') AS estado
+                COALESCE(m.repres_estado, '') AS estado, cat.nome AS categoria
            FROM fin_movimentos m
            JOIN fin_contas c ON c.id = m.conta_id
+           LEFT JOIN fin_categorias cat ON cat.id = m.categoria_id
           WHERE m.repres_empresa_id = $1 AND m.valor < 0
             AND COALESCE(m.repres_estado, '') <> 'reembolsado'
             AND (c.empresa_id IS NULL OR c.empresa_id <> $1)
