@@ -125,7 +125,10 @@ function fn_financas_movimentos(corpo){
     style: 'flex:1 1 240px;min-width:190px;max-width:430px' });
   var tmr = null;
   qi.addEventListener('input', function(){ clearTimeout(tmr); tmr = setTimeout(function(){ if (FN.mov.q !== qi.value.trim()) { FN.mov.q = qi.value.trim(); FN.mov.sel = {}; FN.mov.mostrar = 0; fnMovLista(zona); } }, 350); });
-  fnBarraFiltros(corpo, FN.mov.periodo !== 'tudo', [fnBtn('Importar extrato', function(){ fnImportar(); }), fnBtn('+ Movimento', function(){ fnNovoMovimento(); }, 'primary')], qi);
+  /* As duas linhas de filtros ficam juntas numa caixa só, para poderem ficar
+     presas por baixo dos separadores quando a página ainda rola. */
+  var presa = h('div', { class: 'fn-presa' });
+  fnBarraFiltros(presa, FN.mov.periodo !== 'tudo', [fnBtn('Importar extrato', function(){ fnImportar(); }), fnBtn('+ Movimento', function(){ fnNovoMovimento(); }, 'primary')], qi);
   var mudar = function(){ FN.mov.sel = {}; FN.mov.mostrar = 0; desenharFiltros(); fnMovLista(zona); };
   var f = h('div', { class: 'fn-barra' });
   var desenharFiltros = function(){
@@ -162,7 +165,8 @@ function fn_financas_movimentos(corpo){
       h('button', { type: 'button', class: 'btn small', 'aria-label': 'Tirar o filtro do projeto', style: 'padding:0 6px;min-height:0', onclick: function(){ FN.mov.projeto = ''; mudar(); } }, '×')]));
   };
   desenharFiltros();
-  corpo.appendChild(f);
+  presa.appendChild(f);
+  corpo.appendChild(presa);
   corpo.appendChild(zona);
   fnMovLista(zona);
 }
@@ -184,7 +188,7 @@ function fnCongelar(caixa, acima){
      assim o observador nao se dispara a si mesmo e nao ha salto no ecra. */
   var acertar = function(){
     if (!caixa.isConnected) return;
-    if (window.innerWidth < FN_CONGELA_MIN) { caixa.style.maxHeight = ''; caixa.classList.remove('fn-congela'); return; }
+    if (window.innerWidth < FN_CONGELA_MIN) { caixa.style.maxHeight = ''; caixa.classList.remove('fn-congela'); fnTopos(); return; }
     caixa.classList.add('fn-congela');
     var topo = caixa.getBoundingClientRect().top + window.scrollY;
     /* O que fica por baixo do quadro: o «mostrar mais», a linha dos totais, o
@@ -196,6 +200,7 @@ function fnCongelar(caixa, acima){
     if (principal) baixo += parseFloat(getComputedStyle(principal).paddingBottom) || 0;
     var alt = Math.max(240, Math.round(window.innerHeight - topo - baixo - 4));
     if (caixa.style.maxHeight !== alt + 'px') caixa.style.maxHeight = alt + 'px';
+    fnTopos();
   };
 
   var janela = function(){ acertar(); };
@@ -211,6 +216,27 @@ function fnCongelar(caixa, acima){
   }
   FN.congela = { caixa: caixa, obs: obs, janela: janela, acertar: acertar };
   acertar();
+  /* Os avisos chegam do servidor logo a seguir e empurram o quadro: mede-se
+     outra vez quando o ecrã assentar. */
+  if (window.requestAnimationFrame) requestAnimationFrame(acertar);
+  setTimeout(acertar, 500);
+}
+
+/* Diz aos separadores e aos filtros a que altura se hão-de prender: por baixo
+   da barra do título, que já é pegajosa, e uns dos outros. */
+function fnTopos(){
+  var sec = document.getElementById('view-financas');
+  if (!sec) return;
+  var largo = window.innerWidth >= FN_CONGELA_MIN;
+  sec.classList.toggle('fn-presas', largo);
+  if (!largo) return;
+  var topbar = document.querySelector('main > .topbar');
+  var abas = document.getElementById('fnt-financas');
+  var hT = topbar ? Math.round(topbar.getBoundingClientRect().height) : 0;
+  var hA = abas ? Math.round(abas.getBoundingClientRect().height) : 0;
+  var r = document.documentElement.style;
+  r.setProperty('--fn-abas-topo', hT + 'px');
+  r.setProperty('--fn-presa-topo', (hT + hA) + 'px');
 }
 
 /* A lista de movimentos, aos bocados de 200 pedidos ao servidor. Guarda-se

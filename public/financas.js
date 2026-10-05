@@ -94,6 +94,10 @@ var FN_CSS =
   /* Congelar paineis: o quadro rola por dentro e a linha dos titulos fica. */
   '.fn-congela{overflow:auto;overscroll-behavior:contain}' +
   '.fn-congela thead th{position:sticky;top:0;z-index:3;background:var(--surface);box-shadow:inset 0 -1px 0 var(--line)}' +
+  /* Em ecras baixos a pagina ainda rola um pouco: os separadores e os
+     filtros ficam presos por cima, para nunca saírem da vista. */
+  '.fn-presas .fn-abas{position:sticky;top:var(--fn-abas-topo,0px);z-index:5;background:var(--ground)}' +
+  '.fn-presa{position:sticky;top:var(--fn-presa-topo,0px);z-index:4;background:var(--ground);padding:2px 0 6px}' +
   '.fn-banner{display:flex;align-items:center;gap:12px;flex-wrap:wrap;border:1px solid var(--accent);background:var(--accent-soft);border-radius:var(--radius);padding:10px 14px}' +
   '.fn-banner .g{flex:1;min-width:220px}' +
   '.fn-vazio{padding:28px 18px;text-align:center;color:var(--muted);display:flex;flex-direction:column;gap:10px;align-items:center}' +
