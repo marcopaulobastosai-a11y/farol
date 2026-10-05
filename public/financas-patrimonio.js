@@ -1058,10 +1058,10 @@ function fnReembolsoRecebidoJanela(movs){
     empresas.forEach(function(e){ se.appendChild(h('option', { value: String(e.id) }, e.nome)); });
     var lista = h('div', { style: 'max-height:46vh;overflow:auto;margin-top:6px' });
     var soma = h('p', { class: 'fn-nota' });
-    var marc = {}, desp = [];
+    var marc = {}, desp = [], parecidas = [];
 
     var contar = function(){
-      var t = desp.filter(function(d){ return marc[d.id]; }).reduce(function(a, d){ return a + Number(d.valor); }, 0);
+      var t = desp.concat(parecidas).filter(function(d){ return marc[d.id]; }).reduce(function(a, d){ return a + Number(d.valor); }, 0);
       var dif = Math.round((entrou - t) * 100) / 100;
       soma.textContent = 'Entraram ' + fnEur(entrou) + ' · escolhido ' + fnEur(t) +
         (Math.abs(dif) < 0.005 ? ' — bate certo.'
@@ -1069,16 +1069,27 @@ function fnReembolsoRecebidoJanela(movs){
          : ' — ' + fnEur(-dif) + ' a mais do que entrou.');
       soma.style.color = Math.abs(dif) < 0.005 ? 'var(--good, inherit)' : 'var(--muted)';
     };
+    var linha = function(d, nota){
+      var cx = h('input', { type: 'checkbox' });
+      cx.checked = Boolean(marc[d.id]);
+      cx.addEventListener('change', function(){ marc[d.id] = cx.checked; contar(); });
+      return h('label', { class: 'fn-check', style: 'display:flex;gap:8px;align-items:baseline;padding:3px 0' }, [cx,
+        h('span', null, [h('b', null, fnEur(d.valor)), ' · ' + fnData(d.data) + ' · ' + (d.titulo || d.entidade || d.descricao || '') +
+          (nota ? ' · ' + nota : '')])]);
+    };
     var desenhar = function(){
       clear(lista);
-      if (!desp.length) { lista.appendChild(h('p', { class: 'fn-nota' }, 'Esta empresa não tem despesas por reembolsar.')); contar(); return; }
-      desp.forEach(function(d){
-        var cx = h('input', { type: 'checkbox' });
-        cx.checked = Boolean(marc[d.id]);
-        cx.addEventListener('change', function(){ marc[d.id] = cx.checked; contar(); });
-        lista.appendChild(h('label', { class: 'fn-check', style: 'display:flex;gap:8px;align-items:baseline;padding:3px 0' }, [cx,
-          h('span', null, [h('b', null, fnEur(d.valor)), ' · ' + fnData(d.data) + ' · ' + (d.titulo || d.entidade || d.descricao || '')])]));
-      });
+      if (!desp.length) lista.appendChild(h('p', { class: 'fn-nota' }, 'Esta empresa não tem despesas marcadas por reembolsar.'));
+      desp.forEach(function(d){ lista.appendChild(linha(d)); });
+      /* As que tem a cara de representacao mas nunca foram marcadas: a
+         categoria e a area sao arrumacao, nao poem a despesa na conta da
+         empresa. Escondê-las aqui obrigava a ir ao detalhe de cada uma. */
+      if (parecidas.length) {
+        lista.appendChild(h('p', { class: 'fn-nota', style: 'margin:10px 0 2px;font-weight:600' }, 'Parecem ser, mas não estão marcadas'));
+        lista.appendChild(h('small', { class: 'fn-muted', style: 'display:block;margin-bottom:4px' },
+          'Têm a categoria de representação ou a área da empresa. Marcar uma aqui põe-na na conta da empresa e dá-a logo por reembolsada.'));
+        parecidas.forEach(function(d){ lista.appendChild(linha(d, d.categoria || '')); });
+      }
       contar();
     };
     /* A proposta: as mais antigas primeiro, até encher o que entrou. Uma que
@@ -1087,6 +1098,7 @@ function fnReembolsoRecebidoJanela(movs){
     var propor = function(){
       marc = {};
       var falta = entrou;
+      /* So as ja marcadas entram na proposta: as parecidas sao decisao dele. */
       desp.forEach(function(d){
         if (Number(d.valor) <= falta + 0.005) { marc[d.id] = true; falta = Math.round((falta - Number(d.valor)) * 100) / 100; }
       });
@@ -1095,7 +1107,7 @@ function fnReembolsoRecebidoJanela(movs){
     var carregar = function(){
       clear(lista); lista.appendChild(h('p', { class: 'fn-nota' }, 'A ler as despesas…'));
       apiGestao('/api/financas/representacao/por-reembolsar?empresa=' + se.value).then(function(r){
-        desp = (r && r.despesas) || []; propor();
+        desp = (r && r.despesas) || []; parecidas = (r && r.parecidas) || []; propor();
       }, function(){ clear(lista); lista.appendChild(h('p', { class: 'fn-nota' }, 'Não deu para ler as despesas.')); });
     };
     se.addEventListener('change', carregar);
@@ -1111,10 +1123,20 @@ function fnReembolsoRecebidoJanela(movs){
       soma, lista
     ], [{ txt: 'Marcar como reembolsadas', pri: true, fn: function(){
       var escolhidas = desp.filter(function(d){ return marc[d.id]; }).map(function(d){ return d.id; });
-      if (!escolhidas.length) { fnAviso('Não escolheste nenhuma despesa.'); return false; }
-      return fnApi('/api/financas/representacao/reembolso', 'POST',
-        { empresa_id: Number(se.value), creditos: movs.map(function(m){ return m.id; }), despesas: escolhidas }).then(function(r){
-        fnAviso(r.feitos + (r.feitos === 1 ? ' despesa reembolsada' : ' despesas reembolsadas') + ' · ' + fnEur(r.total) + '.');
+      var novas = parecidas.filter(function(d){ return marc[d.id]; }).map(function(d){ return d.id; });
+      if (!escolhidas.length && !novas.length) { fnAviso('Não escolheste nenhuma despesa.'); return false; }
+      var empresaId = Number(se.value);
+      /* As que ainda nao eram despesa de representacao passam a ser primeiro:
+         sem divida aberta nao havia nada para o reembolso saldar. */
+      var antes = novas.length
+        ? fnApi('/api/financas/movimentos/reembolsar', 'POST', { ids: novas, empresa_id: empresaId, estado: 'apresentado' })
+        : Promise.resolve(null);
+      return antes.then(function(){
+        return fnApi('/api/financas/representacao/reembolso', 'POST',
+          { empresa_id: empresaId, creditos: movs.map(function(m){ return m.id; }), despesas: escolhidas.concat(novas) });
+      }).then(function(r){
+        fnAviso(r.feitos + (r.feitos === 1 ? ' despesa reembolsada' : ' despesas reembolsadas') + ' · ' + fnEur(r.total) +
+          (novas.length ? ' (' + novas.length + (novas.length === 1 ? ' passou' : ' passaram') + ' a ser de representação)' : '') + '.');
         fnMudou();
       }, fnErro);
     } }]);
