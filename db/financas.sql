@@ -97,8 +97,25 @@ CREATE INDEX IF NOT EXISTS fin_mov_entidade ON fin_movimentos (entidade);
 -- adianta e depois apresenta (Credito Agricola, Cupula Arejada, Falua).
 ALTER TABLE fin_cc_pessoas ADD COLUMN IF NOT EXISTS tipo TEXT NOT NULL DEFAULT 'pessoa';
 -- Em que pe esta cada despesa adiantada: adiantado | apresentado | reembolsado.
+-- (Ficou aqui da primeira versao; o pe passou para o proprio movimento, que
+-- serve tanto as pagas do bolso como as pagas pelo cartao da empresa.)
 ALTER TABLE fin_cc_mov ADD COLUMN IF NOT EXISTS estado TEXT;
 CREATE INDEX IF NOT EXISTS fin_cc_mov_estado ON fin_cc_mov (estado) WHERE estado IS NOT NULL;
+
+-- Despesas de representacao. A empresa a quem a despesa diz respeito e em que
+-- pe esta. Quem pagou nao se escreve: le-se da conta de onde saiu - se a conta
+-- e da empresa foi o cartao dela, senao foi do bolso do Marco.
+ALTER TABLE fin_movimentos ADD COLUMN IF NOT EXISTS repres_empresa_id INTEGER REFERENCES fin_cc_pessoas(id) ON DELETE SET NULL;
+ALTER TABLE fin_movimentos ADD COLUMN IF NOT EXISTS repres_estado TEXT;
+CREATE INDEX IF NOT EXISTS fin_mov_repres ON fin_movimentos (repres_empresa_id) WHERE repres_empresa_id IS NOT NULL;
+-- Contas que sao da empresa (o cartao que ela da): o dinheiro nunca e dele.
+ALTER TABLE fin_contas ADD COLUMN IF NOT EXISTS empresa_id INTEGER REFERENCES fin_cc_pessoas(id) ON DELETE SET NULL;
+
+-- O que ja estava marcado na conta corrente passa para o movimento.
+UPDATE fin_movimentos m SET repres_empresa_id = cm.pessoa_id, repres_estado = cm.estado
+  FROM fin_mov_partes pt JOIN fin_cc_mov cm ON cm.parte_id = pt.id
+       JOIN fin_cc_pessoas cp ON cp.id = cm.pessoa_id AND cp.tipo = 'empresa'
+ WHERE pt.movimento_id = m.id AND cm.estado IS NOT NULL AND m.repres_estado IS NULL;
 CREATE INDEX IF NOT EXISTS fin_mov_par_idx ON fin_movimentos (par_id) WHERE par_id IS NOT NULL;
 -- Transferencia para (ou de) uma conta cujo outro lado nao esta no Farol (o
 -- cartao cujo extrato ainda nao veio, o cartao da Sofia, as poupancas das
