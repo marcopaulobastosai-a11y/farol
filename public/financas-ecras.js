@@ -19,8 +19,8 @@ function fn_financas_resumo(corpo){
       k.orcado ? h('div', { class: 'fn-kpi' }, [h('span', { class: 'mono' }, 'Orçamento usado'), h('span', { class: 'v' }, fnPct(k.orcamento_pct)),
         h('div', { class: 'fn-acoes' }, [fnBarra(k.orcamento_pct), h('span', { class: 's' }, fnEur0(k.gasto_orcado) + ' / ' + fnEur0(k.orcado))])])
         : fnKpi('Orçamento', '—', 'ainda sem orçamentos'),
-      fnKpiLink('Por categorizar', String(k.por_categorizar), k.sugestoes ? 'a IA sugere ' + k.sugestoes + ' →' : 'ver →', function(){ FN.mov.estado = k.sugestoes ? 'sugestoes' : 'categorizar'; FN.mov.periodo = 'tudo'; fnIr('movimentos'); }),
-      fnKpiLink('Por reconciliar', String(k.por_reconciliar), (k.despesas_sem_banco ? k.despesas_sem_banco + ' despesas sem banco · ' : '') + 'ver →', function(){ FN.mov.estado = 'reconciliar'; FN.mov.periodo = 'tudo'; fnIr('movimentos'); })
+      fnKpiLink('Por categorizar', String(k.por_categorizar), k.sugestoes ? 'a IA sugere ' + k.sugestoes + ' →' : 'ver →', function(){ FN.mov.estado = k.sugestoes ? 'sugestoes' : 'categorizar'; FN.mov.sinal = ''; FN.mov.periodo = 'tudo'; fnIr('movimentos'); }),
+      fnKpiLink('Por reconciliar', String(k.por_reconciliar), (k.despesas_sem_banco ? k.despesas_sem_banco + ' despesas sem banco · ' : '') + 'ver →', function(){ FN.mov.estado = 'reconciliar'; FN.mov.sinal = ''; FN.mov.periodo = 'tudo'; fnIr('movimentos'); })
     ]);
     corpo.appendChild(kp);
 
@@ -40,7 +40,7 @@ function fn_financas_resumo(corpo){
       if (t.tipo === 'orcado_a_mais') acoes.push(fnBtn('Ajustar para ' + fnEur0(t.sugerido), function(){
         fnApi('/api/financas/orcamentos/' + t.orcamento_id, 'PATCH', { mensal: t.sugerido }).then(function(){ fnAviso('Orçamento ajustado.'); fnMudou(); }, fnErro);
       }, 'small'));
-      if (t.categoria_id) acoes.push(fnBtn('Ver', function(){ FN.mov.categoria = String(t.categoria_id); FN.mov.estado = ''; FN.mov.periodo = 'mes'; fnIr('movimentos'); }, 'small'));
+      if (t.categoria_id) acoes.push(fnBtn('Ver', function(){ FN.mov.categoria = String(t.categoria_id); FN.mov.estado = ''; FN.mov.sinal = ''; FN.mov.periodo = 'mes'; fnIr('movimentos'); }, 'small'));
       tl.appendChild(h('div', { class: 'fn-li' }, [
         h('span', { class: 'fn-pill ' + (t.nivel === 'bad' ? 'bad' : t.nivel === 'warn' ? 'warn' : 'ai') }, t.nivel === 'info' ? '✦' : '!'),
         h('div', { class: 'g' }, [h('b', null, t.titulo), h('small', null, t.texto)]),
@@ -130,6 +130,13 @@ function fn_financas_movimentos(corpo){
       seg.appendChild(h('button', { type: 'button', class: FN.mov.estado === o[0] ? 'on' : '', onclick: function(){ FN.mov.estado = o[0]; mudar(); } }, o[1]));
     });
     f.appendChild(seg);
+    /* Credito ou debito. E outra pergunta que a do estado, por isso tem o seu
+       proprio grupo: pode-se ver «por categorizar» so das saidas. */
+    var sg = h('div', { class: 'fn-seg', role: 'group', 'aria-label': 'Crédito ou débito' });
+    [['','Tudo'],['credito','Entradas'],['debito','Saídas']].forEach(function(o){
+      sg.appendChild(h('button', { type: 'button', class: FN.mov.sinal === o[0] ? 'on' : '', onclick: function(){ FN.mov.sinal = o[0]; mudar(); } }, o[1]));
+    });
+    f.appendChild(sg);
     var sc = fnSelCategorias(FN.mov.categoria, 'Todas as categorias'); sc.setAttribute('aria-label', 'Categoria');
     sc.insertBefore(h('option', { value: 'nenhuma' }, 'Sem categoria'), sc.children[1] || null);
     if (FN.mov.categoria) sc.value = FN.mov.categoria;
@@ -166,7 +173,7 @@ function fn_financas_movimentos(corpo){
 var FN_MOV_PAG = 200;
 function fnMovQs(){
   var per = fnPeriodoMov();
-  return fnQs({ estado: FN.mov.estado, conta: FN.mov.conta, categoria: FN.mov.categoria, projeto: FN.mov.projeto || '', pessoa: FN.mov.pessoa || '', q: FN.mov.q, de: per.de, ate: per.ate, ambito: FN.ambito, area: FN.area });
+  return fnQs({ estado: FN.mov.estado, sinal: FN.mov.sinal || '', conta: FN.mov.conta, categoria: FN.mov.categoria, projeto: FN.mov.projeto || '', pessoa: FN.mov.pessoa || '', q: FN.mov.q, de: per.de, ate: per.ate, ambito: FN.ambito, area: FN.area });
 }
 /* A lista dos projetos, para pôr um movimento num (o casamento, a casa nova).
    Os programas ficam de fora: guardam projetos, não movimentos. */
@@ -240,7 +247,7 @@ function fnMovDesenhar(zona, d, qs){
       avisos.appendChild(h('div', { class: 'fn-banner' }, [h('span', { class: 'fn-pill ai' }, '✦ Reembolsos'),
         h('div', { class: 'g' }, [h('b', null, rs.reembolsos + (rs.reembolsos === 1 ? ' entrada parece' : ' entradas parecem') + ' alguém a devolver a parte de uma conta'),
           h('span', { class: 'fn-muted' }, ' · pelo nome de quem mandou e por um pagamento teu, dos dias antes, que é múltiplo exato do valor.')]),
-        fnBtn('Ver', function(){ FN.mov.estado = 'reembolsos'; FN.mov.sel = {}; FN.mov.mostrar = 0; fnRender('financas'); }, 'small')]));
+        fnBtn('Ver', function(){ FN.mov.estado = 'reembolsos'; FN.mov.sinal = ''; FN.mov.sel = {}; FN.mov.mostrar = 0; fnRender('financas'); }, 'small')]));
     }
   };
   desenharAvisos();
@@ -248,7 +255,7 @@ function fnMovDesenhar(zona, d, qs){
   fnAvisoTarefas(zona);
   var cartao = h('div', { class: 'card', style: 'padding:6px 10px' });
   zona.appendChild(cartao);
-  if (!ms.length) { cartao.appendChild(fnVazio('Nenhum movimento com estes filtros.', FN.mov.estado ? 'Experimenta «Todos» ou outro período.' : null)); return; }
+  if (!ms.length) { cartao.appendChild(fnVazio('Nenhum movimento com estes filtros.', (FN.mov.estado || FN.mov.sinal) ? 'Experimenta «Todos» ou outro período.' : null)); return; }
   /* A barra do lote redesenha-se sozinha quando se marca uma linha. */
   var lote = h('div');
   cartao.appendChild(lote);
@@ -681,6 +688,14 @@ function fnLoteFolha(ids, ms, limpar){
 
   var tit = h('b');
   var resumo = h('small', { class: 'fn-muted', style: 'display:block' });
+  /* O nome amigavel. Em branco nao se mexe; a cruzinha e que o limpa, senao
+     nao havia como dizer «tirem o nome que estes tem». */
+  var snome = h('input', { class: 'fn-in', placeholder: '— não mexer —', 'aria-label': 'Nome' });
+  var snomeLimpar = h('input', { type: 'checkbox' });
+  snomeLimpar.addEventListener('change', function(){
+    snome.disabled = snomeLimpar.checked;
+    if (snomeLimpar.checked) snome.value = '';
+  });
   var sc = fnLoteSel(fnSelCategorias(''), '— sem categoria —');
   var sa = fnLoteSel(fnSelAreas(''), '— sem área —');
   var spj = fnLoteSel(fnSelProjetos(''), '— sem projeto —');
@@ -701,6 +716,11 @@ function fnLoteFolha(ids, ms, limpar){
   var j = fnJanela('Escolhidos', [
     h('div', null, [tit, resumo]),
     h('p', { class: 'fn-nota' }, 'Muda-se só o que se mexer aqui; o resto de cada movimento fica como está.'),
+    fnCampo('Nome', snome),
+    h('small', { class: 'fn-muted', style: 'display:block;margin:-6px 0 2px' },
+      'Ficam todos com o mesmo nome, e o texto do extrato de cada um fica por baixo.'),
+    h('label', { class: 'fn-check', style: 'margin:0 0 8px' }, [snomeLimpar,
+      h('span', null, 'Limpar o nome — ficam só com o texto do extrato')]),
     fnCampo('Categoria', sc), fnCampo('Área', sa), fnCampo('Projeto', spj),
     h('div', { class: 'fn-campo' }, [h('span', null, 'De quem é (agregado) · uma ou mais pessoas'), spe]),
     h('hr', { style: 'border:0;border-top:1px solid var(--line);margin:4px 0' }),
@@ -711,6 +731,8 @@ function fnLoteFolha(ids, ms, limpar){
     h('div', { class: 'fn-acoes', style: 'flex-wrap:wrap' }, [bSug, bApagar])
   ], [{ txt: 'Guardar', pri: true, fn: function(){
     var corpo = {};
+    if (snomeLimpar.checked) corpo.titulo = null;
+    else if (snome.value.trim()) corpo.titulo = snome.value.trim();
     var c = fnLoteValor(sc); if (c !== undefined) corpo.categoria_id = c;
     var a = fnLoteValor(sa); if (a !== undefined) corpo.context_id = a;
     var p = fnLoteValor(spj); if (p !== undefined) corpo.project_id = p;

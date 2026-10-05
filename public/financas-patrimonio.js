@@ -1120,7 +1120,7 @@ function fn_financas_categorias(corpo){
     cIa.appendChild(h('div', { class: 'fn-acoes', style: 'margin-top:10px' }, [fnBtn('Categorizar agora', function(e){
       var b = e && e.target; if (b) { b.disabled = true; b.textContent = 'A categorizar…'; }
       fnApi('/api/financas/ia/categorizar', 'POST', {}).then(function(r){ fnAviso(r.regra + ' por regra · ' + r.sugestoes + ' sugestões.'); fnMudou(); }, function(x){ if (b) b.disabled = false; fnErro(x); });
-    }, 'primary small'), fnBtn('Rever as sugestões', function(){ FN.mov.estado = 'sugestoes'; FN.mov.periodo = 'tudo'; fnIr('movimentos'); }, 'small')]));
+    }, 'primary small'), fnBtn('Rever as sugestões', function(){ FN.mov.estado = 'sugestoes'; FN.mov.sinal = ''; FN.mov.periodo = 'tudo'; fnIr('movimentos'); }, 'small')]));
     cProp.appendChild(h('header', null, [h('h3', null, 'Regras propostas'), h('span', { class: 'mono' }, 'do que já categorizaste')]));
     if (!ia.propostas.length) cProp.appendChild(h('p', { class: 'fn-nota' }, 'Quando puseres o mesmo comerciante três vezes na mesma categoria, aparece aqui a proposta de regra.'));
     ia.propostas.forEach(function(p){
