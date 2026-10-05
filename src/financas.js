@@ -815,7 +815,7 @@ async function sugestoesDeEntradas(lista, B) {
 async function detalharMovimentos(ids, B, sug) {
   if (!ids.length) return [];
   const rows = await all(
-    `SELECT m.id, m.conta_id, to_char(m.data,'YYYY-MM-DD') AS data, m.descricao, m.titulo, m.valor, m.saldo, m.categoria_id, m.categoria_fonte,
+    `SELECT m.id, m.conta_id, to_char(m.data,'YYYY-MM-DD') AS data, m.descricao, m.titulo, m.entidade, m.valor, m.saldo, m.categoria_id, m.categoria_fonte,
             m.context_id, m.person_id, m.expense_id, m.ia_categoria_id, m.ia_confianca, m.ia_fonte, m.nota, m.origem,
             m.project_id, pj.name AS projeto,
             m.par_id, pm.conta_id AS par_conta_id, to_char(pm.data,'YYYY-MM-DD') AS par_data,
@@ -1440,7 +1440,7 @@ function instalar(app) {
         /* Procura nos dois textos - o nome que o Marco deu e o do extrato - e,
            se o que se escreveu parecer um valor, tambem no montante. */
         const num = String(q.q).replace(/\s/g, '').replace(',', '.');
-        const dois = '(m.descricao ILIKE $N OR m.titulo ILIKE $N)';
+        const dois = '(m.descricao ILIKE $N OR m.titulo ILIKE $N OR m.entidade ILIKE $N)';
         if (/^\d+(\.\d+)?$/.test(num)) {
           v.push('%' + q.q + '%'); v.push(num);
           w.push('(' + dois.replace(/\$N/g, '$' + (v.length - 1)) + " OR to_char(abs(m.valor),'FM999999990.00') LIKE $" + v.length + " || '%')");
@@ -1548,7 +1548,7 @@ function instalar(app) {
         set('categoria_fonte', !cat ? null : (b.aceite ? 'ia-aceite' : (m.ia_categoria_id && m.ia_categoria_id !== Number(cat) ? 'tu-corrigiu' : 'tu')));
         sets.push('categoria_em = now()');
       }
-      ['context_id', 'nota', 'expense_id', 'data', 'descricao', 'titulo', 'project_id', 'para_conta_id'].forEach((k) => { if (b[k] !== undefined) set(k, b[k] === '' ? null : b[k]); });
+      ['context_id', 'nota', 'expense_id', 'data', 'descricao', 'titulo', 'entidade', 'project_id', 'para_conta_id'].forEach((k) => { if (b[k] !== undefined) set(k, b[k] === '' ? null : b[k]); });
       /* De quem: uma ou varias pessoas (person_id fica com a primeira). */
       if (b.person_ids !== undefined || b.person_id !== undefined) {
         const ps = b.person_ids !== undefined ? [...new Set((b.person_ids || []).map(Number).filter(Boolean))] : (b.person_id ? [Number(b.person_id)] : []);
@@ -1594,6 +1594,7 @@ function instalar(app) {
       const sets = [], vals = [ids];
       /* O nome amigavel: vazio ou null limpa, ficando so a descricao do banco. */
       if (b.titulo !== undefined) { vals.push((b.titulo === null ? '' : String(b.titulo)).trim() || null); sets.push('titulo = $' + vals.length); }
+      if (b.entidade !== undefined) { vals.push((b.entidade === null ? '' : String(b.entidade)).trim() || null); sets.push('entidade = $' + vals.length); }
       if (b.categoria_id !== undefined) { vals.push(b.categoria_id || null); sets.push('categoria_id = $' + vals.length, "categoria_fonte = 'tu'", 'categoria_em = now()'); }
       if (b.context_id !== undefined) { vals.push(b.context_id || null); sets.push('context_id = $' + vals.length); }
       if (b.project_id !== undefined) { vals.push(b.project_id || null); sets.push('project_id = $' + vals.length); }
@@ -1606,6 +1607,16 @@ function instalar(app) {
       const r = await all('UPDATE fin_movimentos SET ' + sets.join(', ') + ' WHERE id = ANY($1::int[]) RETURNING id', vals);
       res.json({ feitos: r.length });
     } catch (e) { falha(res, e, 'os movimentos'); }
+  });
+
+  /* As entidades ja usadas, para a caixa se completar sozinha. */
+  app.get('/api/financas/entidades', async (req, res) => {
+    try {
+      const r = await all(`SELECT entidade AS nome, count(*)::int AS quantos FROM fin_movimentos
+                            WHERE entidade IS NOT NULL AND entidade <> ''
+                            GROUP BY entidade ORDER BY count(*) DESC, lower(entidade) LIMIT 400`);
+      res.json({ entidades: r });
+    } catch (e) { falha(res, e, 'as entidades'); }
   });
 
   app.delete('/api/financas/movimentos/:id(\\d+)', async (req, res) => {
