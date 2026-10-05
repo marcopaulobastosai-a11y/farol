@@ -717,28 +717,38 @@ function fnCarregar(alvo, promessa, desenhar){
   });
 }
 
-/* A barra de filtros das Finanças: âmbito, área e mês. */
-function fnBarraFiltros(corpo, comMes, extra, aposArea){
-  var b = h('div', { class: 'fn-barra' });
+/* As peças da barra de filtros, soltas, para cada ecrã as arrumar à sua
+   maneira. Nos movimentos, por exemplo, os filtros em pastilha ficam numa
+   linha e as caixas quadradas noutra. */
+function fnSegAmbito(){
   var seg = h('div', { class: 'fn-seg', role: 'group', 'aria-label': 'Âmbito' });
   [['tudo','Tudo'],['pessoal','Pessoal'],['profissional','Profissional']].forEach(function(o){
     seg.appendChild(h('button', { type: 'button', class: FN.ambito === o[0] ? 'on' : '', onclick: function(){ FN.ambito = o[0]; FN.cache = {}; fnGuardar(); fnRender(); } }, o[1]));
   });
-  b.appendChild(seg);
+  return seg;
+}
+function fnSelArea(){
   var sa = fnSelAreas(FN.area, 'Todas as áreas');
   sa.setAttribute('aria-label', 'Área');
   sa.addEventListener('change', function(){ FN.area = sa.value; FN.cache = {}; fnRender(); });
-  b.appendChild(sa);
+  return sa;
+}
+function fnPassoMes(){
+  return h('div', { class: 'fn-acoes' }, [
+    h('button', { type: 'button', class: 'btn small', 'aria-label': 'Mês anterior', onclick: function(){ FN.mes = fnSomaMes(FN.mes, -1); fnRender(); } }, '‹'),
+    h('b', { style: 'min-width:120px;text-align:center;font-size:.875rem' }, fnMesLongo(FN.mes)),
+    h('button', { type: 'button', class: 'btn small', 'aria-label': 'Mês seguinte', onclick: function(){ FN.mes = fnSomaMes(FN.mes, 1); fnRender(); } }, '›')
+  ]);
+}
+
+/* A barra de filtros das Finanças: âmbito, área e mês. */
+function fnBarraFiltros(corpo, comMes, extra, aposArea){
+  var b = h('div', { class: 'fn-barra' });
+  b.appendChild(fnSegAmbito());
+  b.appendChild(fnSelArea());
   /* A procura fica aqui, logo a seguir a area: e o que mais se usa. */
   if (aposArea) b.appendChild(aposArea);
-  if (comMes){
-    var m = h('div', { class: 'fn-acoes' }, [
-      h('button', { type: 'button', class: 'btn small', 'aria-label': 'Mês anterior', onclick: function(){ FN.mes = fnSomaMes(FN.mes, -1); fnRender(); } }, '‹'),
-      h('b', { style: 'min-width:120px;text-align:center;font-size:.875rem' }, fnMesLongo(FN.mes)),
-      h('button', { type: 'button', class: 'btn small', 'aria-label': 'Mês seguinte', onclick: function(){ FN.mes = fnSomaMes(FN.mes, 1); fnRender(); } }, '›')
-    ]);
-    b.appendChild(m);
-  }
+  if (comMes) b.appendChild(fnPassoMes());
   b.appendChild(h('span', { class: 'fn-esp' }));
   (extra || []).forEach(function(x){ b.appendChild(x); });
   corpo.appendChild(b);

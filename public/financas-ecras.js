@@ -41,6 +41,7 @@ function fn_financas_resumo(corpo){
         fnApi('/api/financas/orcamentos/' + t.orcamento_id, 'PATCH', { mensal: t.sugerido }).then(function(){ fnAviso('Orçamento ajustado.'); fnMudou(); }, fnErro);
       }, 'small'));
       if (t.categoria_id) acoes.push(fnBtn('Ver', function(){ FN.mov.categoria = String(t.categoria_id); FN.mov.estado = ''; FN.mov.sinal = ''; FN.mov.periodo = 'mes'; fnIr('movimentos'); }, 'small'));
+      if (t.representacao) acoes.push(fnBtn('Ver', function(){ FN.mov.estado = 'reembolsar'; FN.mov.categoria = ''; FN.mov.sinal = ''; FN.mov.periodo = 'tudo'; fnIr('movimentos'); }, 'small'));
       tl.appendChild(h('div', { class: 'fn-li' }, [
         h('span', { class: 'fn-pill ' + (t.nivel === 'bad' ? 'bad' : t.nivel === 'warn' ? 'warn' : 'ai') }, t.nivel === 'info' ? '✦' : '!'),
         h('div', { class: 'g' }, [h('b', null, t.titulo), h('small', null, t.texto)]),
@@ -128,26 +129,37 @@ function fn_financas_movimentos(corpo){
   var tmr = null;
   qi.addEventListener('input', function(){ clearTimeout(tmr); tmr = setTimeout(function(){ if (FN.mov.q !== qi.value.trim()) { FN.mov.q = qi.value.trim(); FN.mov.sel = {}; FN.mov.mostrar = 0; fnMovLista(zona); } }, 350); });
   /* As duas linhas de filtros ficam juntas numa caixa só, para poderem ficar
-     presas por baixo dos separadores quando a página ainda rola. */
+     presas por baixo dos separadores quando a página ainda rola.
+     Arrumam-se pela forma: em cima os que são pastilhas (âmbito, contas,
+     estado, entradas/saídas), em baixo as caixas quadradas (área, procura,
+     categoria, período e as datas). Assim lê-se cada linha de enfiada. */
   var presa = h('div', { class: 'fn-presa' });
-  fnBarraFiltros(presa, !fnSemMes(FN.mov.periodo), [fnBtn('Importar extrato', function(){ fnImportar(); }), fnBtn('+ Movimento', function(){ fnNovoMovimento(); }, 'primary')], qi);
   var mudar = function(){ FN.mov.sel = {}; FN.mov.mostrar = 0; desenharFiltros(); fnMovLista(zona); };
+  var f1 = h('div', { class: 'fn-barra' });
   var f = h('div', { class: 'fn-barra' });
+  presa.appendChild(f1); presa.appendChild(f);
   var desenharFiltros = function(){
-    clear(f);
-    f.appendChild(fnFiltroContas(mudar));
+    clear(f1); clear(f);
+    /* ---- em cima: as pastilhas, e à direita os botões ---- */
+    f1.appendChild(fnSegAmbito());
+    f1.appendChild(fnFiltroContas(mudar));
     var seg = h('div', { class: 'fn-seg', role: 'group', 'aria-label': 'Estado' });
     [['','Todos'],['categorizar','Por categorizar'],['sugestoes','Sugestões da IA'],['reconciliar','Por reconciliar'],['semdespesa','Sem despesa'],['reembolsos','Reembolsos'],['divididos','Divididos'],['reembolsar','Por reembolsar'],['repetidos','Repetidos']].forEach(function(o){
       seg.appendChild(h('button', { type: 'button', class: FN.mov.estado === o[0] ? 'on' : '', onclick: function(){ FN.mov.estado = o[0]; mudar(); } }, o[1]));
     });
-    f.appendChild(seg);
     /* Credito ou debito. E outra pergunta que a do estado, por isso tem o seu
        proprio grupo: pode-se ver «por categorizar» so das saidas. */
     var sg = h('div', { class: 'fn-seg', role: 'group', 'aria-label': 'Crédito ou débito' });
     [['','Tudo'],['credito','Entradas'],['debito','Saídas']].forEach(function(o){
       sg.appendChild(h('button', { type: 'button', class: FN.mov.sinal === o[0] ? 'on' : '', onclick: function(){ FN.mov.sinal = o[0]; mudar(); } }, o[1]));
     });
-    f.appendChild(sg);
+    f1.appendChild(sg);
+    /* O do estado e o mais comprido: vai em ultimo, para passar de linha
+       inteiro quando nao couber, em vez de se partir pelo meio. */
+    f1.appendChild(seg);
+    /* ---- em baixo: as caixas quadradas, e à direita o mês e os botões ---- */
+    f.appendChild(fnSelArea());
+    f.appendChild(qi);
     var sc = fnSelCategorias(FN.mov.categoria, 'Todas as categorias'); sc.setAttribute('aria-label', 'Categoria');
     sc.insertBefore(h('option', { value: 'nenhuma' }, 'Sem categoria'), sc.children[1] || null);
     if (FN.mov.categoria) sc.value = FN.mov.categoria;
@@ -180,9 +192,12 @@ function fn_financas_movimentos(corpo){
     if (FN.mov.projeto) f.appendChild(h('span', { class: 'fn-pill tr', style: 'display:inline-flex;align-items:center;gap:6px;padding:4px 10px' }, [
       'Projeto: ' + (fnProjetoNome(FN.mov.projeto) || FN.mov.projeto),
       h('button', { type: 'button', class: 'btn small', 'aria-label': 'Tirar o filtro do projeto', style: 'padding:0 6px;min-height:0', onclick: function(){ FN.mov.projeto = ''; mudar(); } }, '×')]));
+    f.appendChild(h('span', { class: 'fn-esp' }));
+    if (!fnSemMes(FN.mov.periodo)) f.appendChild(fnPassoMes());
+    f.appendChild(fnBtn('Importar extrato', function(){ fnImportar(); }));
+    f.appendChild(fnBtn('+ Movimento', function(){ fnNovoMovimento(); }, 'primary'));
   };
   desenharFiltros();
-  presa.appendChild(f);
   corpo.appendChild(presa);
   corpo.appendChild(zona);
   fnMovLista(zona);
@@ -637,15 +652,12 @@ function fnLinhaMov(m, aoMarcar){
   if (m.project_id) lig.push(h('span', { class: 'fn-pill', title: 'Projeto: ' + (m.projeto || '') }, 'projeto · ' + (m.projeto || fnProjetoNome(m.project_id))));
   if (m.cc_pessoa) lig.push(h('span', { class: 'fn-pill tr' }, (m.cc_origem === 'reembolso' ? 'reembolso · ' : 'c/c · ') + m.cc_pessoa));
   var outros = (m.partes || []).filter(function(p){ return p.pessoa_id; });
-  /* Adiantado a uma empresa: diz-se em que pé está, que é o que interessa
+  /* Despesa de representação: diz-se em que pé está, que é o que interessa
      saber de relance («já apresentei isto?»). */
-  var emp = outros.filter(function(p){ return p.tipo === 'empresa'; });
-  if (emp.length) emp.forEach(function(p){
-    lig.push(h('span', { class: 'fn-pill' + (p.estado === 'reembolsado' ? ' good' : p.estado === 'apresentado' ? ' tr' : ' warn'),
-      title: p.pessoa + ' · ' + fnEur(-p.valor) + ' · ' + fnReembNome(p.estado || 'adiantado') },
-      fnReembNome(p.estado || 'adiantado').toLowerCase() + ' · ' + p.pessoa));
-  });
-  var pess = outros.filter(function(p){ return p.tipo !== 'empresa'; });
+  if (m.repres_empresa_id) lig.push(h('span', { class: 'fn-pill ' + fnRepCor(m.repres_estado),
+    title: (m.repres_empresa || '') + ' · ' + fnEur(Math.abs(m.valor)) + ' · ' + (m.repres_cartao ? 'cartão da empresa' : 'do teu bolso') },
+    fnRepNome(m.repres_estado, m.repres_cartao).toLowerCase() + ' · ' + (m.repres_empresa || '')));
+  var pess = outros.filter(function(p){ return !m.repres_empresa_id || p.pessoa_id !== m.repres_empresa_id; });
   if (pess.length) lig.push(h('span', { class: 'fn-pill tr', title: pess.map(function(p){ return p.pessoa + ' ' + fnEur(-p.valor); }).join(' · ') },
     'dividido · ' + pess.map(function(p){ return (p.pessoa || '').split(' ')[0]; }).join(', ')));
   if (m.reembolso) lig.push(h('div', { class: 'fn-acoes' }, [h('span', { class: 'fn-pill ai', title: m.reembolso.motivo }, '✦ de ' + m.reembolso.nome + '?'),
@@ -828,7 +840,7 @@ function fnLoteFolha(ids, ms, limpar){
      fica - a barra de cima volta a abri-la. */
   var bPart = fnBtn('Partilhar…', function(){ var d = FN.lote.debs(); fnLoteFechar(); fnPartilhaJanela(d); }, 'small');
   var bTar = fnBtn('Ligar a uma tarefa…', function(){ var d = FN.lote.debs(); fnLoteFechar(); fnTarefaDeVarios(d); }, 'small');
-  var bReemb = fnBtn('A reembolsar…', function(){ var d = FN.lote.debs(); fnLoteFechar(); fnReembolsarJanela(d); }, 'small');
+  var bReemb = fnBtn('Representação…', function(){ var d = FN.lote.debs(); fnLoteFechar(); fnReembolsarJanela(d); }, 'small');
   var bSug = fnBtn('Aceitar as sugestões da IA', function(){ fnLoteApi({ aceitar: true }, 'categorizados'); }, 'small');
   var bApagar = fnBtn('Apagar', function(){
     var n = FN.lote.ids.length;
@@ -854,7 +866,7 @@ function fnLoteFolha(ids, ms, limpar){
     h('hr', { style: 'border:0;border-top:1px solid var(--line);margin:4px 0' }),
     h('div', { class: 'fn-campo' }, [h('span', null, 'Relacionar todos com uma coisa só'),
       h('div', { class: 'fn-acoes', style: 'flex-wrap:wrap' }, [bPart, bTar, bReemb])]),
-    h('small', { class: 'fn-muted' }, 'A partilha divide estes pagamentos com alguém de uma vez; a tarefa liga-os todos ao mesmo pagamento do Farol; «a reembolsar» põe-nos todos a cargo de uma empresa.'),
+    h('small', { class: 'fn-muted' }, 'A partilha divide estes pagamentos com alguém de uma vez; a tarefa liga-os todos ao mesmo pagamento do Farol; «representação» marca-os todos como despesa de uma empresa.'),
     h('hr', { style: 'border:0;border-top:1px solid var(--line);margin:4px 0' }),
     h('div', { class: 'fn-acoes', style: 'flex-wrap:wrap' }, [bSug, bApagar])
   ], [{ txt: 'Guardar', pri: true, fn: function(){
@@ -883,7 +895,7 @@ function fnLoteFolha(ids, ms, limpar){
       var d = FN.lote.debs().length;
       bPart.textContent = 'Partilhar…' + (d ? ' (' + d + ')' : '');
       bTar.textContent = 'Ligar a uma tarefa…' + (d ? ' (' + d + ')' : '');
-      bReemb.textContent = 'A reembolsar…' + (d ? ' (' + d + ')' : '');
+      bReemb.textContent = 'Representação…' + (d ? ' (' + d + ')' : '');
       bPart.disabled = bTar.disabled = bReemb.disabled = !d;
     }
   };
@@ -1042,10 +1054,9 @@ function fnPerguntasMov(p, m){
 
   /* Partilhas e acertos. */
   var outros = (m.partes || []).filter(function(x){ return x.pessoa_id; });
-  var tem3 = Boolean(outros.length || m.cc_pessoa_id || (m.valor < 0 && m.despesa_splitwise));
-  var emp3 = outros.filter(function(x){ return x.tipo === 'empresa'; });
-  var resumo3 = emp3.length && emp3.length === outros.length
-      ? emp3.map(function(x){ return fnReembNome(x.estado || 'adiantado') + ' · ' + x.pessoa; }).join(' · ')
+  var tem3 = Boolean(outros.length || m.repres_empresa_id || m.cc_pessoa_id || (m.valor < 0 && m.despesa_splitwise));
+  var resumo3 = m.repres_empresa_id
+      ? fnRepNome(m.repres_estado, m.repres_cartao) + ' · ' + (m.repres_empresa || '')
     : outros.length ? 'Dividido com ' + outros.map(function(x){ return (x.pessoa || '').split(' ')[0]; }).join(', ')
     : m.cc_pessoa_id ? (m.valor > 0 ? 'Acerto · ' : 'Empréstimo devolvido · ') + m.cc_pessoa
     : m.valor < 0 && m.despesa_splitwise ? 'Dividida no Splitwise' : null;
@@ -1354,40 +1365,35 @@ function fnSemelhantes(m, catId){
    Entrada: acerto de contas (alguém a pagar-te o que devia). */
 function fnPainelPartilhas(p, m){
   var outros = (m.partes || []).filter(function(x){ return x.pessoa_id; });
-  /* Adiantado a uma empresa: a caixa diz em que pé está e deixa fazê-lo andar
-     sem sair daqui. */
-  var daEmpresa = outros.filter(function(x){ return x.tipo === 'empresa' && x.cc_mov_id; });
-  if (daEmpresa.length && daEmpresa.length === outros.length){
-    daEmpresa.forEach(function(x){
-      var est = x.estado || 'adiantado';
-      var cx = h('div', { class: 'fn-caixa melhor' });
-      var desenhar = function(){
-        clear(cx);
-        var o = FN_REEMB.filter(function(y){ return y[0] === est; })[0] || FN_REEMB[0];
-        cx.appendChild(h('div', { class: 'fn-acoes', style: 'justify-content:space-between' }, [
-          h('b', null, 'A reembolsar · ' + x.pessoa),
-          h('span', { class: 'fn-pill' + (est === 'reembolsado' ? ' good' : est === 'apresentado' ? ' tr' : ' warn') }, o[1])]));
-        cx.appendChild(h('small', { class: 'fn-muted' }, o[2] + ' Adiantaste ' + fnEur(-x.valor) +
-          ' — fica na conta corrente de ' + x.pessoa + ' e não conta como gasto teu.'));
-        var acoes = h('div', { class: 'fn-acoes', style: 'flex-wrap:wrap' });
-        FN_REEMB.forEach(function(y){
-          if (y[0] === est) return;
-          acoes.appendChild(fnBtn(y[1], function(){
-            /* Como em todo o resto, mudar fecha a folha e refresca a linha. */
-            fnApi('/api/financas/cc/mov/' + x.cc_mov_id + '/estado', 'PATCH', { estado: y[0] }).then(function(){
-              fnAviso(x.pessoa + ': ' + y[1].toLowerCase() + '.');
-              fnMovAtualizar(m.id);
-            }, fnErro);
-          }, 'small'));
-        });
-        acoes.appendChild(fnBtn('Desfazer', function(){
-          fnApi('/api/financas/movimentos/' + m.id + '/partes', 'DELETE').then(function(){ fnAviso('Desfeito.'); fnMudou(); }, fnErro);
-        }, 'small'));
-        cx.appendChild(acoes);
-      };
-      desenhar();
-      p.appendChild(cx);
+  /* Despesa de representação: a caixa diz em que pé está e deixa fazê-la
+     andar sem sair daqui. */
+  if (m.repres_empresa_id){
+    var pes = fnRepPes(m.repres_cartao);
+    var o = pes.filter(function(y){ return y[0] === (m.repres_estado || pes[0][0]); })[0] || pes[0];
+    var cx = h('div', { class: 'fn-caixa melhor' }, [
+      h('div', { class: 'fn-acoes', style: 'justify-content:space-between' }, [
+        h('b', null, 'Representação · ' + (m.repres_empresa || '')),
+        h('span', { class: 'fn-pill ' + fnRepCor(m.repres_estado) }, o[1])]),
+      h('small', { class: 'fn-muted' }, o[2] + ' ' + fnEur(Math.abs(m.valor)) +
+        (m.repres_cartao ? ' no cartão de ' + m.repres_empresa + ' — o dinheiro nunca saiu do teu bolso.'
+                         : ' adiantados por ti — ficam na conta corrente de ' + m.repres_empresa + ' e não contam como gasto teu.'))]);
+    var acoes = h('div', { class: 'fn-acoes', style: 'flex-wrap:wrap' });
+    pes.forEach(function(y){
+      if (y[0] === o[0]) return;
+      acoes.appendChild(fnBtn(y[1], function(){
+        /* Como em todo o resto, mudar fecha a folha e refresca a linha. */
+        fnApi('/api/financas/movimentos/' + m.id, 'PATCH', { repres_estado: y[0] }).then(function(){
+          fnAviso(m.repres_empresa + ': ' + y[1].toLowerCase() + '.');
+          fnMovAtualizar(m.id);
+        }, fnErro);
+      }, 'small'));
     });
+    acoes.appendChild(fnBtn('Já não é', function(){
+      fnApi('/api/financas/movimentos/representacao/desfazer', 'POST', { ids: [m.id] })
+        .then(function(){ fnAviso('Deixou de ser despesa de representação.'); fnMudou(); }, fnErro);
+    }, 'small'));
+    cx.appendChild(acoes);
+    p.appendChild(cx);
     return;
   }
   if (outros.length){
@@ -1427,7 +1433,7 @@ function fnPainelPartilhas(p, m){
       h('div', { class: 'fn-opcoes', style: 'margin-top:6px' }, [
         opcao('Despesa partilhada', 'Dividir de outra maneira.', function(){ fnPartilhaJanela([m]); }),
         opcao('Paguei por alguém', 'É tudo de outra pessoa.', function(){ fnAmigoJanela(m); }),
-        opcao('A reembolsar pela empresa', 'Despesa de representação que adiantaste.', function(){ fnReembolsarJanela([m]); }),
+        opcao('Despesa de representação', 'De uma das empresas, do teu bolso ou do cartão dela.', function(){ fnReembolsarJanela([m]); }),
         opcao('Empréstimo', 'Alguém pagou por ti e estás a devolver.', function(){ fnAcertoJanela(m); })])]);
     p.appendChild(outras);
     apiGestao('/api/financas/splitwise/despesas/' + m.despesa_splitwise).then(function(r){
@@ -1453,7 +1459,7 @@ function fnPainelPartilhas(p, m){
     p.appendChild(h('div', { class: 'fn-opcoes' }, [
       opcao('Despesa partilhada', 'Pagaste e divides: tudo teu, 50/50, partes, percentagens… (conta corrente aqui ou no Splitwise).', function(){ fnPartilhaJanela([m]); }),
       opcao('Paguei por alguém', 'É tudo dessa pessoa: fica a dever-to e entra nas contas partilhadas.', function(){ fnAmigoJanela(m); }),
-      opcao('A reembolsar pela empresa', 'Despesa de representação que adiantaste: entra na conta corrente da empresa e deixa de contar como gasto teu.', function(){ fnReembolsarJanela([m]); }),
+      opcao('Despesa de representação', 'Almoço de equipa, lavagem, deslocação: dizes de que empresa é. Se foi do teu bolso, ela fica a dever-to; se foi do cartão dela, fica só registada para apresentares.', function(){ fnReembolsarJanela([m]); }),
       opcao('Empréstimo', 'Alguém pagou por ti e estás a devolver.', function(){ fnAcertoJanela(m); })]));
     return;
   }
