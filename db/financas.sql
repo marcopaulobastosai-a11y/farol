@@ -111,6 +111,15 @@ CREATE INDEX IF NOT EXISTS fin_mov_repres ON fin_movimentos (repres_empresa_id) 
 -- Contas que sao da empresa (o cartao que ela da): o dinheiro nunca e dele.
 ALTER TABLE fin_contas ADD COLUMN IF NOT EXISTS empresa_id INTEGER REFERENCES fin_cc_pessoas(id) ON DELETE SET NULL;
 
+-- Pares que a IA sugeriu e o Marco disse que nao sao a mesma transferencia:
+-- para nao voltarem a aparecer na sugestao de «entre contas».
+CREATE TABLE IF NOT EXISTS fin_pares_nao (
+  saida_id   INTEGER NOT NULL REFERENCES fin_movimentos(id) ON DELETE CASCADE,
+  entrada_id INTEGER NOT NULL REFERENCES fin_movimentos(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (saida_id, entrada_id)
+);
+
 -- O que ja estava marcado na conta corrente passa para o movimento.
 UPDATE fin_movimentos m SET repres_empresa_id = cm.pessoa_id, repres_estado = cm.estado
   FROM fin_mov_partes pt JOIN fin_cc_mov cm ON cm.parte_id = pt.id
