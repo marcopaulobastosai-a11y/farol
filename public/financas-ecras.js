@@ -564,15 +564,35 @@ function fnParesJanela(ps){
   ps.forEach(function(x, i){ marc[i] = x.certo; });
   var cont = h('small', { class: 'fn-muted' });
   var contar = function(){ cont.textContent = Object.keys(marc).filter(function(k){ return marc[k]; }).length + ' escolhidas.'; };
-  var lista = h('div', { class: 'fn-lista', style: 'max-height:60vh;overflow:auto' }, ps.map(function(x, i){
-    return h('label', { class: 'fn-check', style: 'align-items:flex-start;padding:6px 0;border-bottom:1px solid var(--line)' }, [
-      h('input', { type: 'checkbox', checked: !!marc[i], onchange: function(e){ marc[i] = e.target.checked; contar(); } }),
-      h('span', { style: 'flex:1;min-width:0' }, [
-        h('span', { style: 'display:flex;gap:8px;justify-content:space-between' }, [h('b', { style: 'font-weight:500' }, x.saida.conta + ' → ' + x.entrada.conta), h('b', { class: 'fn-n', style: 'font-weight:500' }, fnEur(-x.saida.valor))]),
-        h('small', { class: 'fn-muted', style: 'display:block' }, fnData(x.saida.data) + ' · ' + x.saida.descricao),
-        h('small', { class: 'fn-muted', style: 'display:block' }, fnData(x.entrada.data) + ' · ' + x.entrada.descricao),
-        h('span', { class: 'fn-pill ' + (x.duvidoso ? 'warn' : 'ai'), style: 'margin-top:2px' }, x.duvidoso ? 'há outro igual: confirma' : '✦ ' + Math.round(x.confianca * 100) + '%')])]);
-  }));
+  var lista = h('div', { class: 'fn-lista', style: 'max-height:60vh;overflow:auto' });
+  var desenhar = function(){
+    clear(lista);
+    var sobram = 0;
+    ps.forEach(function(x, i){
+      if (x._fora) return;
+      sobram++;
+      lista.appendChild(h('div', { class: 'fn-acoes', style: 'align-items:flex-start;padding:6px 0;border-bottom:1px solid var(--line);flex-wrap:nowrap;gap:8px' }, [
+        h('label', { class: 'fn-check', style: 'align-items:flex-start;flex:1;min-width:0;padding:0' }, [
+          h('input', { type: 'checkbox', checked: !!marc[i], onchange: function(e){ marc[i] = e.target.checked; contar(); } }),
+          h('span', { style: 'flex:1;min-width:0' }, [
+            h('span', { style: 'display:flex;gap:8px;justify-content:space-between' }, [h('b', { style: 'font-weight:500' }, x.saida.conta + ' → ' + x.entrada.conta), h('b', { class: 'fn-n', style: 'font-weight:500' }, fnEur(-x.saida.valor))]),
+            h('small', { class: 'fn-muted', style: 'display:block' }, fnData(x.saida.data) + ' · ' + x.saida.descricao),
+            h('small', { class: 'fn-muted', style: 'display:block' }, fnData(x.entrada.data) + ' · ' + x.entrada.descricao),
+            h('span', { class: 'fn-pill ' + (x.duvidoso ? 'warn' : 'ai'), style: 'margin-top:2px' }, x.duvidoso ? 'há outro igual: confirma' : '✦ ' + Math.round(x.confianca * 100) + '%')])]),
+        /* Dizer que não são tira-as da lista e não voltam a ser sugeridas:
+           sem isto, uma sugestão errada ficava ali para sempre. */
+        fnBtn('Não são', function(){
+          fnApi('/api/financas/pares/nao', 'POST', { pares: [[x.saida.id, x.entrada.id]] }).then(function(){
+            x._fora = true; marc[i] = false;
+            delete FN.cache['pares'];
+            fnAviso('Não voltam a ser sugeridas.');
+            desenhar(); contar();
+          }, fnErro);
+        }, 'small')]));
+    });
+    if (!sobram) lista.appendChild(h('p', { class: 'fn-nota' }, 'Já não sobra nenhuma. Fecha a janela.'));
+  };
+  desenhar();
   contar();
   fnJanela('Transferências entre contas', [h('p', { class: 'fn-nota' }, 'Cada linha é uma saída numa conta e a entrada noutra. Ligadas, ficam em «Entre contas» (ou «Pagamento do cartão») e mostram de onde vieram e para onde foram.'), lista, cont],
     [{ txt: 'Ligar as escolhidas', pri: true, fn: function(){
@@ -865,9 +885,20 @@ function fnLoteFolha(ids, ms, limpar){
   spe.style.gridTemplateColumns = 'repeat(auto-fill,minmax(150px,1fr))';
   /* Estas duas abrem janela propria: a folha sai da frente, mas a escolha
      fica - a barra de cima volta a abri-la. */
-  var bPart = fnBtn('Partilhar…', function(){ var d = FN.lote.debs(); fnLoteFechar(); fnPartilhaJanela(d); }, 'small');
-  var bTar = fnBtn('Ligar a uma tarefa…', function(){ var d = FN.lote.debs(); fnLoteFechar(); fnTarefaDeVarios(d); }, 'small');
-  var bReemb = fnBtn('Representação…', function(){ var d = FN.lote.debs(); fnLoteFechar(); fnReembolsarJanela(d); }, 'small');
+  /* As tres so sabem lidar com saidas (dinheiro que sai). Quando o que esta
+     escolhido nao tem nenhuma, em vez de ficarem caladas dizem porque e que
+     nao fazem nada — antes pareciam avariadas. */
+  var soSaidas = function(fn){
+    return function(){
+      var d = FN.lote.debs();
+      if (!d.length) { fnAviso('Isto só serve para saídas; o que escolheste são entradas.'); return; }
+      fnLoteFechar(); fn(d);
+    };
+  };
+  var bPart = fnBtn('Partilhar…', soSaidas(fnPartilhaJanela), 'small');
+  var bTar = fnBtn('Ligar a uma tarefa…', soSaidas(fnTarefaDeVarios), 'small');
+  var bReemb = fnBtn('Representação…', soSaidas(fnReembolsarJanela), 'small');
+  var avSaidas = h('small', { class: 'fn-nota', style: 'display:none' });
   var bSug = fnBtn('Aceitar as sugestões da IA', function(){ fnLoteApi({ aceitar: true }, 'categorizados'); }, 'small');
   var bApagar = fnBtn('Apagar', function(){
     var n = FN.lote.ids.length;
@@ -892,7 +923,7 @@ function fnLoteFolha(ids, ms, limpar){
     h('div', { class: 'fn-campo' }, [h('span', null, 'De quem é (agregado) · uma ou mais pessoas'), spe]),
     h('hr', { style: 'border:0;border-top:1px solid var(--line);margin:4px 0' }),
     h('div', { class: 'fn-campo' }, [h('span', null, 'Relacionar todos com uma coisa só'),
-      h('div', { class: 'fn-acoes', style: 'flex-wrap:wrap' }, [bPart, bTar, bReemb])]),
+      h('div', { class: 'fn-acoes', style: 'flex-wrap:wrap' }, [bPart, bTar, bReemb]), avSaidas]),
     h('small', { class: 'fn-muted' }, 'A partilha divide estes pagamentos com alguém de uma vez; a tarefa liga-os todos ao mesmo pagamento do Farol; «representação» marca-os todos como despesa de uma empresa.'),
     h('hr', { style: 'border:0;border-top:1px solid var(--line);margin:4px 0' }),
     h('div', { class: 'fn-acoes', style: 'flex-wrap:wrap' }, [bSug, bApagar])
@@ -923,7 +954,10 @@ function fnLoteFolha(ids, ms, limpar){
       bPart.textContent = 'Partilhar…' + (d ? ' (' + d + ')' : '');
       bTar.textContent = 'Ligar a uma tarefa…' + (d ? ' (' + d + ')' : '');
       bReemb.textContent = 'Representação…' + (d ? ' (' + d + ')' : '');
-      bPart.disabled = bTar.disabled = bReemb.disabled = !d;
+      avSaidas.style.display = (d && d === n) ? 'none' : 'block';
+      avSaidas.textContent = !d
+        ? 'Nenhum dos escolhidos é uma saída — estas três só mexem com saídas.'
+        : 'Só ' + d + ' dos ' + n + ' escolhidos são saídas; as entradas ficam de fora.';
     }
   };
   FN.lote.refrescar(ids, ms);

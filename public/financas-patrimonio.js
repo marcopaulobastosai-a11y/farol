@@ -521,10 +521,13 @@ function fn_financas_partilhadas(corpo){
        já foi apresentado e o que já voltou. */
     var conta = function(k){ return ps.filter(function(p){ return k === 'nenhuma' ? !p.representacao : pePt(p) === k; }).length; };
     var sp = h('select', { class: 'fn-sel', 'aria-label': 'Representação' }, [h('option', { value: '' }, 'Em qualquer pé')]);
-    [['adiantado','Adiantado'],['registada','Registada'],['apresentado','Apresentado'],['apresentada','Apresentada'],
-     ['reembolsado','Reembolsado'],['nenhuma','Não é representação']].forEach(function(o){
+    /* Os tres pes do bolso aparecem sempre, mesmo a zero: estavam a sumir
+       quando nao havia nenhum e parecia que o filtro nao existia. Os do
+       cartao da empresa so aparecem se houver. */
+    [['adiantado','Adiantado',1],['apresentado','Apresentado',1],['reembolsado','Reembolsado',1],
+     ['registada','Registada',0],['apresentada','Apresentada',0],['nenhuma','Não é representação',0]].forEach(function(o){
       var n = conta(o[0]);
-      if (n) sp.appendChild(h('option', { value: o[0] }, o[1] + ' · ' + n));
+      if (n || o[2]) sp.appendChild(h('option', { value: o[0] }, o[1] + ' · ' + n));
     });
     if (FN.ptPe && ![].slice.call(sp.options).some(function(o){ return o.value === FN.ptPe; })) FN.ptPe = '';
     sp.value = FN.ptPe || '';

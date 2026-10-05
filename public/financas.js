@@ -100,7 +100,7 @@ var FN_CSS =
   '.fn-presa{position:sticky;top:var(--fn-presa-topo,0px);z-index:4;background:var(--ground);padding:2px 0 8px}' +
   /* As duas linhas precisam de ar entre si para se lerem como duas. */
   '.fn-presa > .fn-barra + .fn-barra{margin-top:10px}' +
-  '.fn-banner{display:flex;align-items:center;gap:12px;flex-wrap:wrap;border:1px solid var(--accent);background:var(--accent-soft);border-radius:var(--radius);padding:10px 14px}' +
+  '.fn-banner{display:flex;align-items:center;gap:12px;flex-wrap:wrap;border:1px solid var(--accent);background:var(--accent-soft);border-radius:var(--radius);padding:10px 14px;margin-bottom:10px}' +
   '.fn-banner .g{flex:1;min-width:220px}' +
   '.fn-vazio{padding:28px 18px;text-align:center;color:var(--muted);display:flex;flex-direction:column;gap:10px;align-items:center}' +
   '.fn-vazio b{color:var(--ink);font-size:1rem}' +
@@ -125,6 +125,9 @@ var FN_CSS =
   '.fn-mod .acoes{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}' +
   '.fn-acoes{display:flex;gap:6px;flex-wrap:wrap;align-items:center}' +
   '.fn-acoes .btn.small,.fn-li .btn.small,.fn-tab .btn.small,.fn-caixa .btn.small,.fn-banner .btn.small{margin-left:0}' +
+  /* Um botao apagado tem de se ver apagado: sem isto parecia clicavel e
+     nao fazia nada. */
+  '.fn-acoes .btn:disabled,.fn-caixa .btn:disabled{opacity:.45;cursor:not-allowed}' +
   '.fn-nota{font-size:.75rem;color:var(--muted);margin:0}' +
   '.fn-spark{display:block}' +
   '.fn-aler{opacity:.55;transition:opacity .15s;pointer-events:none}' +
@@ -777,5 +780,19 @@ function fnBarraFiltros(corpo, comMes, extra, aposArea){
     var _fnRG = renderGestao;
     renderGestao = function(){ _fnRG(); if (!FN.montado) fnMontar(); };
   }
+  /* O «Actualizar» lá de cima relê o resto da app; as Finanças têm a sua
+     própria leitura, por isso ouvem o mesmo botão e refrescam-se também —
+     sem recarregar a página. */
+  var ligarReload = function(){
+    var b = document.getElementById('btnReload');
+    if (!b || b._fnLigado) return Boolean(b);
+    b._fnLigado = true;
+    b.addEventListener('click', function(){
+      FN.cache = {}; FN.base = null; FN.ents = null; FN.ccNomes = null;
+      setTimeout(function(){ fnRender(); }, 0);
+    });
+    return true;
+  };
+  if (!ligarReload()) { var vezes = 0; var t = setInterval(function(){ if (ligarReload() || ++vezes > 40) clearInterval(t); }, 400); }
   setTimeout(fnMontar, 300);
 })();
