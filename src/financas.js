@@ -1469,7 +1469,7 @@ function instalar(app) {
       /* A leitura leve: so o que serve para filtrar, somar e sugerir. */
       const leves = await all(
         `SELECT m.id, m.conta_id, m.context_id, to_char(m.data,'YYYY-MM-DD') AS data, m.descricao, m.valor, m.categoria_id,
-                m.ia_categoria_id, m.ia_confianca, (ccm.movimento_id IS NOT NULL) AS cc_ligado, ccm.pessoa_id AS cc_pessoa_id
+                m.ia_categoria_id, m.ia_confianca, (ccm.movimento_id IS NOT NULL) AS cc_ligado, ccm.pessoa_id AS cc_pessoa_id, m.par_id
            FROM fin_movimentos m LEFT JOIN fin_cc_mov ccm ON ccm.movimento_id = m.id
           ${w.length ? 'WHERE ' + w.join(' AND ') : ''}
           ORDER BY m.data DESC, m.id DESC LIMIT 20000`, v);
@@ -1479,12 +1479,22 @@ function instalar(app) {
          para o aviso de cima, por isso veem-se em todas, nao so na pagina. */
       const sug = await sugestoesDeEntradas(todos, B);
       if (q.estado === 'reembolsos') todos = todos.filter((m) => sug[m.id] && (sug[m.id].reembolso || sug[m.id].divisao));
+      /* Uma transferencia entre duas contas que estao ambas na lista e uma
+         linha so: a da saida, com a conta de origem e a de destino. Nao e
+         entrada nem saida de dinheiro, por isso nao conta nos totais. Com uma
+         conta so filtrada, aparece o lado dessa conta, como sempre. */
+      const naLista = new Set(todos.map((m) => m.id));
+      const juntos = new Set();
+      todos.forEach((m) => { if (m.par_id && naLista.has(m.par_id)) { juntos.add(m.id); } });
+      const totais = todos.filter((m) => !juntos.has(m.id));
+      todos = todos.filter((m) => !(juntos.has(m.id) && m.valor > 0));
       const limite = Math.max(1, Math.min(3000, Number(q.limite) || 600));
       const desde = Math.max(0, Number(q.desde) || 0);
       const pagina = await detalharMovimentos(todos.slice(desde, desde + limite).map((m) => m.id), B, sug);
+      pagina.forEach((m) => { if (juntos.has(m.id)) m.par_junto = true; });
       const comSug = todos.filter((m) => !m.categoria_id && m.ia_categoria_id && !(sug[m.id] && (sug[m.id].reembolso || sug[m.id].divisao)));
-      const entradas = todos.filter((m) => m.valor > 0).reduce((t, m) => t + m.valor, 0);
-      const saidas = todos.filter((m) => m.valor < 0).reduce((t, m) => t - m.valor, 0);
+      const entradas = totais.filter((m) => m.valor > 0).reduce((t, m) => t + m.valor, 0);
+      const saidas = totais.filter((m) => m.valor < 0).reduce((t, m) => t - m.valor, 0);
       res.json({
         movimentos: pagina, total: todos.length, desde, limite,
         resumo: {
