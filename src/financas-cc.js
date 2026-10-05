@@ -1167,7 +1167,12 @@ async function listarPartilhas(filtro) {
        LEFT JOIN fin_cc_pessoas dp ON dp.id = c.pessoa_direta_id
       WHERE pt.partilha_id = ANY($1::int[]) ORDER BY pt.id`, [ids]);
   const movs = await all(
-    `SELECT m.id, to_char(m.data,'YYYY-MM-DD') AS data, m.descricao, m.valor, m.conta_id FROM fin_movimentos m
+    `SELECT m.id, to_char(m.data,'YYYY-MM-DD') AS data, m.descricao, m.valor, m.conta_id,
+            m.repres_empresa_id, m.repres_estado, rp.nome AS repres_empresa,
+            (ct.empresa_id IS NOT NULL AND ct.empresa_id = m.repres_empresa_id) AS repres_cartao
+       FROM fin_movimentos m
+       LEFT JOIN fin_cc_pessoas rp ON rp.id = m.repres_empresa_id
+       LEFT JOIN fin_contas ct ON ct.id = m.conta_id
       WHERE m.id IN (SELECT movimento_id FROM fin_mov_partes WHERE partilha_id = ANY($1::int[]))`, [ids]);
   const pago = await pagoPorParte();
   return cab.map((f) => {
@@ -1192,6 +1197,12 @@ async function listarPartilhas(filtro) {
       categoria_id: f.categoria_id || (minhaParte && minhaParte.categoria_id) || null,
       linhas: ls.sort((a, b) => a.nome.localeCompare(b.nome)),
       movimentos: movs.filter((m) => mIds.indexOf(m.id) >= 0).map((m) => Object.assign(m, { valor: cent(m.valor) })),
+      /* Despesa de representacao: o pe vem do movimento. Com varios, vale o
+         primeiro que esteja marcado - sao sempre da mesma empresa. */
+      representacao: (() => {
+        const r = movs.filter((m) => mIds.indexOf(m.id) >= 0 && m.repres_empresa_id)[0];
+        return r ? { empresa_id: r.repres_empresa_id, empresa: r.repres_empresa, estado: r.repres_estado, cartao: Boolean(r.repres_cartao) } : null;
+      })(),
       a_receber: cent(ls.filter((l) => !l.splitwise).reduce((t, l) => t + l.valor - l.pago, 0)),
       estado: ls.some((l) => l.estado === 'por receber' || l.estado === 'parcial') ? 'aberta' : 'saldada'
     };
