@@ -86,6 +86,16 @@ CREATE INDEX IF NOT EXISTS fin_mov_proj_idx ON fin_movimentos (project_id) WHERE
 -- apontam uma para a outra (par_id dos dois lados). Assim sabe-se a conta de
 -- origem e a de destino, e o dinheiro nao conta duas vezes.
 ALTER TABLE fin_movimentos ADD COLUMN IF NOT EXISTS par_id INTEGER REFERENCES fin_movimentos(id) ON DELETE SET NULL;
+-- Nem sempre e um para um: um pagamento de 250 pode chegar em duas entradas
+-- de 125, ou duas saidas juntarem-se numa entrada so. Todos os movimentos da
+-- mesma transferencia partilham o par_grupo (o id do movimento que manda) e
+-- cada um guarda em par_id alguem do outro lado, para quem so quer saber de
+-- que conta e que veio continuar a saber.
+ALTER TABLE fin_movimentos ADD COLUMN IF NOT EXISTS par_grupo INTEGER;
+CREATE INDEX IF NOT EXISTS fin_mov_par_grupo ON fin_movimentos (par_grupo) WHERE par_grupo IS NOT NULL;
+-- Os que ja estavam ligados a dois passam a ter grupo: o da saida.
+UPDATE fin_movimentos m SET par_grupo = LEAST(m.id, m.par_id)
+ WHERE m.par_id IS NOT NULL AND m.par_grupo IS NULL;
 -- O nome que o Marco da ao movimento. A descricao do extrato fica como esta
 -- (e por ela que se reconhece a linha no banco); o titulo e o que se le.
 ALTER TABLE fin_movimentos ADD COLUMN IF NOT EXISTS titulo TEXT;
