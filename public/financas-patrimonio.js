@@ -563,6 +563,9 @@ function fn_financas_partilhadas(corpo){
         h('td', null, [h('span', { class: 'd' }, p.descricao), h('small', { class: 'd2' }, p.movimentos.length > 1 ? p.movimentos.length + ' pagamentos' : (p.movimentos[0] ? (fnConta(p.movimentos[0].conta_id) || {}).nome || '' : ''))]),
         h('td', { class: 'r' }, fnEur(p.total)),
         h('td', { class: 'r fn-muted' }, fnEur(p.minha)),
+        /* A categoria diz logo de que é a despesa (almoço, lavagem, livros)
+           sem ter de ler a descrição do banco. */
+        h('td', { class: 'fn-muted', style: 'font-size:.8125rem' }, fnCatNome(p.categoria_id, true)),
         h('td', null, p.linhas.map(function(l){ return fnPillLinha(l); })),
         /* O pé muda-se aqui mesmo: ir ao detalhe de cada uma para carregar
            em «Apresentado» era o caminho longo para a coisa mais repetida. */
@@ -574,8 +577,8 @@ function fn_financas_partilhadas(corpo){
             ? h('small', { class: 'fn-muted', style: 'display:block' }, 'dizes que já recebeste — falta ligar a entrada') : null])
       ]));
     });
-    cartao.appendChild(h('div', { class: 'fn-scroll' }, [h('table', { class: 'fn-tab', style: 'min-width:940px' }, [
-      h('thead', null, [h('tr', null, [h('th', null, 'Data'), h('th', null, 'Descrição'), h('th', { class: 'r' }, 'Total'), h('th', { class: 'r' }, 'Eu pago'), h('th', null, 'Pessoas'), h('th', null, 'Representação'), h('th', null, 'Estado')])]), tb])]));
+    cartao.appendChild(h('div', { class: 'fn-scroll' }, [h('table', { class: 'fn-tab', style: 'min-width:1060px' }, [
+      h('thead', null, [h('tr', null, [h('th', null, 'Data'), h('th', null, 'Descrição'), h('th', { class: 'r' }, 'Total'), h('th', { class: 'r' }, 'Eu pago'), h('th', null, 'Categoria'), h('th', null, 'Pessoas'), h('th', null, 'Representação'), h('th', null, 'Estado')])]), tb])]));
     corpo.appendChild(cartao);
   });
 }
@@ -1127,14 +1130,18 @@ function fnReembolsoRecebidoJanela(movs){
       var cx = h('input', { type: 'checkbox' });
       cx.checked = Boolean(marc[d.id]);
       cx.addEventListener('change', function(){ marc[d.id] = cx.checked; contar(); });
+      var cat = nota || d.categoria || '';
       return h('label', { class: 'fn-check', style: 'display:flex;gap:8px;align-items:baseline;padding:3px 0' }, [cx,
-        h('span', null, [h('b', null, fnEur(d.valor)), ' · ' + fnData(d.data) + ' · ' + (d.titulo || d.entidade || d.descricao || '') +
-          (nota ? ' · ' + nota : '')])]);
+        h('span', null, [h('b', null, fnEur(d.valor)), ' · ' + fnData(d.data) + ' · ' + (d.titulo || d.entidade || d.descricao || ''),
+          cat ? h('small', { class: 'fn-muted' }, ' · ' + cat) : null])]);
     };
     var desenhar = function(){
       clear(lista);
       if (!desp.length) lista.appendChild(h('p', { class: 'fn-nota' }, 'Esta empresa não tem despesas marcadas por reembolsar.'));
-      desp.forEach(function(d){ lista.appendChild(linha(d)); });
+      /* A mais recente à frente, como em todo o resto do Farol. A proposta
+         continua a andar da mais antiga para a frente — isso é a ordem por
+         que se paga, não a ordem por que se lê. */
+      desp.slice().reverse().forEach(function(d){ lista.appendChild(linha(d)); });
       /* As que tem a cara de representacao mas nunca foram marcadas: a
          categoria e a area sao arrumacao, nao poem a despesa na conta da
          empresa. Escondê-las aqui obrigava a ir ao detalhe de cada uma. */
@@ -1142,7 +1149,7 @@ function fnReembolsoRecebidoJanela(movs){
         lista.appendChild(h('p', { class: 'fn-nota', style: 'margin:10px 0 2px;font-weight:600' }, 'Parecem ser, mas não estão marcadas'));
         lista.appendChild(h('small', { class: 'fn-muted', style: 'display:block;margin-bottom:4px' },
           'Têm a categoria de representação ou a área da empresa. Marcar uma aqui põe-na na conta da empresa e dá-a logo por reembolsada.'));
-        parecidas.forEach(function(d){ lista.appendChild(linha(d, d.categoria || '')); });
+        parecidas.slice().forEach(function(d){ lista.appendChild(linha(d, d.categoria || '')); });
       }
       contar();
     };
