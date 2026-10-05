@@ -298,9 +298,16 @@ function fnCcBarra(corpo, d, extra){
 }
 function fnCcKpis(corpo, d){
   var ps = d.pessoas.filter(function(p){ return p.ativo; });
-  corpo.appendChild(h('div', { class: 'fn-kpis' }, [fnKpi('Devem-me', fnEur(d.a_receber), ps.filter(function(p){ return p.saldo > 0.005; }).length + ' pessoas', 'fn-good'),
+  var kpis = [fnKpi('Devem-me', fnEur(d.a_receber), ps.filter(function(p){ return p.saldo > 0.005; }).length + ' pessoas', 'fn-good'),
     fnKpi('Devo eu', fnEur(d.a_pagar), ps.filter(function(p){ return p.saldo < -0.005; }).length + ' pessoas', d.a_pagar ? 'fn-bad' : ''),
-    fnKpi('Líquido', fnEur(d.a_receber + d.a_pagar), 'entra no Património como «a receber»')]));
+    fnKpi('Líquido', fnEur(d.a_receber + d.a_pagar), 'entra no Património como «a receber»')];
+  /* Despesas de representação: o que falta apresentar é o que se esquece. */
+  var emp = ps.filter(function(p){ return p.empresa; });
+  var apres = emp.reduce(function(t, p){ return t + (p.por_apresentar || 0); }, 0);
+  var receb = emp.reduce(function(t, p){ return t + (p.por_receber || 0); }, 0);
+  if (emp.length) kpis.push(fnKpi('Por apresentar', fnEur(apres),
+    (receb > 0.005 ? fnEur(receb) + ' por receber · ' : '') + emp.map(function(p){ return p.nome; }).join(', '), apres > 0.005 ? 'fn-bad' : ''));
+  corpo.appendChild(h('div', { class: 'fn-kpis' }, kpis));
 }
 
 function fn_financas_cc(corpo){
@@ -819,6 +826,62 @@ function fnAvisoPartilha(r){
   if (s.apagadas) extra.push(s.apagadas + ' apagada(s) no Splitwise');
   fnAviso('Guardado: eu pago ' + fnEur(r.minha) + ', os outros ' + fnEur(r.outros) + (extra.length ? ' · ' + extra.join(' · ') : '') + '.');
   if (s.erros && s.erros.length) setTimeout(function(){ fnAviso('Splitwise: ' + s.erros.join(' · ')); }, 2500);
+}
+
+/* Despesas de representação: o Marco adianta do bolso dele e a empresa
+ * devolve. Cada movimento fica 100% a cargo da empresa — a conta corrente
+ * dela passa a dizer quanto lhe é devido, a categoria real do gasto
+ * mantém-se (almoços de equipa, lavagens) e, porque o movimento fica
+ * dividido, deixa de contar como gasto dele nos orçamentos e na análise.
+ *
+ * Não há pisco de «é profissional»: ter uma empresa a dever é que o diz,
+ * e assim nunca pode estar em desacordo com ela própria. */
+var FN_REEMB = [['adiantado', 'Adiantado', 'Paguei, ainda não apresentei.'],
+                ['apresentado', 'Apresentado', 'Já entreguei as despesas; falta receber.'],
+                ['reembolsado', 'Reembolsado', 'Já me devolveram.']];
+function fnReembNome(e){ var o = FN_REEMB.filter(function(x){ return x[0] === e; })[0]; return o ? o[1] : e; }
+
+function fnReembolsarJanela(movs){
+  movs = (movs || []).filter(function(m){ return Number(m.valor) < 0; });
+  if (!movs.length) { fnAviso('Só entram pagamentos que saíram da conta.'); return; }
+  var total = movs.reduce(function(t, m){ return t + Math.abs(Number(m.valor)); }, 0);
+  apiGestao('/api/financas/cc').then(function(cc){
+    var empresas = (cc.pessoas || []).filter(function(p){ return p.empresa && p.ativo; });
+    var se = h('select', { class: 'fn-sel' });
+    empresas.forEach(function(e){ se.appendChild(h('option', { value: String(e.id) }, e.nome)); });
+    se.appendChild(h('option', { value: 'nova' }, '+ Nova empresa…'));
+    var nova = h('input', { class: 'fn-in', placeholder: 'Nome da empresa', style: 'display:none;margin-top:6px' });
+    if (!empresas.length) { se.value = 'nova'; nova.style.display = ''; }
+    se.addEventListener('change', function(){ nova.style.display = se.value === 'nova' ? '' : 'none'; if (se.value === 'nova') nova.focus(); });
+
+    var st = h('select', { class: 'fn-sel' });
+    FN_REEMB.forEach(function(o){ st.appendChild(h('option', { value: o[0] }, o[1])); });
+    var dica = h('small', { class: 'fn-muted', style: 'display:block;margin-top:4px' }, FN_REEMB[0][2]);
+    st.addEventListener('change', function(){ dica.textContent = (FN_REEMB.filter(function(o){ return o[0] === st.value; })[0] || ['','',''])[2]; });
+
+    var manda = function(empresaId){
+      return fnApi('/api/financas/movimentos/reembolsar', 'POST',
+        { ids: movs.map(function(m){ return m.id; }), empresa_id: empresaId, estado: st.value }).then(function(r){
+        fnAviso(r.feitos + (r.feitos === 1 ? ' despesa' : ' despesas') + ' a reembolsar · ' + fnEur(total) + '.');
+        fnMudou();
+      }, fnErro);
+    };
+
+    fnJanela(movs.length > 1 ? 'A reembolsar · ' + movs.length + ' movimentos' : 'A reembolsar pela empresa', [
+      h('p', { class: 'fn-nota' }, (movs.length > 1 ? movs.length + ' pagamentos · ' : fnMovNome(movs[0]) + ' · ') + fnEur(total) +
+        '. Fica tudo a cargo da empresa: entra na conta corrente dela e deixa de contar como gasto teu.'),
+      fnCampo('Empresa', se), nova,
+      fnCampo('Em que pé está', st), dica,
+      h('small', { class: 'fn-muted', style: 'display:block;margin-top:8px' },
+        'Para marcar várias de uma vez como apresentadas ou reembolsadas, escolhe-as na lista e volta aqui com o pé novo.')
+    ], [{ txt: 'A reembolsar', pri: true, fn: function(){
+      if (se.value !== 'nova') return manda(Number(se.value));
+      var n = nova.value.trim();
+      if (!n) { fnAviso('Falta o nome da empresa.'); return false; }
+      return fnApi('/api/financas/cc/pessoas', 'POST', { nome: n, tipo: 'empresa' })
+        .then(function(r){ return manda(Number(r.id)); }, fnErro);
+    } }]);
+  }, fnErro);
 }
 
 /* Paguei por alguém: a conta é toda dessa pessoa, fica a dever-ma.

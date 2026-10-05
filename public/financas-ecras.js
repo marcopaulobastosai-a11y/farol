@@ -137,7 +137,7 @@ function fn_financas_movimentos(corpo){
     clear(f);
     f.appendChild(fnFiltroContas(mudar));
     var seg = h('div', { class: 'fn-seg', role: 'group', 'aria-label': 'Estado' });
-    [['','Todos'],['categorizar','Por categorizar'],['sugestoes','Sugestões da IA'],['reconciliar','Por reconciliar'],['semdespesa','Sem despesa'],['reembolsos','Reembolsos'],['divididos','Divididos'],['repetidos','Repetidos']].forEach(function(o){
+    [['','Todos'],['categorizar','Por categorizar'],['sugestoes','Sugestões da IA'],['reconciliar','Por reconciliar'],['semdespesa','Sem despesa'],['reembolsos','Reembolsos'],['divididos','Divididos'],['reembolsar','Por reembolsar'],['repetidos','Repetidos']].forEach(function(o){
       seg.appendChild(h('button', { type: 'button', class: FN.mov.estado === o[0] ? 'on' : '', onclick: function(){ FN.mov.estado = o[0]; mudar(); } }, o[1]));
     });
     f.appendChild(seg);
@@ -634,8 +634,17 @@ function fnLinhaMov(m, aoMarcar){
   if (m.project_id) lig.push(h('span', { class: 'fn-pill', title: 'Projeto: ' + (m.projeto || '') }, 'projeto · ' + (m.projeto || fnProjetoNome(m.project_id))));
   if (m.cc_pessoa) lig.push(h('span', { class: 'fn-pill tr' }, (m.cc_origem === 'reembolso' ? 'reembolso · ' : 'c/c · ') + m.cc_pessoa));
   var outros = (m.partes || []).filter(function(p){ return p.pessoa_id; });
-  if (outros.length) lig.push(h('span', { class: 'fn-pill tr', title: outros.map(function(p){ return p.pessoa + ' ' + fnEur(-p.valor); }).join(' · ') },
-    'dividido · ' + outros.map(function(p){ return (p.pessoa || '').split(' ')[0]; }).join(', ')));
+  /* Adiantado a uma empresa: diz-se em que pé está, que é o que interessa
+     saber de relance («já apresentei isto?»). */
+  var emp = outros.filter(function(p){ return p.tipo === 'empresa'; });
+  if (emp.length) emp.forEach(function(p){
+    lig.push(h('span', { class: 'fn-pill' + (p.estado === 'reembolsado' ? ' good' : p.estado === 'apresentado' ? ' tr' : ' warn'),
+      title: p.pessoa + ' · ' + fnEur(-p.valor) + ' · ' + fnReembNome(p.estado || 'adiantado') },
+      fnReembNome(p.estado || 'adiantado').toLowerCase() + ' · ' + p.pessoa));
+  });
+  var pess = outros.filter(function(p){ return p.tipo !== 'empresa'; });
+  if (pess.length) lig.push(h('span', { class: 'fn-pill tr', title: pess.map(function(p){ return p.pessoa + ' ' + fnEur(-p.valor); }).join(' · ') },
+    'dividido · ' + pess.map(function(p){ return (p.pessoa || '').split(' ')[0]; }).join(', ')));
   if (m.reembolso) lig.push(h('div', { class: 'fn-acoes' }, [h('span', { class: 'fn-pill ai', title: m.reembolso.motivo }, '✦ de ' + m.reembolso.nome + '?'),
     h('button', { type: 'button', class: 'btn small', onclick: function(e){ e.stopPropagation();
       fnApi('/api/financas/movimentos/' + m.id, 'PATCH', { cc_pessoa_id: m.reembolso.pessoa_id }).then(function(){ fnAviso('Reembolso de ' + m.reembolso.nome + '.'); fnMovAtualizar(m.id); }, fnErro); } }, 'Sim')]));
@@ -809,6 +818,7 @@ function fnLoteFolha(ids, ms, limpar){
      fica - a barra de cima volta a abri-la. */
   var bPart = fnBtn('Partilhar…', function(){ var d = FN.lote.debs(); fnLoteFechar(); fnPartilhaJanela(d); }, 'small');
   var bTar = fnBtn('Ligar a uma tarefa…', function(){ var d = FN.lote.debs(); fnLoteFechar(); fnTarefaDeVarios(d); }, 'small');
+  var bReemb = fnBtn('A reembolsar…', function(){ var d = FN.lote.debs(); fnLoteFechar(); fnReembolsarJanela(d); }, 'small');
   var bSug = fnBtn('Aceitar as sugestões da IA', function(){ fnLoteApi({ aceitar: true }, 'categorizados'); }, 'small');
   var bApagar = fnBtn('Apagar', function(){
     var n = FN.lote.ids.length;
@@ -833,8 +843,8 @@ function fnLoteFolha(ids, ms, limpar){
     h('div', { class: 'fn-campo' }, [h('span', null, 'De quem é (agregado) · uma ou mais pessoas'), spe]),
     h('hr', { style: 'border:0;border-top:1px solid var(--line);margin:4px 0' }),
     h('div', { class: 'fn-campo' }, [h('span', null, 'Relacionar todos com uma coisa só'),
-      h('div', { class: 'fn-acoes', style: 'flex-wrap:wrap' }, [bPart, bTar])]),
-    h('small', { class: 'fn-muted' }, 'A partilha divide estes pagamentos com alguém de uma vez; a tarefa liga-os todos ao mesmo pagamento do Farol.'),
+      h('div', { class: 'fn-acoes', style: 'flex-wrap:wrap' }, [bPart, bTar, bReemb])]),
+    h('small', { class: 'fn-muted' }, 'A partilha divide estes pagamentos com alguém de uma vez; a tarefa liga-os todos ao mesmo pagamento do Farol; «a reembolsar» põe-nos todos a cargo de uma empresa.'),
     h('hr', { style: 'border:0;border-top:1px solid var(--line);margin:4px 0' }),
     h('div', { class: 'fn-acoes', style: 'flex-wrap:wrap' }, [bSug, bApagar])
   ], [{ txt: 'Guardar', pri: true, fn: function(){
@@ -863,7 +873,8 @@ function fnLoteFolha(ids, ms, limpar){
       var d = FN.lote.debs().length;
       bPart.textContent = 'Partilhar…' + (d ? ' (' + d + ')' : '');
       bTar.textContent = 'Ligar a uma tarefa…' + (d ? ' (' + d + ')' : '');
-      bPart.disabled = bTar.disabled = !d;
+      bReemb.textContent = 'A reembolsar…' + (d ? ' (' + d + ')' : '');
+      bPart.disabled = bTar.disabled = bReemb.disabled = !d;
     }
   };
   FN.lote.refrescar(ids, ms);
@@ -1022,10 +1033,13 @@ function fnPerguntasMov(p, m){
   /* Partilhas e acertos. */
   var outros = (m.partes || []).filter(function(x){ return x.pessoa_id; });
   var tem3 = Boolean(outros.length || m.cc_pessoa_id || (m.valor < 0 && m.despesa_splitwise));
-  var resumo3 = outros.length ? 'Dividido com ' + outros.map(function(x){ return (x.pessoa || '').split(' ')[0]; }).join(', ')
+  var emp3 = outros.filter(function(x){ return x.tipo === 'empresa'; });
+  var resumo3 = emp3.length && emp3.length === outros.length
+      ? emp3.map(function(x){ return fnReembNome(x.estado || 'adiantado') + ' · ' + x.pessoa; }).join(' · ')
+    : outros.length ? 'Dividido com ' + outros.map(function(x){ return (x.pessoa || '').split(' ')[0]; }).join(', ')
     : m.cc_pessoa_id ? (m.valor > 0 ? 'Acerto · ' : 'Empréstimo devolvido · ') + m.cc_pessoa
     : m.valor < 0 && m.despesa_splitwise ? 'Dividida no Splitwise' : null;
-  var q3 = fnPergunta(p, { titulo: m.valor < 0 ? 'É partilhado ou um acerto com alguém?' : 'É alguém a pagar-te (acerto ou reembolso)?', sim: tem3, resumo: resumo3,
+  var q3 = fnPergunta(p, { titulo: m.valor < 0 ? 'É partilhado, a reembolsar ou um acerto com alguém?' : 'É alguém a pagar-te (acerto ou reembolso)?', sim: tem3, resumo: resumo3,
     desenhar: function(c){ fnPainelPartilhas(c, m); } });
   if (!tem3 && m.reembolso) fnDica(q3, 'Parece um reembolso de ' + m.reembolso.nome + '.', null, [
     fnBtn('Sim, é', function(){ fnApi('/api/financas/movimentos/' + m.id, 'PATCH', { cc_pessoa_id: m.reembolso.pessoa_id }).then(function(){ fnAviso('Reembolso de ' + m.reembolso.nome + '.'); fnMudou(); }, fnErro); }, 'primary small'),
@@ -1330,6 +1344,42 @@ function fnSemelhantes(m, catId){
    Entrada: acerto de contas (alguém a pagar-te o que devia). */
 function fnPainelPartilhas(p, m){
   var outros = (m.partes || []).filter(function(x){ return x.pessoa_id; });
+  /* Adiantado a uma empresa: a caixa diz em que pé está e deixa fazê-lo andar
+     sem sair daqui. */
+  var daEmpresa = outros.filter(function(x){ return x.tipo === 'empresa' && x.cc_mov_id; });
+  if (daEmpresa.length && daEmpresa.length === outros.length){
+    daEmpresa.forEach(function(x){
+      var est = x.estado || 'adiantado';
+      var cx = h('div', { class: 'fn-caixa melhor' });
+      var desenhar = function(){
+        clear(cx);
+        var o = FN_REEMB.filter(function(y){ return y[0] === est; })[0] || FN_REEMB[0];
+        cx.appendChild(h('div', { class: 'fn-acoes', style: 'justify-content:space-between' }, [
+          h('b', null, 'A reembolsar · ' + x.pessoa),
+          h('span', { class: 'fn-pill' + (est === 'reembolsado' ? ' good' : est === 'apresentado' ? ' tr' : ' warn') }, o[1])]));
+        cx.appendChild(h('small', { class: 'fn-muted' }, o[2] + ' Adiantaste ' + fnEur(-x.valor) +
+          ' — fica na conta corrente de ' + x.pessoa + ' e não conta como gasto teu.'));
+        var acoes = h('div', { class: 'fn-acoes', style: 'flex-wrap:wrap' });
+        FN_REEMB.forEach(function(y){
+          if (y[0] === est) return;
+          acoes.appendChild(fnBtn(y[1], function(){
+            /* Como em todo o resto, mudar fecha a folha e refresca a linha. */
+            fnApi('/api/financas/cc/mov/' + x.cc_mov_id + '/estado', 'PATCH', { estado: y[0] }).then(function(){
+              fnAviso(x.pessoa + ': ' + y[1].toLowerCase() + '.');
+              fnMovAtualizar(m.id);
+            }, fnErro);
+          }, 'small'));
+        });
+        acoes.appendChild(fnBtn('Desfazer', function(){
+          fnApi('/api/financas/movimentos/' + m.id + '/partes', 'DELETE').then(function(){ fnAviso('Desfeito.'); fnMudou(); }, fnErro);
+        }, 'small'));
+        cx.appendChild(acoes);
+      };
+      desenhar();
+      p.appendChild(cx);
+    });
+    return;
+  }
   if (outros.length){
     var minha = (m.partes || []).filter(function(x){ return !x.pessoa_id; });
     var minhaV = minha.reduce(function(t, x){ return t - x.valor; }, 0);
@@ -1367,6 +1417,7 @@ function fnPainelPartilhas(p, m){
       h('div', { class: 'fn-opcoes', style: 'margin-top:6px' }, [
         opcao('Despesa partilhada', 'Dividir de outra maneira.', function(){ fnPartilhaJanela([m]); }),
         opcao('Paguei por alguém', 'É tudo de outra pessoa.', function(){ fnAmigoJanela(m); }),
+        opcao('A reembolsar pela empresa', 'Despesa de representação que adiantaste.', function(){ fnReembolsarJanela([m]); }),
         opcao('Empréstimo', 'Alguém pagou por ti e estás a devolver.', function(){ fnAcertoJanela(m); })])]);
     p.appendChild(outras);
     apiGestao('/api/financas/splitwise/despesas/' + m.despesa_splitwise).then(function(r){
@@ -1392,6 +1443,7 @@ function fnPainelPartilhas(p, m){
     p.appendChild(h('div', { class: 'fn-opcoes' }, [
       opcao('Despesa partilhada', 'Pagaste e divides: tudo teu, 50/50, partes, percentagens… (conta corrente aqui ou no Splitwise).', function(){ fnPartilhaJanela([m]); }),
       opcao('Paguei por alguém', 'É tudo dessa pessoa: fica a dever-to e entra nas contas partilhadas.', function(){ fnAmigoJanela(m); }),
+      opcao('A reembolsar pela empresa', 'Despesa de representação que adiantaste: entra na conta corrente da empresa e deixa de contar como gasto teu.', function(){ fnReembolsarJanela([m]); }),
       opcao('Empréstimo', 'Alguém pagou por ti e estás a devolver.', function(){ fnAcertoJanela(m); })]));
     return;
   }
