@@ -1466,18 +1466,25 @@ function instalar(app) {
       const q = req.query;
       const w = [], v = [];
       const add = (sql, val) => { v.push(val); w.push(sql.replace('?', '$' + v.length)); };
-      if (q.de) add('m.data >= ?', q.de);
-      if (q.ate) add('m.data <= ?', q.ate);
-      if (q.conta) {
+      /* Um movimento so, pelo id: e assim que se mostra o que acabou de se
+         criar, sem depender dos filtros que estavam postos. Manda em todos,
+         incluindo o ambito e a area, que se aplicam mais abaixo. */
+      const soEstes = String(q.id || '').split(',').map(Number).filter(Boolean);
+      if (soEstes.length) { v.push(soEstes); w.push('m.id = ANY($' + v.length + '::int[])'); }
+      if (q.de && !soEstes.length) add('m.data >= ?', q.de);
+      if (q.ate && !soEstes.length) add('m.data <= ?', q.ate);
+      if (q.conta && !soEstes.length) {
         /* Uma conta ou varias, separadas por virgulas. */
         const cs = String(q.conta).split(',').map(Number).filter(Boolean);
         if (cs.length) { v.push(cs); w.push('m.conta_id = ANY($' + v.length + '::int[])'); }
       }
-      if (q.categoria === 'nenhuma') w.push('m.categoria_id IS NULL');
-      else if (q.categoria) add('m.categoria_id = ?', Number(q.categoria));
-      if (q.projeto) add('m.project_id = ?', Number(q.projeto));
-      if (q.pessoa) add('? = ANY(m.person_ids)', Number(q.pessoa));
-      if (q.q) {
+      if (!soEstes.length) {
+        if (q.categoria === 'nenhuma') w.push('m.categoria_id IS NULL');
+        else if (q.categoria) add('m.categoria_id = ?', Number(q.categoria));
+      }
+      if (q.projeto && !soEstes.length) add('m.project_id = ?', Number(q.projeto));
+      if (q.pessoa && !soEstes.length) add('? = ANY(m.person_ids)', Number(q.pessoa));
+      if (q.q && !soEstes.length) {
         /* Procura nos dois textos - o nome que o Marco deu e o do extrato - e,
            se o que se escreveu parecer um valor, tambem no montante. */
         const num = String(q.q).replace(/\s/g, '').replace(',', '.');
@@ -1488,20 +1495,20 @@ function instalar(app) {
         } else { v.push('%' + q.q + '%'); w.push(dois.replace(/\$N/g, '$' + v.length)); }
       }
       /* Credito ou debito: outra coisa que o estado, por isso somam-se. */
-      if (q.sinal === 'credito') w.push('m.valor > 0');
-      if (q.sinal === 'debito') w.push('m.valor < 0');
-      if (q.estado === 'categorizar') w.push('m.categoria_id IS NULL');
-      if (q.estado === 'sugestoes') w.push('m.categoria_id IS NULL AND m.ia_categoria_id IS NOT NULL');
-      if (q.estado === 'semdespesa') w.push('m.valor < 0 AND m.expense_id IS NULL');
-      if (q.estado === 'reconciliar') w.push(`m.expense_id IS NULL AND m.valor < 0 AND EXISTS (SELECT 1 FROM expenses e
+      if (q.sinal === 'credito' && !soEstes.length) w.push('m.valor > 0');
+      if (q.sinal === 'debito' && !soEstes.length) w.push('m.valor < 0');
+      if (q.estado === 'categorizar' && !soEstes.length) w.push('m.categoria_id IS NULL');
+      if (q.estado === 'sugestoes' && !soEstes.length) w.push('m.categoria_id IS NULL AND m.ia_categoria_id IS NOT NULL');
+      if (q.estado === 'semdespesa' && !soEstes.length) w.push('m.valor < 0 AND m.expense_id IS NULL');
+      if (q.estado === 'reconciliar' && !soEstes.length) w.push(`m.expense_id IS NULL AND m.valor < 0 AND EXISTS (SELECT 1 FROM expenses e
           WHERE abs(e.amount - abs(m.valor)) < 0.006 AND e.spent_on BETWEEN m.data - 12 AND m.data + 6
             AND NOT EXISTS (SELECT 1 FROM fin_movimentos x WHERE x.expense_id = e.id))`);
-      if (q.estado === 'divididos') w.push('EXISTS (SELECT 1 FROM fin_mov_partes pt WHERE pt.movimento_id = m.id)');
+      if (q.estado === 'divididos' && !soEstes.length) w.push('EXISTS (SELECT 1 FROM fin_mov_partes pt WHERE pt.movimento_id = m.id)');
       /* Despesa de representacao ainda nao fechada. */
-      if (q.estado === 'reembolsar') w.push("m.repres_empresa_id IS NOT NULL AND COALESCE(m.repres_estado,'') NOT IN ('reembolsado','apresentada')");
-      if (q.estado === 'representacao') w.push('m.repres_empresa_id IS NOT NULL');
-      if (q.estado === 'reembolsos') w.push('m.valor > 0 AND NOT EXISTS (SELECT 1 FROM fin_cc_mov c WHERE c.movimento_id = m.id)');
-      if (q.estado === 'repetidos') w.push(`EXISTS (SELECT 1 FROM fin_movimentos y WHERE y.id <> m.id AND y.conta_id = m.conta_id
+      if (q.estado === 'reembolsar' && !soEstes.length) w.push("m.repres_empresa_id IS NOT NULL AND COALESCE(m.repres_estado,'') NOT IN ('reembolsado','apresentada')");
+      if (q.estado === 'representacao' && !soEstes.length) w.push('m.repres_empresa_id IS NOT NULL');
+      if (q.estado === 'reembolsos' && !soEstes.length) w.push('m.valor > 0 AND NOT EXISTS (SELECT 1 FROM fin_cc_mov c WHERE c.movimento_id = m.id)');
+      if (q.estado === 'repetidos' && !soEstes.length) w.push(`EXISTS (SELECT 1 FROM fin_movimentos y WHERE y.id <> m.id AND y.conta_id = m.conta_id
           AND y.data = m.data AND y.valor = m.valor AND lower(y.descricao) = lower(m.descricao))`);
       /* A leitura leve: so o que serve para filtrar, somar e sugerir. */
       const leves = await all(
@@ -1511,11 +1518,11 @@ function instalar(app) {
           ${w.length ? 'WHERE ' + w.join(' AND ') : ''}
           ORDER BY m.data DESC, m.id DESC LIMIT 20000`, v);
       const fl = f(q);
-      let todos = leves.filter((m) => passa(m, fl, B)).map((m) => Object.assign(m, { valor: Number(m.valor) }));
+      let todos = leves.filter((m) => soEstes.length || passa(m, fl, B)).map((m) => Object.assign(m, { valor: Number(m.valor) }));
       /* Entradas que podem ser alguem a devolver uma conta dividida: contam
          para o aviso de cima, por isso veem-se em todas, nao so na pagina. */
       const sug = await sugestoesDeEntradas(todos, B);
-      if (q.estado === 'reembolsos') todos = todos.filter((m) => sug[m.id] && (sug[m.id].reembolso || sug[m.id].divisao));
+      if (q.estado === 'reembolsos' && !soEstes.length) todos = todos.filter((m) => sug[m.id] && (sug[m.id].reembolso || sug[m.id].divisao));
       /* Uma transferencia entre duas contas que estao ambas na lista e uma
          linha so: a da saida, com a conta de origem e a de destino. Nao e
          entrada nem saida de dinheiro, por isso nao conta nos totais. Com uma
