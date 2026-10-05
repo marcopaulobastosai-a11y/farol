@@ -448,6 +448,8 @@ function fnMovAtualizar(id){
        voltam a ler-se quando se abrirem. */
     Object.keys(FN.cache).forEach(function(k){ if (k !== 'mov:' + v.qs) delete FN.cache[k]; });
     var i = v.d.movimentos.map(function(x){ return x.id; }).indexOf(id);
+    /* Uma transferência que estava numa linha só continua assim. */
+    if (i >= 0 && v.d.movimentos[i].par_junto && m.par_id === v.d.movimentos[i].par_id) m.par_junto = true;
     if (i >= 0) v.d.movimentos[i] = m;
     var rs = v.d.resumo || {};
     if (rs.sugestoes && (m.categoria_id || !m.ia_categoria_id)) rs.sugestoes = rs.sugestoes.filter(function(x){ return x !== id; });
@@ -626,7 +628,8 @@ function fnLinhaMov(m, aoMarcar){
   }
   if (m.par_id) {
     var pc = fnConta(m.par_conta_id);
-    lig.push(h('span', { class: 'fn-pill tr', title: 'Transferência entre contas' + (m.par_data ? ' · ' + fnData(m.par_data) : '') }, (m.valor < 0 ? '→ para ' : '← de ') + (pc ? pc.nome : 'outra conta')));
+    lig.push(h('span', { class: 'fn-pill tr', title: 'Transferência entre contas' + (m.par_data ? ' · ' + fnData(m.par_data) : '') },
+      m.par_junto ? '⇄ entre contas' : (m.valor < 0 ? '→ para ' : '← de ') + (pc ? pc.nome : 'outra conta')));
   } else if (m.para_conta_id) {
     var dc = fnConta(m.para_conta_id);
     lig.push(h('span', { class: 'fn-pill tr', title: 'Transferência entre contas · o outro lado ainda não está no Farol' }, (m.valor < 0 ? '→ para ' : '← de ') + (dc ? dc.nome : 'outra conta')));
@@ -656,6 +659,12 @@ function fnLinhaMov(m, aoMarcar){
      quando o movimento não tem uma sua. */
   var ctx = fnCtx(m.context_id || (conta && conta.context_id));
   var daConta = !m.context_id && ctx;
+  /* Transferência entre contas: a conta de origem e, por baixo, a de destino. */
+  var outra = m.par_id ? fnConta(m.par_conta_id) : null;
+  var origem = outra && m.valor > 0 ? outra : conta, destino = outra ? (m.valor > 0 ? conta : outra) : null;
+  var celConta = destino ? h('span', { title: (origem ? origem.nome : '') + ' → ' + destino.nome },
+      [(origem ? origem.nome : '—'), h('small', { class: 'fn-muted', style: 'display:block' }, '→ ' + destino.nome)])
+    : (conta ? conta.nome : h('span', { class: 'fn-muted' }, '—'));
   var tr = h('tr', { class: 'clic' + (FN.tocados && FN.tocados[m.id] ? ' fn-tocada' : '') + (FN.mov.sel[m.id] ? ' fn-sel' : ''), 'data-id': m.id, onclick: function(){ fnMovJanela(m); } }, [
     h('td', { onclick: function(e){ e.stopPropagation(); } }, [h('input', { type: 'checkbox', 'aria-label': 'Escolher', checked: !!FN.mov.sel[m.id], onchange: function(e){
       FN.mov.sel[m.id] = e.target.checked;
@@ -663,13 +672,14 @@ function fnLinhaMov(m, aoMarcar){
       tr.classList.toggle('fn-sel', e.target.checked);
       if (aoMarcar) aoMarcar(); else fnRender('financas'); } })]),
     h('td', { class: 'fn-n', style: 'font-size:.75rem;white-space:nowrap' }, fnData(m.data)),
-    h('td', { title: conta ? conta.nome : '', style: 'font-size:.75rem;line-height:1.25' }, conta ? conta.nome : h('span', { class: 'fn-muted' }, '—')),
+    h('td', { title: conta ? conta.nome : '', style: 'font-size:.75rem;line-height:1.25' }, celConta),
     h('td', { style: 'min-width:0' }, [h('span', { class: 'd', title: fnMovNome(m) }, fnMovNome(m)),
       fnMovOrig(m) ? h('small', { class: 'fn-orig', title: fnMovOrig(m) }, fnMovOrig(m)) : null,
       m.categoria_fonte === 'regra' ? h('small', { class: 'd2' }, 'categoria por regra') : null]),
     h('td', { title: fnMovEnt(m) }, fnMovEnt(m) ? h('span', { class: 'fn-ent' }, fnMovEnt(m)) : h('span', { class: 'fn-muted' }, '—')),
-    h('td', { class: 'r ' + (m.valor > 0 ? 'fn-good' : '') }, [fnEur(m.valor, true), fnMinhaParte(m)]),
-    h('td', { class: 'r fn-saldo' + (m.saldo_calculado ? ' calc' : ''), title: m.saldo == null ? '' : m.saldo_calculado ? 'Saldo calculado a partir dos saldos conhecidos da conta' : 'Saldo do extrato' }, m.saldo == null ? '—' : fnEur(m.saldo)),
+    m.par_junto ? h('td', { class: 'r fn-muted', title: 'Transferência entre as tuas contas: não entra nem sai dinheiro' }, fnEur(Math.abs(m.valor)))
+      : h('td', { class: 'r ' + (m.valor > 0 ? 'fn-good' : '') }, [fnEur(m.valor, true), fnMinhaParte(m)]),
+    h('td', { class: 'r fn-saldo' + (m.saldo_calculado ? ' calc' : ''), title: m.saldo == null || m.par_junto ? '' : m.saldo_calculado ? 'Saldo calculado a partir dos saldos conhecidos da conta' : 'Saldo do extrato' }, m.saldo == null || m.par_junto ? '—' : fnEur(m.saldo)),
     h('td', null, [cat]),
     h('td', { class: 'fn-area' + (daConta ? ' da-conta' : ''), title: ctx ? fnCtxNome(ctx.id) + (daConta ? ' · da conta ' + (conta ? conta.nome : '') + ' (o movimento não tem área própria)' : '') : '' }, ctx ? ctx.name : h('span', { class: 'fn-muted' }, '—')),
     h('td', { class: 'fn-dequem', onclick: function(e){ e.stopPropagation(); fnEscolherPessoa([m.id], fnIdsPessoas(m)); } }, fnDeQuem(m)),
