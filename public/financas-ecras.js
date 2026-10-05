@@ -885,9 +885,9 @@ function fnLoteFolha(ids, ms, limpar){
   spe.style.gridTemplateColumns = 'repeat(auto-fill,minmax(150px,1fr))';
   /* Estas duas abrem janela propria: a folha sai da frente, mas a escolha
      fica - a barra de cima volta a abri-la. */
-  /* As tres so sabem lidar com saidas (dinheiro que sai). Quando o que esta
-     escolhido nao tem nenhuma, em vez de ficarem caladas dizem porque e que
-     nao fazem nada — antes pareciam avariadas. */
+  /* Partilhar e ligar a uma tarefa so sabem lidar com saidas; quando nao ha
+     nenhuma escolhida, dizem porque e que nao fazem nada — antes ficavam
+     caladas e pareciam avariadas. */
   var soSaidas = function(fn){
     return function(){
       var d = FN.lote.debs();
@@ -897,7 +897,14 @@ function fnLoteFolha(ids, ms, limpar){
   };
   var bPart = fnBtn('Partilhar…', soSaidas(fnPartilhaJanela), 'small');
   var bTar = fnBtn('Ligar a uma tarefa…', soSaidas(fnTarefaDeVarios), 'small');
-  var bReemb = fnBtn('Representação…', soSaidas(fnReembolsarJanela), 'small');
+  /* A representacao tem dois lados: as saidas sao a despesa, as entradas sao
+     o dinheiro a voltar. O botao percebe qual deles e que esta escolhido. */
+  var bReemb = fnBtn('Representação…', function(){
+    var d = FN.lote.debs(), c = FN.lote.creds();
+    if (!d.length && !c.length) { fnAviso('Não há nada escolhido.'); return; }
+    fnLoteFechar();
+    if (d.length) fnReembolsarJanela(d); else fnReembolsoRecebidoJanela(c);
+  }, 'small');
   var avSaidas = h('small', { class: 'fn-nota', style: 'display:none' });
   var bSug = fnBtn('Aceitar as sugestões da IA', function(){ fnLoteApi({ aceitar: true }, 'categorizados'); }, 'small');
   var bApagar = fnBtn('Apagar', function(){
@@ -944,6 +951,7 @@ function fnLoteFolha(ids, ms, limpar){
   FN.lote = {
     j: j, ids: ids, ms: ms || [], limpar: limpar,
     debs: function(){ return FN.lote.ms.filter(function(m){ return FN.mov.sel[m.id] && Number(m.valor) < 0; }); },
+    creds: function(){ return FN.lote.ms.filter(function(m){ return FN.mov.sel[m.id] && Number(m.valor) > 0; }); },
     refrescar: function(novosIds, novosMs){
       FN.lote.ids = novosIds; FN.lote.ms = novosMs || FN.lote.ms;
       var n = novosIds.length;
@@ -953,9 +961,12 @@ function fnLoteFolha(ids, ms, limpar){
       var d = FN.lote.debs().length;
       bPart.textContent = 'Partilhar…' + (d ? ' (' + d + ')' : '');
       bTar.textContent = 'Ligar a uma tarefa…' + (d ? ' (' + d + ')' : '');
-      bReemb.textContent = 'Representação…' + (d ? ' (' + d + ')' : '');
+      var c = FN.lote.creds().length;
+      bReemb.textContent = (d ? 'Representação… (' + d + ')' : c ? 'Reembolso recebido… (' + c + ')' : 'Representação…');
       avSaidas.style.display = (d && d === n) ? 'none' : 'block';
-      avSaidas.textContent = !d
+      avSaidas.textContent = !d && c
+        ? 'Só há entradas escolhidas: a representação abre o lado do dinheiro que voltou; partilhar e tarefa só mexem com saídas.'
+        : !d
         ? 'Nenhum dos escolhidos é uma saída — estas três só mexem com saídas.'
         : 'Só ' + d + ' dos ' + n + ' escolhidos são saídas; as entradas ficam de fora.';
     }
@@ -1127,6 +1138,16 @@ function fnPerguntasMov(p, m){
     sim: Boolean(m.repres_empresa_id),
     resumo: m.repres_empresa_id ? fnRepNome(m.repres_estado, m.repres_cartao) + ' · ' + (m.repres_empresa || '') : null,
     desenhar: function(c){ fnPainelRepres(c, m); } });
+  /* O outro lado: uma entrada pode ser o dinheiro da empresa a voltar. */
+  if (m.valor > 0) fnPergunta(p, {
+    titulo: 'É um reembolso de despesas de representação?',
+    sim: false,
+    desenhar: function(c){
+      c.appendChild(h('p', { class: 'fn-nota' },
+        'Se este dinheiro é a empresa a devolver-te o que adiantaste, diz quais são as despesas: elas passam a «Reembolsado» e a conta corrente dela desce.'));
+      c.appendChild(h('div', { class: 'fn-acoes' }, [
+        fnBtn('Dizer que despesas paga…', function(){ fnReembolsoRecebidoJanela([m]); }, 'primary small')]));
+    } });
 
   var q3 = fnPergunta(p, { titulo: m.valor < 0 ? 'É partilhado ou um acerto com alguém?' : 'É alguém a pagar-te (acerto ou reembolso)?', sim: tem3, resumo: resumo3,
     desenhar: function(c){ fnPainelPartilhas(c, m); } });

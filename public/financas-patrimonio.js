@@ -1040,6 +1040,87 @@ function fnReembolsarJanela(movs){
   }, fnErro);
 }
 
+/* O dinheiro voltou. Este é o outro lado da representação: um movimento de
+ * crédito (ou vários) é o reembolso que a empresa fez, e aqui diz-se que
+ * despesas é que ele paga.
+ *
+ * A proposta vem feita — as mais antigas por apresentar, até dar o valor que
+ * entrou — mas é só uma proposta: o Marco confirma ou troca. Na prática o CA
+ * junta várias despesas num pagamento só e nem sempre pela ordem das datas. */
+function fnReembolsoRecebidoJanela(movs){
+  movs = (movs || []).filter(function(m){ return Number(m.valor) > 0; });
+  if (!movs.length) { fnAviso('Só entra dinheiro que chegou à conta.'); return; }
+  var entrou = movs.reduce(function(t, m){ return t + Number(m.valor); }, 0);
+  apiGestao('/api/financas/cc').then(function(cc){
+    var empresas = (cc.pessoas || []).filter(function(p){ return p.empresa && p.ativo; });
+    if (!empresas.length) { fnAviso('Ainda não há nenhuma empresa. Marca primeiro uma despesa como representação.'); return; }
+    var se = h('select', { class: 'fn-sel' });
+    empresas.forEach(function(e){ se.appendChild(h('option', { value: String(e.id) }, e.nome)); });
+    var lista = h('div', { style: 'max-height:46vh;overflow:auto;margin-top:6px' });
+    var soma = h('p', { class: 'fn-nota' });
+    var marc = {}, desp = [];
+
+    var contar = function(){
+      var t = desp.filter(function(d){ return marc[d.id]; }).reduce(function(a, d){ return a + Number(d.valor); }, 0);
+      var dif = Math.round((entrou - t) * 100) / 100;
+      soma.textContent = 'Entraram ' + fnEur(entrou) + ' · escolhido ' + fnEur(t) +
+        (Math.abs(dif) < 0.005 ? ' — bate certo.'
+         : dif > 0 ? ' — faltam ' + fnEur(dif) + ' por explicar.'
+         : ' — ' + fnEur(-dif) + ' a mais do que entrou.');
+      soma.style.color = Math.abs(dif) < 0.005 ? 'var(--good, inherit)' : 'var(--muted)';
+    };
+    var desenhar = function(){
+      clear(lista);
+      if (!desp.length) { lista.appendChild(h('p', { class: 'fn-nota' }, 'Esta empresa não tem despesas por reembolsar.')); contar(); return; }
+      desp.forEach(function(d){
+        var cx = h('input', { type: 'checkbox' });
+        cx.checked = Boolean(marc[d.id]);
+        cx.addEventListener('change', function(){ marc[d.id] = cx.checked; contar(); });
+        lista.appendChild(h('label', { class: 'fn-check', style: 'display:flex;gap:8px;align-items:baseline;padding:3px 0' }, [cx,
+          h('span', null, [h('b', null, fnEur(d.valor)), ' · ' + fnData(d.data) + ' · ' + (d.titulo || d.entidade || d.descricao || '')])]));
+      });
+      contar();
+    };
+    /* A proposta: as mais antigas primeiro, até encher o que entrou. Uma que
+       passe do valor salta-se, não se pára — assim um almoço grande no meio
+       não esconde os pequenos que vinham a seguir. */
+    var propor = function(){
+      marc = {};
+      var falta = entrou;
+      desp.forEach(function(d){
+        if (Number(d.valor) <= falta + 0.005) { marc[d.id] = true; falta = Math.round((falta - Number(d.valor)) * 100) / 100; }
+      });
+      desenhar();
+    };
+    var carregar = function(){
+      clear(lista); lista.appendChild(h('p', { class: 'fn-nota' }, 'A ler as despesas…'));
+      apiGestao('/api/financas/representacao/por-reembolsar?empresa=' + se.value).then(function(r){
+        desp = (r && r.despesas) || []; propor();
+      }, function(){ clear(lista); lista.appendChild(h('p', { class: 'fn-nota' }, 'Não deu para ler as despesas.')); });
+    };
+    se.addEventListener('change', carregar);
+    carregar();
+
+    fnJanela(movs.length > 1 ? 'Reembolso recebido · ' + movs.length + ' entradas' : 'Reembolso recebido', [
+      h('p', { class: 'fn-nota' }, (movs.length > 1 ? movs.length + ' entradas · ' : fnMovNome(movs[0]) + ' · ') + fnEur(entrou) +
+        '. Diz que despesas é que este dinheiro paga: elas passam a «Reembolsado» e a conta corrente da empresa desce.'),
+      fnCampo('Empresa', se),
+      h('div', { class: 'fn-acoes', style: 'margin-top:4px' }, [
+        fnBtn('Propor pelas datas', propor, 'small'),
+        fnBtn('Desmarcar todas', function(){ marc = {}; desenhar(); }, 'small')]),
+      soma, lista
+    ], [{ txt: 'Marcar como reembolsadas', pri: true, fn: function(){
+      var escolhidas = desp.filter(function(d){ return marc[d.id]; }).map(function(d){ return d.id; });
+      if (!escolhidas.length) { fnAviso('Não escolheste nenhuma despesa.'); return false; }
+      return fnApi('/api/financas/representacao/reembolso', 'POST',
+        { empresa_id: Number(se.value), creditos: movs.map(function(m){ return m.id; }), despesas: escolhidas }).then(function(r){
+        fnAviso(r.feitos + (r.feitos === 1 ? ' despesa reembolsada' : ' despesas reembolsadas') + ' · ' + fnEur(r.total) + '.');
+        fnMudou();
+      }, fnErro);
+    } }]);
+  }, fnErro);
+}
+
 /* Paguei por alguém: a conta é toda dessa pessoa, fica a dever-ma.
  *
  * Numa conta do Splitwise a despesa costuma já lá estar - foi lançada por
