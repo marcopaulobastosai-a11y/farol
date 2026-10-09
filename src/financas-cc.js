@@ -97,11 +97,15 @@ async function sincronizar(opcoes) {
     let desde = '';
     if (ultima) { const d = new Date(ultima); d.setDate(d.getDate() - 1); desde = '&updated_after=' + encodeURIComponent(d.toISOString()); }
     let lidas = 0, offset = 0;
+    const desdeP = await inicioDasContas();
+    const novas = [];
     for (;;) {
       const j = await splitwise.pedir('/get_expenses?limit=200&offset=' + offset + desde);
       const lista = (j && j.expenses) || [];
       for (const e of lista) {
         lidas++;
+        const nova = await minhaParte(e, meu, nomesGrupo, desdeP);
+        if (nova) novas.push(nova);
         if (e.currency_code && e.currency_code !== 'EUR') continue;
         const usuarios = {};
         (e.users || []).forEach((u) => { usuarios[Number(u.user_id || (u.user && u.user.id))] = u.user; });
@@ -137,12 +141,78 @@ async function sincronizar(opcoes) {
       offset += 200;
       if (offset > 20000) break;
     }
+    /* A primeira vez, a minha parte de tudo o que ja estava no Splitwise
+       desde o primeiro movimento das contas (a leitura normal so traz o que
+       mudou). */
+    if (!tudo && desdeP && !(await lerSetting('fin_sw_minha_parte'))) {
+      for (let o = 0; o <= 20000; o += 200) {
+        const j = await splitwise.pedir('/get_expenses?limit=200&offset=' + o + '&dated_after=' + desdeP);
+        const lista = (j && j.expenses) || [];
+        for (const e of lista) { const nova = await minhaParte(e, meu, nomesGrupo, desdeP); if (nova) novas.push(nova); }
+        if (lista.length < 200) break;
+      }
+    }
+    if (desdeP) await gravarSetting('fin_sw_minha_parte', new Date().toISOString());
     await organizarContas();
     await gravarSetting('fin_cc_sync_em', new Date().toISOString());
-    console.log('[farol] contas correntes: Splitwise lido,', lidas, 'despesas');
-    return { ok: true, lidas };
+    console.log('[farol] contas correntes: Splitwise lido,', lidas, 'despesas,', novas.length, 'partes novas pagas por outros');
+    if (novas.length && module.exports.depoisDaMinhaParte) {
+      Promise.resolve(module.exports.depoisDaMinhaParte(novas)).catch((e) => console.error('[farol] contas correntes (categorizar):', e.message));
+    }
+    return { ok: true, lidas, minhas: novas.length };
   })();
   try { return await A_CORRER; } finally { A_CORRER = null; }
+}
+
+/* ---------------- a minha parte do que outros pagaram ----------------
+   Uma despesa do Splitwise que outra pessoa pagou e em que o Marco tem
+   parte (o ginasio da Sofia pago pela Monica, metade e dele) e um gasto
+   dele, mesmo sem ter passado pelo banco. Fica como movimento numa conta
+   propria, «Splitwise · pago por outros», para se categorizar e contar nos
+   gastos e nos graficos como os outros. O saldo dessa conta nao e dinheiro:
+   a divida esta na conta corrente, e paga-la e um acerto, que nao e gasto.
+   So as que ele nao pagou: as que pagou passaram pelo banco e a parte dele
+   e a da conta dividida. */
+async function contaSplitwise() {
+  const c = (await all("SELECT id FROM fin_contas WHERE tipo = 'splitwise' ORDER BY id LIMIT 1"))[0];
+  if (c) return c.id;
+  return (await all(
+    `INSERT INTO fin_contas (nome, tipo, instituicao, pessoal, nota) VALUES ($1, 'splitwise', 'Splitwise', TRUE, $2) RETURNING id`,
+    ['Splitwise · pago por outros', 'A tua parte das despesas que outras pessoas pagaram no Splitwise. Conta nos gastos; o que deves está na conta corrente.']))[0].id;
+}
+/* O dia do primeiro movimento das contas do banco: antes disso nao ha com
+   que comparar, e a minha parte de despesas antigas so baralhava os meses. */
+async function inicioDasContas() {
+  const r = (await all("SELECT to_char(MIN(m.data),'YYYY-MM-DD') AS d FROM fin_movimentos m JOIN fin_contas c ON c.id = m.conta_id WHERE c.tipo <> 'splitwise'"))[0];
+  return r ? r.d : null;
+}
+/* Cria, acerta ou tira o movimento de uma despesa. Devolve o id quando e novo. */
+async function minhaParte(e, meu, nomesGrupo, desde) {
+  if (!e || !e.id || !desde) return null;
+  const conta = await contaSplitwise();
+  const impressao = 'sw:' + Number(e.id);
+  const uid = (u) => Number(u.user_id || (u.user && u.user.id));
+  const eu = (e.users || []).find((u) => uid(u) === meu);
+  const pagou = eu ? cent(eu.paid_share) : 0, deve = eu ? cent(eu.owed_share) : 0;
+  const data = String(e.date || e.created_at || '').slice(0, 10);
+  const entra = !e.deleted_at && !e.payment && (!e.currency_code || e.currency_code === 'EUR') &&
+    pagou < 0.005 && deve >= 0.01 && data >= desde;
+  if (!entra) {
+    await query('DELETE FROM fin_movimentos WHERE conta_id = $1 AND impressao = $2', [conta, impressao]);
+    return null;
+  }
+  const quem = (e.users || []).filter((u) => Number(u.paid_share) > 0.005 && uid(u) !== meu).map((u) => nomeDe(u.user || { id: uid(u) }));
+  const grupo = e.group_id ? nomesGrupo[Number(e.group_id)] : null;
+  const nota = 'Pago por ' + (quem.join(', ') || 'outra pessoa') + ' no Splitwise' + (grupo ? ' · ' + grupo : '') +
+    ' · total ' + cent(e.cost).toFixed(2).replace('.', ',') + ' €';
+  const r = (await all(
+    `INSERT INTO fin_movimentos (conta_id, data, descricao, valor, impressao, origem, nota)
+     VALUES ($1, $2, $3, $4, $5, 'splitwise', $6)
+     ON CONFLICT (conta_id, impressao) DO UPDATE SET data = EXCLUDED.data, descricao = EXCLUDED.descricao, valor = EXCLUDED.valor,
+       nota = CASE WHEN fin_movimentos.nota IS NULL OR fin_movimentos.nota LIKE 'Pago por %' THEN EXCLUDED.nota ELSE fin_movimentos.nota END
+     RETURNING id, (xmax = 0) AS novo`,
+    [conta, data, String(e.description || 'Despesa').slice(0, 500), -deve, impressao, nota]))[0];
+  return r.novo ? r.id : null;
 }
 
 /* Ao fim do dia (23:30 em Lisboa) e, ao arrancar, se a ultima leitura ja tem
@@ -1398,10 +1468,15 @@ function instalarContas(app, falha) {
       const id = Number(req.params.id);
       const movs = await all(
         `SELECT c.id, to_char(c.data,'YYYY-MM-DD') AS data, c.descricao, c.valor, c.origem, c.grupo, c.total, c.pagamento, c.pessoa_id, p.nome AS pessoa,
-                COALESCE(c.movimento_id, pt.movimento_id) AS movimento_id, pt.partilha_id
+                COALESCE(c.movimento_id, pt.movimento_id) AS movimento_id, pt.partilha_id,
+                mp.id AS minha_id, mp.valor AS minha_valor, mp.categoria_id AS minha_categoria_id, mp.ia_categoria_id AS minha_ia_categoria_id
            FROM fin_cc_mov c JOIN fin_cc_pessoas p ON p.id = c.pessoa_id LEFT JOIN fin_mov_partes pt ON pt.id = c.parte_id
+           LEFT JOIN LATERAL (SELECT m.id, m.valor, m.categoria_id, m.ia_categoria_id FROM fin_movimentos m JOIN fin_contas fc ON fc.id = m.conta_id
+                               WHERE fc.tipo = 'splitwise' AND c.splitwise_expense_id IS NOT NULL AND m.impressao = 'sw:' || c.splitwise_expense_id
+                               LIMIT 1) mp ON TRUE
           WHERE c.conta_id = $1 AND NOT c.apagado ORDER BY c.data DESC, c.id DESC LIMIT 1500`, [id]);
-      res.json({ movimentos: movs.map((m) => Object.assign(m, { valor: cent(m.valor), total: m.total == null ? null : cent(m.total) })) });
+      res.json({ movimentos: movs.map((m) => Object.assign(m, { valor: cent(m.valor), total: m.total == null ? null : cent(m.total),
+        minha_valor: m.minha_valor == null ? null : cent(m.minha_valor) })) });
     } catch (e) { falha(res, e, 'conta corrente'); }
   });
   app.post('/api/financas/cc/contas', async (req, res) => {
@@ -1473,6 +1548,6 @@ function instalarContas(app, falha) {
   });
 }
 
-module.exports = { instalar, arrancar, sincronizar, resumo, saldoTotalEm, ligarMovimento,
+module.exports = { instalar, arrancar, sincronizar, contaSplitwise, resumo, saldoTotalEm, ligarMovimento,
   dividir, desfazerDivisao, categoriaDaMinhaParte, abertos, reembolsoDe, pagador, resolverPessoa, sugerirDivisoes,
   contasEmAberto, novaComEntrada, registarAcerto, despesaSplitwise, partilhaDaDespesaSplitwise, organizarContas, garantirCabecalhos, guardarPartilha, apagarPartilha, listarPartilhas, contaDireta, lerContas };
