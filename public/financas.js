@@ -483,7 +483,7 @@ function fnSelContas(valor, vazio){
   if (valor) s.value = String(valor);
   return s;
 }
-var FN_TIPOS = [['ordem','À ordem'],['cartao','Cartão de crédito'],['poupanca','Poupança'],['investimento','Investimento'],['dinheiro','Dinheiro'],['empresa','Empresa'],['outra','Outra']];
+var FN_TIPOS = [['ordem','À ordem'],['cartao','Cartão de crédito'],['poupanca','Poupança'],['investimento','Investimento'],['dinheiro','Dinheiro'],['empresa','Empresa'],['outra','Outra'],['splitwise','Splitwise · pago por outros']];
 function fnTipoNome(t){ for (var i = 0; i < FN_TIPOS.length; i++) if (FN_TIPOS[i][0] === t) return FN_TIPOS[i][1]; return t; }
 
 /* ---------------- janela ---------------- */
