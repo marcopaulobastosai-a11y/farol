@@ -68,7 +68,7 @@ function fnTabelaContas(contas, gerir){
   contas.forEach(function(c){ (grupos[c.tipo] = grupos[c.tipo] || []).push(c); });
   var tb = h('tbody');
   FN_TIPOS.forEach(function(t){
-    var cs = grupos[t[0]]; if (!cs) return;
+    var cs = grupos[t[0]]; if (!cs || t[0] === 'splitwise') return;
     var soma = cs.filter(function(c){ return c.ativo; }).reduce(function(s, c){ return s + c.saldo; }, 0);
     tb.appendChild(h('tr', { class: 'grp' }, [h('td', { colspan: gerir ? 4 : 3 }, t[1] + (t[0] === 'empresa' ? ' · fora do pessoal' : '')), h('td', { class: 'r' + (soma < 0 ? ' fn-bad' : '') }, fnEur(soma)), h('td'), gerir ? h('td') : null]));
     cs.forEach(function(c){
@@ -458,9 +458,20 @@ function fnOrigemCc(m){
     : m.origem === 'banco' ? 'do banco' : m.origem === 'partilha' ? 'conta partilhada' + (m.total ? ' · total ' + fnEur(m.total) : '')
     : m.origem === 'reembolso' ? 'reembolso, do banco' : 'à mão';
 }
+/* Uma despesa que outra pessoa pagou: a parte do Marco entra nos gastos
+   dele, como movimento da conta «Splitwise · pago por outros». Mostra-se
+   com que categoria, e abre-se ali para a mudar. */
+function fnMinhaParteCc(m){
+  var cat = m.minha_categoria_id ? fnCatNome(m.minha_categoria_id, true) : null;
+  var sug = !cat && m.minha_ia_categoria_id ? fnCatNome(m.minha_ia_categoria_id, true) : null;
+  return h('a', { href: '#', class: 'fn-pill' + (cat ? '' : ' warn'), style: 'display:inline-block;margin-top:3px', title: 'A tua parte conta nos teus gastos. Abre para mudar a categoria.',
+    onclick: function(ev){ ev.preventDefault(); apiGestao('/api/financas/movimentos?id=' + m.minha_id).then(function(r){ if (r.movimentos && r.movimentos[0]) fnMovJanela(r.movimentos[0]); }, fnErro); } },
+    'nos teus gastos ' + fnEur(Math.abs(m.minha_valor)) + ' · ' + (cat || (sug ? 'sugestão: ' + sug : 'por categorizar')));
+}
 function fnLinhaCc(m, comPessoa, depois){
   return h('div', { class: 'fn-li' }, [h('span', { class: 'fn-n fn-muted', style: 'width:52px;font-size:.75rem' }, fnData(m.data)),
-    h('div', { class: 'g' }, [m.descricao, h('small', null, [comPessoa && m.pessoa ? m.pessoa : '', m.conta && !comPessoa ? m.conta : '', fnOrigemCc(m), m.pagamento ? 'pagamento' : ''].filter(Boolean).join(' · '))]),
+    h('div', { class: 'g' }, [m.descricao, h('small', null, [comPessoa && m.pessoa ? m.pessoa : '', m.conta && !comPessoa ? m.conta : '', fnOrigemCc(m), m.pagamento ? 'pagamento' : ''].filter(Boolean).join(' · ')),
+      m.minha_id ? fnMinhaParteCc(m) : null]),
     h('span', { class: 'fn-n ' + (m.valor > 0 ? 'fn-good' : 'fn-bad') }, fnEur(m.valor, true)),
     m.origem !== 'splitwise' && m.origem !== 'partilha' ? h('button', { type: 'button', class: 'btn small', 'aria-label': 'Apagar', onclick: function(){ fnApi('/api/financas/cc/mov/' + m.id, 'DELETE').then(depois, fnErro); } }, '×')
       : m.partilha_id ? h('button', { type: 'button', class: 'btn small', title: 'Abrir a conta partilhada', onclick: function(){ fnAbrirPartilha(m.partilha_id); } }, 'Abrir') : null]);
