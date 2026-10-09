@@ -29,6 +29,12 @@ const multer = require('multer');
 const { query } = require('./db');
 const imp = require('./financas-import');
 const cc = require('./financas-cc');
+/* A minha parte do que outros pagaram no Splitwise chega como movimento
+   novo: categoriza-se como os do banco. */
+cc.depoisDaMinhaParte = (ids) => categorizar(ids);
+/* A conta «Splitwise · pago por outros» nao e dinheiro: fica fora das
+   transferencias, dos saldos e do patrimonio. */
+const SO_BANCO = "conta_id NOT IN (SELECT id FROM fin_contas WHERE tipo = 'splitwise')";
 
 const all = async (sql, params) => (await query(sql, params)).rows;
 const cent = (v) => Math.round(Number(v || 0) * 100) / 100;
@@ -257,9 +263,10 @@ async function categorizar(ids, opcoes) {
   if (entreContas && resto.length) {
     const outros = await all(
       `SELECT id, conta_id, to_char(data,'YYYY-MM-DD') AS data, valor FROM fin_movimentos
-        WHERE data BETWEEN $1::date - 4 AND $2::date + 4`,
+        WHERE data BETWEEN $1::date - 4 AND $2::date + 4 AND ${SO_BANCO}`,
       [resto.map((m) => m.data).sort()[0], resto.map((m) => m.data).sort().pop()]);
     for (const m of resto) {
+      if ((B.contaPor[m.conta_id] || {}).tipo === 'splitwise') continue;
       const par = outros.find((x) => x.conta_id !== m.conta_id && Math.abs(Number(x.valor) + Number(m.valor)) < 0.005 &&
         Math.abs(new Date(x.data) - new Date(m.data)) <= 3 * 86400000);
       if (par) {
@@ -322,7 +329,8 @@ async function categorizar(ids, opcoes) {
 
 async function perguntarModelo(lista, lote, B) {
   const linhas = lote.map((m, i) => (i + 1) + ' | ' + m.data + ' | ' + m.descricao + ' | ' + Number(m.valor).toFixed(2) + ' € | conta: ' +
-    ((B.contaPor[m.conta_id] || {}).nome || '') + ((B.contaPor[m.conta_id] || {}).tipo === 'cartao' ? ' (cartão de crédito)' : ''));
+    ((B.contaPor[m.conta_id] || {}).nome || '') + ((B.contaPor[m.conta_id] || {}).tipo === 'cartao' ? ' (cartão de crédito)' : '') +
+    ((B.contaPor[m.conta_id] || {}).tipo === 'splitwise' ? ' (despesa que outra pessoa pagou; é a parte do Marco — nunca é transferência nem acerto)' : ''));
   const corpo = {
     model: MODELO, store: false,
     system_instruction: 'Categorizas movimentos bancarios de uma familia portuguesa. Para cada movimento escolhes UMA categoria da lista, pelo id. ' +
@@ -585,7 +593,7 @@ async function resumo(ym, f) {
   const porReconciliar = Number((await all(
     `SELECT COUNT(DISTINCT m.id) AS n FROM fin_movimentos m JOIN expenses e
         ON abs(e.amount - abs(m.valor)) < 0.006 AND e.spent_on BETWEEN m.data - 12 AND m.data + 6
-     WHERE m.expense_id IS NULL AND m.valor < 0 AND m.data >= CURRENT_DATE - 120
+     WHERE m.expense_id IS NULL AND m.valor < 0 AND m.data >= CURRENT_DATE - 120 AND m.${SO_BANCO}
        AND NOT EXISTS (SELECT 1 FROM fin_movimentos x WHERE x.expense_id = e.id)`))[0].n);
 
   const saldos = await saldosContas(B, hojeIso());
@@ -719,7 +727,7 @@ async function analise(ym, f) {
 async function patrimonio(empresas) {
   const B = await base();
   const hoje = hojeIso();
-  const contas = (await saldosContas(B, hoje)).filter((c) => c.ativo);
+  const contas = (await saldosContas(B, hoje)).filter((c) => c.ativo && c.tipo !== 'splitwise');
   /* Os papeis de cada bem sao os da sub-area dele: a escritura, a caderneta,
      o CPCV. A contagem vai junto para o ecra os poder abrir dali. */
   const bens = (await all('SELECT id, nome, lado, classe, valor, to_char(valor_em,\'YYYY-MM-DD\') AS valor_em, prestacao, to_char(termina,\'YYYY-MM-DD\') AS termina, context_id, pessoal, nota, dados, ' +
@@ -917,7 +925,7 @@ async function saldosDosMovimentos(rows, B) {
   const contas = [...new Set(rows.filter((m) => m.saldo == null).map((m) => m.conta_id))];
   for (const cid of contas) {
     const conta = B.contaPor[cid];
-    if (!conta) continue;
+    if (!conta || conta.tipo === 'splitwise') continue;
     const A = await ancoras(cid, conta);
     const doDia = {};
     (await all("SELECT id, to_char(data,'YYYY-MM-DD') AS data, valor FROM fin_movimentos WHERE conta_id = $1", [cid]))
@@ -1251,7 +1259,7 @@ async function paresCandidatos(B, soId) {
   const ms = (await all(
     `SELECT m.id, m.conta_id, to_char(m.data,'YYYY-MM-DD') AS data, m.descricao, m.valor, m.categoria_id
        FROM fin_movimentos m
-      WHERE m.par_id IS NULL
+      WHERE m.par_id IS NULL AND m.${SO_BANCO}
         AND NOT EXISTS (SELECT 1 FROM fin_cc_mov c WHERE c.movimento_id = m.id)
         AND NOT EXISTS (SELECT 1 FROM fin_mov_partes p WHERE p.movimento_id = m.id)
       ORDER BY m.data, m.id`)).map((m) => Object.assign(m, { valor: Number(m.valor) }));
@@ -1359,7 +1367,7 @@ async function ligarGrupo(B, ids) {
    poupancas das meninas, com a mesma descricao e o mesmo valor), os
    movimentos iguais do mesmo dia repartem-se por elas, uma a uma. */
 async function ligarIdentificadores(B) {
-  const contas = B.contas.filter((c) => String(c.identificadores || '').trim());
+  const contas = B.contas.filter((c) => c.tipo !== 'splitwise' && String(c.identificadores || '').trim());
   if (!contas.length) return { ligados: 0, destino: 0 };
   const porTexto = {};
   contas.forEach((c) => String(c.identificadores).split(/\n|;/).map((x) => x.trim()).filter((x) => x.length >= 4)
@@ -1369,7 +1377,7 @@ async function ligarIdentificadores(B) {
     const alvo = porTexto[t].sort((a, b) => a.id - b.id);
     const ms = await all(
       `SELECT id, conta_id, to_char(data,'YYYY-MM-DD') AS data, descricao, valor, para_conta_id FROM fin_movimentos
-        WHERE par_id IS NULL AND position($1 in lower(descricao)) > 0 AND NOT (conta_id = ANY($2::int[]))
+        WHERE par_id IS NULL AND position($1 in lower(descricao)) > 0 AND NOT (conta_id = ANY($2::int[])) AND ${SO_BANCO}
         ORDER BY data, id`, [t, alvo.map((c) => c.id)]);
     const grupos = {};
     ms.forEach((m) => { const k = m.conta_id + '|' + m.data + '|' + Number(m.valor); (grupos[k] = grupos[k] || []).push(m); });
@@ -1882,7 +1890,7 @@ function instalar(app) {
         `SELECT mv.id, to_char(mv.data,'YYYY-MM-DD') AS data, mv.descricao, mv.titulo, mv.valor, mv.conta_id,
                 abs(mv.data - $2::date) AS dias
            FROM fin_movimentos mv
-          WHERE mv.id <> $1 AND mv.par_id IS NULL AND mv.conta_id <> $3
+          WHERE mv.id <> $1 AND mv.par_id IS NULL AND mv.conta_id <> $3 AND mv.${SO_BANCO}
             AND sign(mv.valor) = $4 AND mv.data BETWEEN $2::date - $5::int AND $2::date + $5::int
             AND NOT EXISTS (SELECT 1 FROM fin_cc_mov c WHERE c.movimento_id = mv.id AND NOT c.apagado)
             AND NOT EXISTS (SELECT 1 FROM fin_mov_partes pt WHERE pt.movimento_id = mv.id)
