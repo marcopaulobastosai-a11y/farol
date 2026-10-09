@@ -1788,10 +1788,14 @@ function aeRenderArea(a){
      Vive no financas-patrimonio.js. */
   if (umaSub) {
     var fichaBem = a.view === 'patrimonio' && typeof fnFichaBem === 'function' ? fnFichaBem(umaSub)
+      /* No Profissional, uma sub-area e uma empresa dele ou o sitio onde
+         trabalha: o cartao da papelada diz o que se espera ter de cada uma e
+         o que falta. Vive no papelada.js. */
+      : (a.view === 'profissional' && typeof ppCartao === 'function' ? ppCartao(umaSub, a)
       : (a.view === 'casa' && typeof fnLigacaoBem === 'function' ? fnLigacaoBem(umaSub)
       /* Na Familia: a vida das pessoas da sub-area (familia.js), ou o quadro
          dos Sonhos - esse ocupa o ecra: os cartoes de baixo nao fazem falta. */
-      : (a.view === 'familia' && typeof fmSubArea === 'function' ? fmSubArea(umaSub, { filtros: [ddQuando, ddFechados] }) : null));
+      : (a.view === 'familia' && typeof fmSubArea === 'function' ? fmSubArea(umaSub, { filtros: [ddQuando, ddFechados] }) : null)));
     /* Na Familia a linha dos nomes vai por cima dos numeros, e os cartoes de
        uma pessoa (Dados, Cofre) logo a seguir. */
     if (fichaBem && a.view === 'familia' && !fichaBem.getAttribute('data-so')){
