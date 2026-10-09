@@ -326,6 +326,31 @@ CREATE TABLE IF NOT EXISTS contexts (
 
 CREATE INDEX IF NOT EXISTS contexts_parent_idx ON contexts (parent_id);
 
+-- Uma sub-area pode ser uma empresa dele ou o sitio onde trabalha: nao se
+-- espera a mesma papelada de uma e de outra. Vazio = nao e nenhuma das duas.
+ALTER TABLE contexts ADD COLUMN IF NOT EXISTS papel TEXT;
+
+-- A papelada que se espera de uma sub-area. Nasce de um modelo (conforme o
+-- papel), mas depois e dela: ele tira o que nao se aplica e acrescenta o que
+-- faltou. Cada linha diz-se cumprida por um documento arrumado na sub-area -
+-- encontrado pelo tipo e pelas palavras, ou escolhido a mao.
+CREATE TABLE IF NOT EXISTS context_papelada (
+  id           SERIAL PRIMARY KEY,
+  context_id   INTEGER NOT NULL REFERENCES contexts(id) ON DELETE CASCADE,
+  bloco        TEXT NOT NULL,
+  titulo       TEXT NOT NULL,
+  nota         TEXT,
+  kind         TEXT,
+  procura      TEXT,
+  renova       TEXT,
+  obrigatorio  BOOLEAN NOT NULL DEFAULT FALSE,
+  dispensado   BOOLEAN NOT NULL DEFAULT FALSE,
+  document_id  INTEGER REFERENCES documents(id) ON DELETE SET NULL,
+  sort         INT NOT NULL DEFAULT 0,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS context_papelada_ctx ON context_papelada (context_id);
+
 -- Tudo o que se arruma aponta para um contexto.
 ALTER TABLE tasks     ADD COLUMN IF NOT EXISTS context_id INTEGER REFERENCES contexts(id) ON DELETE SET NULL;
 ALTER TABLE documents ADD COLUMN IF NOT EXISTS context_id INTEGER REFERENCES contexts(id) ON DELETE SET NULL;
