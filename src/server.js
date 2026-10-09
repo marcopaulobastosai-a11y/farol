@@ -878,6 +878,9 @@ familia.instalar(app, {
   ehAdmin: (email) => acessos.ehAdmin(email)
 });
 
+/* A papelada que se espera de cada empresa (e do sitio onde ele trabalha). */
+require('./papelada').instalar(app);
+
 /* Mandar os papeis de um pagamento a quem se paga, pelo Gmail. */
 require('./emails').instalar(app, {
   ehAdmin: (req) => { if (!auth.ativa()) return true; const x = auth.sessao(req); return Boolean(x && acessos.ehAdmin(x.email)); }
