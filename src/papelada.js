@@ -185,9 +185,16 @@ async function ler(contextId) {
   const docs = await all(
     /* A validade a serio e o valid_on (data); o valid_until e um rotulo de
        texto, do tempo em que se escrevia «ate 2027» a mao. */
-    `SELECT id, name, entity, kind, to_char(issued_on,'YYYY-MM-DD') AS issued_on,
-            to_char(valid_on,'YYYY-MM-DD') AS valid_on, valid_until, (read_at IS NOT NULL) AS lido
-       FROM documents WHERE context_id = $1 AND aprovado ORDER BY issued_on DESC NULLS LAST, id DESC`,
+    /* O inbox_id e o ficheiro em si: o documento e a ficha, o papel digitalizado
+       esta na caixa que o trouxe. Sem isto o nome nao abria nada. */
+    `SELECT d.id, d.name, d.entity, d.kind, to_char(d.issued_on,'YYYY-MM-DD') AS issued_on,
+            to_char(d.valid_on,'YYYY-MM-DD') AS valid_on, d.valid_until,
+            (d.read_at IS NOT NULL) AS lido,
+            (SELECT l.inbox_id FROM inbox_links l
+              WHERE l.target_type = 'documento' AND l.target_id = d.id
+              ORDER BY l.inbox_id DESC LIMIT 1) AS inbox_id
+       FROM documents d WHERE d.context_id = $1 AND d.aprovado
+      ORDER BY d.issued_on DESC NULLS LAST, d.id DESC`,
     [contextId]);
   const hoje = hojeISO();
   const comEstado = linhas.map((l) => Object.assign({}, l, estadoDa(l, docs, hoje)));
