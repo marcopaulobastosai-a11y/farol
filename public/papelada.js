@@ -47,7 +47,8 @@ var PP_CSS =
   '.pp-l:hover .pp-a,.pp-l:focus-within .pp-a{opacity:1}' +
   '.pp-a .btn{padding:.12rem .45rem;font-size:.75rem}' +
   '.pp-vazio{padding:1.4rem 16px;color:var(--muted);font-size:.9375rem}' +
-  '.pp-soltos{border-top:1px solid var(--line-soft);padding:.6rem 16px .8rem;font-size:.8125rem;color:var(--muted)}';
+  '.pp-soltos{border-top:1px solid var(--line-soft);padding:.6rem 16px .8rem;font-size:.8125rem;color:var(--muted)}' +
+  '.pp-sem{text-decoration:underline dotted;text-underline-offset:2px;cursor:help}';
 
 (function ppEstilo(){
   if (document.getElementById('pp-css')) return;
@@ -91,6 +92,25 @@ function ppDias(iso){
   return Math.round((new Date(iso + 'T00:00:00') - hoje) / 86400000);
 }
 
+/* O nome do papel, a abrir o ficheiro digitalizado numa aba nova. O ficheiro
+   mora na caixa que o trouxe (inbox), nao no documento: e de la que se le.
+   Quando o documento e so ficha, sem papel digitalizado, fica texto simples e
+   diz-se porque e que nao abre. */
+function ppNomeDoc(d){
+  if (!d) return el('span', null, '');
+  if (!d.inbox_id){
+    var t = el('span', 'pp-sem', d.name);
+    t.title = 'Este documento está no arquivo mas não tem ficheiro para abrir.';
+    return t;
+  }
+  var a = el('a', null, d.name);
+  a.href = '/api/inbox/' + d.inbox_id + '/ficheiro';
+  a.target = '_blank';
+  a.rel = 'noopener';
+  a.title = 'Abrir o ficheiro';
+  return a;
+}
+
 /* A linha de baixo: o papel que está lá, ou o que falta dizer. */
 function ppLegenda(l){
   var s = el('small', 'pp-s');
@@ -101,11 +121,7 @@ function ppLegenda(l){
   }
   var d = (l.docs || [])[0];
   if (!d) { s.textContent = l.nota || ''; return s; }
-  var a = el('a', null, d.name);
-  a.href = '/api/documentos/' + d.id + '/ficheiro';
-  a.target = '_blank';
-  a.rel = 'noopener';
-  s.appendChild(a);
+  s.appendChild(ppNomeDoc(d));
   if (l.estado === 'caducado'){
     s.appendChild(el('span', 'mau', ' · caducou a ' + ppData(l.ate)));
   } else if (l.estado === 'caduca' && l.ate){
@@ -236,8 +252,12 @@ function ppCorpo(card, ctxId){
   if (d.soltos && d.soltos.length){
     var s = el('div', 'pp-soltos');
     s.appendChild(el('b', null, d.soltos.length + (d.soltos.length === 1 ? ' papel' : ' papéis') + ' fora da lista'));
-    s.appendChild(el('span', null, ' — ' + d.soltos.slice(0, 4).map(function(x){ return x.name; }).join(' · ') +
-      (d.soltos.length > 4 ? ' …' : '')));
+    s.appendChild(el('span', null, ' — '));
+    d.soltos.slice(0, 4).forEach(function(x, i){
+      if (i) s.appendChild(el('span', null, ' · '));
+      s.appendChild(ppNomeDoc(x));
+    });
+    if (d.soltos.length > 4) s.appendChild(el('span', null, ' …'));
     card.appendChild(s);
   }
 }
