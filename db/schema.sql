@@ -621,6 +621,11 @@ CREATE TABLE IF NOT EXISTS task_items (
   completed_at TIMESTAMPTZ
 );
 CREATE INDEX IF NOT EXISTS task_items_task_idx ON task_items (task_id, sort);
+-- Um passo pode ter o seu papel (11 out 2026): na rotina do dossie da
+-- contabilidade cada passo e uma fatura, e o passo com documento diz «ja esta
+-- no Farol, falta imprimir»; sem documento diz «ainda nao chegou». Numa
+-- rotina o papel fica com o mes que se fechou e o passo seguinte nasce vazio.
+ALTER TABLE task_items ADD COLUMN IF NOT EXISTS document_id INTEGER REFERENCES documents(id) ON DELETE SET NULL;
 
 CREATE TABLE IF NOT EXISTS task_comments (
   id         SERIAL PRIMARY KEY,
