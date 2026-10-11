@@ -142,7 +142,7 @@ async function completar(tasks) {
   const [subjects, anexos, itens, coms] = await Promise.all([
     all('SELECT task_id, person_id FROM task_subjects WHERE task_id = ANY($1::int[])', [ids]),
     all('SELECT task_id, document_id, papel, valor::float AS valor FROM task_documents WHERE task_id = ANY($1::int[])', [ids]),
-    all('SELECT id, task_id, title, done, sort FROM task_items WHERE task_id = ANY($1::int[]) ORDER BY sort, id', [ids]),
+    all('SELECT id, task_id, title, done, sort, document_id FROM task_items WHERE task_id = ANY($1::int[]) ORDER BY sort, id', [ids]),
     all('SELECT task_id, count(*)::int AS n FROM task_comments WHERE task_id = ANY($1::int[]) GROUP BY task_id', [ids])
   ]);
   const por = (lista, campo) => {
@@ -158,7 +158,7 @@ async function completar(tasks) {
        diz qual deles e a fatura, o comprovativo e o recibo. */
     t.papeis = (A.get(t.id) || []).map((x) => ({ id: x.document_id, papel: x.papel || 'anexo', valor: x.valor }));
     t.documents = t.papeis.map((x) => x.id);
-    t.items = (I.get(t.id) || []).map((i) => ({ id: i.id, title: i.title, done: i.done, sort: i.sort }));
+    t.items = (I.get(t.id) || []).map((i) => ({ id: i.id, title: i.title, done: i.done, sort: i.sort, document_id: i.document_id }));
     t.comments = C.get(t.id) || 0;
     t.repeat_label = descreverRegra(t.repeat_rule);
   });
@@ -237,6 +237,11 @@ function juntaDe(v) {
   const s = String(v || '').split(/[,;\n]+/).map((x) => x.trim()).filter(Boolean);
   return s.length ? s.join(', ') : null;
 }
+/* O documento de um passo: um id inteiro ou nada. */
+function docId(v) {
+  const n = Number(v);
+  return v != null && v !== '' && Number.isInteger(n) && n > 0 ? n : null;
+}
 async function gravarItens(taskId, itens) {
   await query('DELETE FROM task_items WHERE task_id = $1', [taskId]);
   let n = 0;
@@ -245,8 +250,9 @@ async function gravarItens(taskId, itens) {
     if (!titulo) continue;
     n += 1;
     await query(
-      'INSERT INTO task_items (task_id, title, done, sort, completed_at) VALUES ($1,$2,$3,$4,$5)',
-      [taskId, titulo, Boolean(it.done), it.sort != null ? Number(it.sort) : n, it.done ? (it.completed_at || new Date()) : null]);
+      'INSERT INTO task_items (task_id, title, done, sort, completed_at, document_id) VALUES ($1,$2,$3,$4,$5,$6)',
+      [taskId, titulo, Boolean(it.done), it.sort != null ? Number(it.sort) : n, it.done ? (it.completed_at || new Date()) : null,
+       docId(it.document_id)]);
   }
 }
 
@@ -325,8 +331,8 @@ async function fechar(id, estado) {
     `UPDATE inbox_links SET target_id = $2
       WHERE target_type IN ('pagamento', 'tarefa') AND target_id = $1`, [id, copia.id]);
   await query(
-    `INSERT INTO task_items (task_id, title, done, sort, completed_at)
-     SELECT $2, title, done, sort, completed_at FROM task_items WHERE task_id = $1`, [id, copia.id]);
+    `INSERT INTO task_items (task_id, title, done, sort, completed_at, document_id)
+     SELECT $2, title, done, sort, completed_at, document_id FROM task_items WHERE task_id = $1`, [id, copia.id]);
 
   let novoInicio = null;
   if (t.starts_on && t.due_on) {
@@ -336,7 +342,9 @@ async function fechar(id, estado) {
     `UPDATE tasks SET due_on = $2, starts_on = COALESCE($3::date, starts_on), status = 'aberta', done = FALSE,
             completed_at = NULL, paid_on = NULL, paid_amount = NULL, payment_method = NULL,
             expense_id = NULL, updated_at = now() WHERE id = $1`, [id, prox, novoInicio]);
-  await query('UPDATE task_items SET done = FALSE, completed_at = NULL WHERE task_id = $1', [id]);
+  /* Os papeis dos passos ficam com o mes que se fechou (a fatura de setembro
+     nao e a de outubro); a rotina recomeca com os passos sem papel. */
+  await query('UPDATE task_items SET done = FALSE, completed_at = NULL, document_id = NULL WHERE task_id = $1', [id]);
   /* O mes seguinte de um pagamento que junta faturas comeca vazio. */
   await recalcularJunta(id);
   return true;
@@ -744,9 +752,9 @@ function instalar(app, { carregarGestao, quem, ehAdmin }) {
     const titulo = String((req.body || {}).title || '').trim();
     if (!titulo) return res.status(400).json({ error: 'O passo precisa de texto.' });
     try {
-      await query(`INSERT INTO task_items (task_id, title, sort)
-                   VALUES ($1, $2, (SELECT COALESCE(max(sort),0)+1 FROM task_items WHERE task_id = $1))`,
-      [Number(req.params.id), titulo]);
+      await query(`INSERT INTO task_items (task_id, title, sort, document_id)
+                   VALUES ($1, $2, (SELECT COALESCE(max(sort),0)+1 FROM task_items WHERE task_id = $1), $3)`,
+      [Number(req.params.id), titulo, docId((req.body || {}).document_id)]);
       res.status(201).json(await umaTarefa(Number(req.params.id)));
     } catch (err) { falha(res, err, 'POST item'); }
   });
@@ -758,10 +766,12 @@ function instalar(app, { carregarGestao, quem, ehAdmin }) {
         `UPDATE task_items SET title = COALESCE($2, title),
                 done = COALESCE($3, done),
                 completed_at = CASE WHEN $3 IS TRUE THEN now() WHEN $3 IS FALSE THEN NULL ELSE completed_at END,
-                sort = COALESCE($4, sort)
+                sort = COALESCE($4, sort),
+                document_id = CASE WHEN $5 THEN $6::int ELSE document_id END
           WHERE id = $1 RETURNING task_id`,
         [Number(req.params.id), limpar(b.title), typeof b.done === 'boolean' ? b.done : null,
-         b.sort != null ? Number(b.sort) : null]);
+         b.sort != null ? Number(b.sort) : null,
+         Object.prototype.hasOwnProperty.call(b, 'document_id'), docId(b.document_id)]);
       if (!r.length) return res.status(404).json({ error: 'Passo não encontrado.' });
       res.json(await umaTarefa(r[0].task_id));
     } catch (err) { falha(res, err, 'PATCH item'); }
