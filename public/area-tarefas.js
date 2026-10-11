@@ -223,6 +223,12 @@ var AE_CSS =
   '.ae-bem-docs .ae-doc .mono{font-size:.68rem;color:var(--muted)}' +
   '.ae-porler{color:var(--warn) !important}' +
     '@container (max-width:980px){.ae-bem{grid-template-columns:minmax(0,1fr)}.ae-bem-docs{position:static;max-height:none}}' +
+  /* 12 out: numa empresa do Profissional, tarefas a esquerda e Papelada a
+     direita, a meias. A Papelada fica presa ao topo e rola sozinha, para as
+     duas se verem ao mesmo tempo. */
+  '.ae-pp{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;align-items:start}' +
+  '.ae-pp-dir{position:sticky;top:14px;max-height:calc(100vh - 28px);overflow:auto;margin:0}' +
+    '@container (max-width:980px){.ae-pp{grid-template-columns:minmax(0,1fr)}.ae-pp-dir{position:static;max-height:none}}' +
   '.ae-tipo{flex:none;width:22px;height:22px;border-radius:6px;display:flex;align-items:center;justify-content:center;margin-top:-1px}' +
   '.ae-tipo.pag{background:var(--warn-soft);color:var(--warn)}' +
   '.ae-tipo.tar{background:var(--accent-soft);color:var(--accent-ink)}' +
@@ -1775,6 +1781,9 @@ function aeRenderArea(a){
      da direita lista os papeis dela, sem ser preciso abrir os Documentos. */
   var umaSub = escolhidas.length === 1 && /^\d+$/.test(escolhidas[0].k) ? Number(escolhidas[0].k) : null;
   var alvo = box;
+  /* 12 out: numa empresa do Profissional a Papelada vai para a metade da
+     direita, ao lado das tarefas, em vez de as empurrar para baixo do ecra. */
+  var ppLado = null;
   if (umaSub && a.view === 'patrimonio') {
     var bemG = el('div', 'ae-bem');
     alvo = el('div', 'ae-bem-esq');
@@ -1801,7 +1810,8 @@ function aeRenderArea(a){
     if (fichaBem && a.view === 'familia' && !fichaBem.getAttribute('data-so')){
       alvo.insertBefore(fichaBem, kpis);
       if (fichaBem.fmDepois) alvo.appendChild(fichaBem.fmDepois);
-    } else if (fichaBem) alvo.appendChild(fichaBem);
+    } else if (fichaBem && a.view === 'profissional') ppLado = fichaBem;
+    else if (fichaBem) alvo.appendChild(fichaBem);
     if (fichaBem && fichaBem.getAttribute('data-so')) { if (kpis.parentNode) kpis.parentNode.removeChild(kpis); return; }
   }
 
@@ -1924,6 +1934,14 @@ function aeRenderArea(a){
       aeRodape(card, 'Abrir os Projetos', function(){ show('projetos'); });
     }
   }));
+  if (ppLado){
+    var lado = el('div', 'ae-pp');
+    lado.appendChild(main);
+    ppLado.classList.add('ae-pp-dir');
+    lado.appendChild(ppLado);
+    alvo.appendChild(lado);
+    return;
+  }
   alvo.appendChild(main);
 }
 
