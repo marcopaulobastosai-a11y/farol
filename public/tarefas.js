@@ -158,6 +158,11 @@ var TF_CSS = [
   ".tf-it input[type=text]:focus{outline:0;border-bottom:1px solid var(--accent)}",
   ".tf-it.done input[type=text]{color:var(--faint);text-decoration:line-through}",
   ".tf-it .tf-ico{opacity:0} .tf-it:hover .tf-ico{opacity:1}",
+  ".tf-it .tf-pdoc{flex:none;max-width:46%;display:inline-flex;align-items:center;gap:4px;border:1px solid var(--line);background:var(--surface-2);border-radius:6px;padding:2px 7px;font:inherit;font-size:.68rem;color:var(--ink-2);cursor:pointer;text-decoration:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
+  ".tf-it .tf-pdoc svg{flex:none}",
+  ".tf-it .tf-pdoc:hover{border-color:var(--accent);color:var(--accent-ink)}",
+  ".tf-it .tf-pclip{flex:none;border:0;background:none;padding:2px;cursor:pointer;color:var(--faint);display:flex}",
+  ".tf-it .tf-pclip:hover{color:var(--accent)} .tf-it .tf-pclip.vazio{opacity:0} .tf-it:hover .tf-pclip.vazio{opacity:1}",
   ".tf-novo{width:100%;font:inherit;font-size:.8125rem;border:0;border-bottom:1px dashed var(--line);background:none;color:var(--ink);padding:5px 0 5px 25px}",
   ".tf-novo:focus{outline:0;border-bottom-color:var(--accent)}",
   ".tf-grid{display:grid;grid-template-columns:110px minmax(0,1fr);gap:6px 10px;align-items:center;font-size:.8125rem}",
@@ -1209,7 +1214,9 @@ function tfRenderDetalhe(base){
   // passos
   var sp = el('div', 'tf-sec');
   var feitos = (t.items || []).filter(function(i){ return i.done; }).length;
-  sp.appendChild(el('div', 'tf-lbl', 'Passos' + ((t.items || []).length ? ' · ' + feitos + '/' + t.items.length : '')));
+  var comPapel = (t.items || []).filter(function(i){ return i.document_id; }).length;
+  sp.appendChild(el('div', 'tf-lbl', 'Passos' + ((t.items || []).length ? ' · ' + feitos + '/' + t.items.length : '') +
+    (comPapel ? ' · ' + comPapel + ' com papel' : '')));
   (t.items || []).forEach(function(it){
     var l = el('div', 'tf-it' + (it.done ? ' done' : ''));
     l.appendChild(tfCaixa({ status: it.done ? 'concluida' : 'aberta' }, function(){ tfItem('PATCH', it.id, { done: !it.done }); }));
@@ -1217,6 +1224,7 @@ function tfRenderDetalhe(base){
     i.addEventListener('keydown', function(e){ if (e.key === 'Enter'){ e.preventDefault(); i.blur(); } });
     i.addEventListener('blur', function(){ if (i.value.trim() && i.value !== it.title) tfItem('PATCH', it.id, { title: i.value.trim() }); });
     l.appendChild(i);
+    tfPassoDoc(t, it, l);
     var x = el('button', 'tf-ico'); x.type = 'button'; x.innerHTML = tfSvg(TF_I.x, 13); x.title = 'Tirar passo';
     x.addEventListener('click', function(){ tfItem('DELETE', it.id); });
     l.appendChild(x);
@@ -1544,6 +1552,57 @@ function tfRenderDetalhe(base){
   det.appendChild(rod);
 
   if (foco){ var f = det.querySelector('[data-tfk="' + foco + '"]'); if (f) f.focus(); }
+}
+
+/* O papel de um passo (11 out 2026). No dossie da contabilidade cada passo e
+   uma fatura: com papel, o nome aparece no passo e abre o ficheiro (ja esta
+   no Farol, falta imprimir); sem papel, o clipe so aparece ao passar o rato
+   e abre a escolha. Numa rotina o papel fica com o mes que se fechou. */
+function tfPassoDoc(t, it, l){
+  var doc = it.document_id ? axDoc(it.document_id) : null;
+  if (it.document_id){
+    var nome = doc ? doc.name : 'documento ' + it.document_id;
+    var a;
+    if (doc && doc.inbox_id){
+      a = el('a', 'tf-pdoc'); a.href = '/api/inbox/' + doc.inbox_id + '/ficheiro'; a.target = '_blank'; a.rel = 'noopener';
+      a.title = nome + ' — abrir o ficheiro';
+    } else {
+      a = el('span', 'tf-pdoc'); a.title = nome + ' — sem ficheiro no arquivo';
+    }
+    a.innerHTML = tfSvg(TF_I.papel, 11);
+    a.appendChild(document.createTextNode(nome.replace(/^\d{8}\s+/, '')));
+    l.appendChild(a);
+  }
+  var c = el('button', 'tf-pclip' + (it.document_id ? '' : ' vazio')); c.type = 'button';
+  c.innerHTML = tfSvg(TF_I.papel, 13);
+  c.title = it.document_id ? 'Trocar o documento deste passo' : 'Ligar um documento a este passo';
+  c.addEventListener('click', function(ev){ ev.stopPropagation(); tfPopPassoDoc(t, it, c); });
+  l.appendChild(c);
+}
+function tfPopPassoDoc(t, it, ancora){
+  tfFecharPop();
+  var p = el('div', 'tf-pop'); p.style.width = '360px';
+  var cab = el('div', null, it.title);
+  cab.style.cssText = 'font-weight:500;font-size:.8125rem;color:var(--ink);line-height:1.35';
+  p.appendChild(cab);
+  var esc = tfEscolherDoc('Documento do passo', it.document_id ? [it.document_id] : [], t);
+  p.appendChild(esc);
+  var ac = el('div', 'tf-acoes');
+  if (it.document_id){
+    var bD = el('button', 'btn small', 'Desligar'); bD.type = 'button';
+    bD.addEventListener('click', function(){ tfFecharPop(); tfItem('PATCH', it.id, { document_id: null }); });
+    ac.appendChild(bD);
+  }
+  var bC = el('button', 'btn small', 'Cancelar'); bC.type = 'button'; bC.addEventListener('click', tfFecharPop);
+  var bOk = el('button', 'btn small primary', 'Ligar'); bOk.type = 'button';
+  bOk.addEventListener('click', function(){
+    var v = esc.valor();
+    tfFecharPop();
+    if (v !== (it.document_id || null)) tfItem('PATCH', it.id, { document_id: v });
+  });
+  ac.appendChild(bC); ac.appendChild(bOk);
+  p.appendChild(ac);
+  tfPosicionar(p, ancora);
 }
 
 function tfItem(metodo, id, dados){
