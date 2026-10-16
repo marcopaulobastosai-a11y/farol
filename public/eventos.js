@@ -405,7 +405,9 @@ function evJanela(ev, opts){
   lDia.appendChild(cDia); lDia.appendChild(document.createTextNode('Dia inteiro'));
   var lConf = el('label', 'evj-chk'); var cConf = el('input'); cConf.type = 'checkbox';
   lConf.appendChild(cConf); lConf.appendChild(document.createTextNode('Ainda por confirmar'));
-  lin0.appendChild(lDia); lin0.appendChild(lConf);
+  var lRep = el('label', 'evj-chk'); var cRep = el('input'); cRep.type = 'checkbox';
+  lRep.appendChild(cRep); lRep.appendChild(document.createTextNode('Repete todos os anos'));
+  lin0.appendChild(lDia); lin0.appendChild(lConf); lin0.appendChild(lRep);
   sQ.appendChild(lin0);
 
   var g1 = el('div', 'evj-g3');
@@ -427,6 +429,7 @@ function evJanela(ev, opts){
 
   cDia.checked = !novo && !e.at;
   cConf.checked = Boolean(e.tentative);
+  cRep.checked = e.repete === 'anual';
   if (e.duration_min){
     var ex = EVJ_DURACOES.filter(function(o){ return o[0] === String(e.duration_min); })[0];
     if (ex) sDur.value = ex[0];
@@ -641,15 +644,18 @@ function evJanela(ev, opts){
     if (inteiro && iAte.value && iAte.value < iD.value){ erro.textContent = 'O último dia é antes do primeiro.'; return iAte.focus(); }
     var corpo = {
       title: titulo,
-      day: iD.value,
+      /* Numa copia de um evento que se repete, o dia que nao se mexeu e o
+         da serie: gravar nao a desloca para o ano que se estava a ver. */
+      day: e.dia_base && iD.value === e.day ? e.dia_base : iD.value,
       at: inteiro ? null : (iH.value || null),
       duration_min: inteiro || !iH.value ? null : duracao(),
-      ends_on: inteiro ? (iAte.value || null) : null,
+      ends_on: inteiro ? (e.dia_base && iAte.value === (e.ends_on || '') ? (e.fim_base || null) : (iAte.value || null)) : null,
       location: iL.value.trim() || null,
       context_id: sC.value ? Number(sC.value) : null,
       person_ids: Object.keys(quem).filter(function(k){ return quem[k]; }).map(Number),
       remind_min: sRem.value === '' ? null : Number(sRem.value),
       tentative: cConf.checked,
+      repete: cRep.checked ? 'anual' : null,
       no_google: cG.checked,
       detail: iN.value.trim() || null
     };
@@ -662,7 +668,7 @@ function evJanela(ev, opts){
       var fresco = novo ? r : (r && r.evento);
       if (!fresco) throw new Error('O servidor não devolveu o evento.');
       var gRes = r && r.google;
-      D.events = (D.events || []).filter(function(x){ return x.id !== fresco.id; }).concat([fresco]);
+      D.events = (D.events || []).filter(function(x){ return x.id !== fresco.id; }).concat(evSerie(fresco));
       D.events.sort(function(x, y){ return x.day < y.day ? -1 : (x.day > y.day ? 1 : String(x.at || '').localeCompare(String(y.at || ''))); });
       if (!novo || (!pend.ficheiros.length && !pend.docs.length)) return { ev: fresco, google: gRes };
       return evjEnviarPendentes(fresco, pend).then(function(x){ x.google = gRes; return x; });
@@ -835,6 +841,25 @@ function evjEnviarPendentes(ev, pend, tipo){
    das areas. areaId: quem chama de um ecra de area ja sabe onde o evento vai
    ficar; sem ele vale o filtro dos Eventos. */
 function evPop(ancora, areaId){ evJanela(null, areaId ? { context_id: areaId } : {}); }
+
+/* O evento que se repete todos os anos, como o servidor o manda no arranque:
+   uma copia por ano (o passado, este e o proximo), com o dia gravado em
+   dia_base. Os outros passam como estao. */
+function evSerie(ev){
+  if (!ev || ev.repete !== 'anual' || !ev.day) return [ev];
+  var ano = new Date().getFullYear(), a0 = Number(ev.day.slice(0, 4)), out = [];
+  function desloca(d, a){
+    if (!d) return d;
+    var y = Number(d.slice(0, 4)) + (a - a0), m = d.slice(5, 7), dd = d.slice(8, 10);
+    var bis = (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+    return y + '-' + m + '-' + (m === '02' && dd === '29' && !bis ? '28' : dd);
+  }
+  for (var a = Math.max(a0, ano - 1); a <= Math.max(a0, ano + 1); a++){
+    out.push(Object.assign({}, ev, { day: desloca(ev.day, a), ends_on: desloca(ev.ends_on, a),
+      serie_ano: a, dia_base: ev.day, fim_base: ev.ends_on }));
+  }
+  return out;
+}
 
 /* Abrir um evento pelo id (o aviso do Hoje so sabe o id). */
 function evAbrirId(id){
