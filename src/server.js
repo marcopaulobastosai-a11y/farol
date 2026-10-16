@@ -880,6 +880,8 @@ familia.instalar(app, {
 
 /* A papelada que se espera de cada empresa (e do sitio onde ele trabalha). */
 require('./papelada').instalar(app);
+/* A pesquisa global: a caixa do menu e a pagina «Pesquisa». */
+require('./pesquisa').instalar(app);
 
 /* Mandar os papeis de um pagamento a quem se paga, pelo Gmail. */
 require('./emails').instalar(app, {
