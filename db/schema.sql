@@ -1193,6 +1193,10 @@ CREATE TABLE IF NOT EXISTS google_calendarios (
 ALTER TABLE events ADD COLUMN IF NOT EXISTS ocupado    BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE events ADD COLUMN IF NOT EXISTS google_cal TEXT;
 ALTER TABLE events ADD COLUMN IF NOT EXISTS no_google  BOOLEAN NOT NULL DEFAULT FALSE;
+-- Eventos que se repetem todos os anos no mesmo dia (16 out 2026): os
+-- aniversarios de quem nao e da casa. Guarda-se uma linha so; a Agenda
+-- recebe uma copia por ano.
+ALTER TABLE events ADD COLUMN IF NOT EXISTS repete TEXT;
 
 CREATE TABLE IF NOT EXISTS event_google (
   event_id  INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
