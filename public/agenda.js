@@ -274,7 +274,7 @@ function agItens(){
       if (m) pessoas = [Number(m[1])];
     } else if (!pessoas.length && e.google_pessoa) pessoas = [e.google_pessoa];
     out.push({
-      key: 'e' + e.id, tipo: aniv ? 'aniversario' : (e.ocupado ? 'ocupado' : 'evento'),
+      key: 'e' + e.id + (e.serie_ano ? '-' + e.serie_ano : ''), tipo: aniv ? 'aniversario' : (e.ocupado ? 'ocupado' : 'evento'),
       t: e.title, d: e.day, fim: e.ends_on && e.ends_on > e.day ? e.ends_on : null,
       s: e.at || null, dur: e.duration_min || null, p: pessoas, ctx: e.context_id || null,
       loc: e.location || null, notas: e.detail || null, prov: Boolean(e.tentative), ev: e
