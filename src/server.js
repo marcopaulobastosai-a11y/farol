@@ -69,6 +69,31 @@ app.get('/api/health', async (_req, res) => {
   }
 });
 
+/* Os eventos que se repetem todos os anos. Grava-se uma linha so; a Agenda
+   recebe uma copia por ano - o ano passado, este e o proximo - com o mesmo id,
+   o ano em serie_ano e o dia gravado em dia_base (e fim_base), para a janela
+   gravar sem deslocar a serie. A 29 de fevereiro, nos anos comuns, e a 28. */
+function repetirAnuais(lista) {
+  const ano = new Date().getFullYear();
+  const fora = [];
+  lista.forEach((e) => {
+    if (e.repete !== 'anual' || !e.day) { fora.push(e); return; }
+    const a0 = Number(e.day.slice(0, 4));
+    const desloca = (d, a) => {
+      if (!d) return d;
+      const y = Number(d.slice(0, 4)) + (a - a0);
+      const m = d.slice(5, 7), dd = d.slice(8, 10);
+      const bissexto = (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+      return y + '-' + m + '-' + (m === '02' && dd === '29' && !bissexto ? '28' : dd);
+    };
+    for (let a = Math.max(a0, ano - 1); a <= Math.max(a0, ano + 1); a++) {
+      fora.push(Object.assign({}, e, { day: desloca(e.day, a), ends_on: desloca(e.ends_on, a),
+        serie_ano: a, dia_base: e.day, fim_base: e.ends_on }));
+    }
+  });
+  return fora.sort((x, y) => (x.day < y.day ? -1 : x.day > y.day ? 1 : 0));
+}
+
 function aniversarios(pessoas) {
   const hoje = new Date();
   const fora = [];
@@ -109,7 +134,7 @@ app.get('/api/bootstrap', async (_req, res) => {
       all('SELECT code, name, color FROM calendars ORDER BY sort'),
       all(`SELECT e.id, to_char(e.day,'YYYY-MM-DD') AS day, e.at, e.title, e.calendar, e.detail, e.context_id,
                   e.duration_min, to_char(e.ends_on,'YYYY-MM-DD') AS ends_on, e.location,
-                  e.remind_min, e.tentative,
+                  e.remind_min, e.tentative, e.repete,
                   /* A Agenda (4 out): de onde veio, se e so «ocupado» e em
                      que calendarios Google tem copia. */
                   e.origin, e.google_pessoa, e.ocupado, e.no_google,
@@ -153,12 +178,20 @@ app.get('/api/bootstrap', async (_req, res) => {
              SELECT 'evento', e.id,
                     e.title,
                     concat_ws(' · ', e.at, e.location),
-                    to_char(e.day,'YYYY-MM-DD'),
+                    to_char(r.dia,'YYYY-MM-DD'),
                     e.context_id
                FROM events e
+               /* Num evento que se repete todos os anos conta o proximo. */
+               CROSS JOIN LATERAL (SELECT CASE WHEN e.repete = 'anual' THEN
+                        (e.day + make_interval(years => GREATEST(0,
+                           date_part('year', (now() AT TIME ZONE 'Europe/Lisbon')::date)::int - date_part('year', e.day)::int
+                           + CASE WHEN (e.day + make_interval(years => GREATEST(0,
+                                   date_part('year', (now() AT TIME ZONE 'Europe/Lisbon')::date)::int - date_part('year', e.day)::int)))::date
+                                   < (now() AT TIME ZONE 'Europe/Lisbon')::date THEN 1 ELSE 0 END)))::date
+                        ELSE e.day END AS dia) r
               WHERE e.origin = 'real' AND e.remind_min IS NOT NULL
-                AND e.day >= (now() AT TIME ZONE 'Europe/Lisbon')::date
-                AND e.day + CASE WHEN e.at ~ '^[0-2][0-9]:[0-5][0-9]$' AND e.at < '24:00'
+                AND r.dia >= (now() AT TIME ZONE 'Europe/Lisbon')::date
+                AND r.dia + CASE WHEN e.at ~ '^[0-2][0-9]:[0-5][0-9]$' AND e.at < '24:00'
                                  THEN e.at::time ELSE time '09:00' END
                       - make_interval(mins => e.remind_min)
                     <= (now() AT TIME ZONE 'Europe/Lisbon')
@@ -242,6 +275,9 @@ app.get('/api/bootstrap', async (_req, res) => {
 
     /* Os aniversarios nao se escrevem na Agenda: saem da data de nascimento,
        este ano e o proximo, para a Agenda de dezembro ja ver janeiro. */
+    const series = repetirAnuais(events);
+    events.length = 0;
+    events.push(...series);
     const anos = aniversarios(nascimentos);
     if (anos.length) {
       calendars.push({ code: 'aniversarios', name: 'Aniversários', color: 'var(--c4)' });
@@ -698,6 +734,8 @@ function extrasDoEvento(b) {
   if (b.tentative !== undefined) out.push(['tentative', Boolean(b.tentative)]);
   /* Pôr uma copia no calendario Google de quem vai (google.espelhar). */
   if (b.no_google !== undefined) out.push(['no_google', Boolean(b.no_google)]);
+  /* Todos os anos no mesmo dia - os aniversarios de quem nao e da casa. */
+  if (b.repete !== undefined) out.push(['repete', b.repete === 'anual' ? 'anual' : null]);
   return { campos: out };
 }
 
@@ -730,7 +768,7 @@ async function linhaDoEvento(id) {
   return (await all(
     `SELECT e.id, to_char(e.day,'YYYY-MM-DD') AS day, e.at, e.title, e.calendar, e.detail, e.context_id,
             e.duration_min, to_char(e.ends_on,'YYYY-MM-DD') AS ends_on, e.location,
-            e.remind_min, e.tentative,
+            e.remind_min, e.tentative, e.repete,
             e.origin, e.google_pessoa, e.ocupado, e.no_google,
             ARRAY(SELECT eg.person_id FROM event_google eg
                    WHERE eg.event_id = e.id ORDER BY eg.person_id) AS no_google_de,
