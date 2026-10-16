@@ -347,6 +347,7 @@ function corpoGoogle(ev) {
     c.start = { date: ev.day };
     c.end = { date: iso(new Date(ult + 'T00:00:00Z').getTime() + DIA) };
   }
+  if (ev.repete === 'anual') c.recurrence = ['RRULE:FREQ=YEARLY'];
   return c;
 }
 async function pedidoGoogle(pessoaId, metodo, caminho, corpo) {
@@ -375,7 +376,7 @@ async function espelhar(eventId) {
   if (!configurado()) return fora;
   const ev = (await all(
     `SELECT id, to_char(day,'YYYY-MM-DD') AS day, at, title, detail, duration_min,
-            to_char(ends_on,'YYYY-MM-DD') AS ends_on, location, no_google, origin
+            to_char(ends_on,'YYYY-MM-DD') AS ends_on, location, no_google, origin, repete
        FROM events WHERE id = $1`, [eventId]))[0];
   if (!ev || ev.origin !== 'real') return fora;
   const quem = ev.no_google ? await all(
