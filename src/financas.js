@@ -2466,4 +2466,6 @@ function instalar(app) {
   cc.instalar(app, falha);
 }
 
-module.exports = { instalar, preparar, categorizar, _teste: { chave, norm, recorrentes, saldoEm, somaMes, mesesAte } };
+/* Os relatorios (src/relatorios.js) leem com as mesmas pecas. */
+module.exports = { instalar, preparar, categorizar, base, natureza, movimentosEntre, ancoras, saldoEm,
+  _teste: { chave, norm, recorrentes, saldoEm, somaMes, mesesAte } };
