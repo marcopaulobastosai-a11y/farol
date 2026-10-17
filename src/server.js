@@ -920,6 +920,7 @@ familia.instalar(app, {
 require('./papelada').instalar(app);
 /* A pesquisa global: a caixa do menu e a pagina «Pesquisa». */
 require('./pesquisa').instalar(app);
+require('./relatorios').instalar(app);
 
 /* Mandar os papeis de um pagamento a quem se paga, pelo Gmail. */
 require('./emails').instalar(app, {
