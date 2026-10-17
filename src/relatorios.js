@@ -15,7 +15,7 @@
  * socio» do outro; as transferencias entre contas do mesmo ambito nao
  * contam.
  *
- * GET /api/financas/relatorios?ambito=pessoal|empresa:<id>&ano=2026|12m
+ * GET /api/financas/relatorios?ambito=pessoal|empresa:<id>&ano=2026|12m[&de=2026-04&ate=2026-06]
  */
 const { query } = require('./db');
 const fin = require('./financas');
@@ -37,9 +37,16 @@ function fimMes(ym) {
 
 /* Os meses do periodo: um ano (ate ao mes corrente, se for este) ou os
    ultimos doze. */
-function mesesDe(ano) {
+function mesesDe(ano, de, ate) {
   const agora = hojeIso().slice(0, 7);
   const out = [];
+  /* Um intervalo de meses (um mes, um trimestre, um semestre ou um periodo
+     a escolha): de «de» a «ate», nunca para la do mes corrente nem mais de
+     tres anos. */
+  if (/^\d{4}-\d{2}$/.test(de || '') && /^\d{4}-\d{2}$/.test(ate || '') && de <= ate) {
+    for (let k = de; k <= ate && k <= agora && out.length < 36; k = somaMes(k, 1)) out.push(k);
+    return out.length ? out : [de > agora ? agora : de];
+  }
   if (ano === '12m') { for (let i = 11; i >= 0; i--) out.push(somaMes(agora, -i)); return out; }
   const a = /^\d{4}$/.test(String(ano)) ? String(ano) : agora.slice(0, 4);
   for (let m = 1; m <= 12; m++) {
@@ -69,7 +76,7 @@ async function relatorio(q) {
   const noFluxo = new Set(idsFluxo);
   const noSaldo = new Set(doSaldo.map((c) => c.id));
 
-  const meses = mesesDe(q.ano);
+  const meses = mesesDe(q.ano, q.de, q.ate);
   const de = meses[0] + '-01', ate = fimMes(meses[meses.length - 1]);
   const anos = (await all(
     `SELECT DISTINCT to_char(data,'YYYY') AS a FROM fin_movimentos WHERE conta_id = ANY($1::int[]) ORDER BY 1`, [idsFluxo]))
@@ -169,7 +176,7 @@ async function relatorio(q) {
         AND NOT EXISTS (SELECT 1 FROM fin_cc_mov c WHERE c.movimento_id = m.id)`, [idsFluxo, de, ate]);
 
   return {
-    ambitos: lista, ambito, ano: q.ano === '12m' ? '12m' : meses[0].slice(0, 4), anos, meses, de, ate,
+    ambitos: lista, ambito, ano: q.ano === '12m' ? '12m' : (/^\d{4}$/.test(q.ano || '') ? q.ano : meses[0].slice(0, 4)), anos, meses, de, ate,
     contas_fluxo: idsFluxo, mapa, kpi, fora, saldo, recentes,
     despesas: { categorias, fixos: dFix, variaveis: cent(dTot - dFix), total: dTot, meses: meses.length, por_classificar: semCat }
   };
@@ -178,7 +185,8 @@ async function relatorio(q) {
 function instalar(app) {
   app.get('/api/financas/relatorios', async (req, res) => {
     try {
-      res.json(await relatorio({ ambito: String(req.query.ambito || 'pessoal'), ano: String(req.query.ano || '') }));
+      res.json(await relatorio({ ambito: String(req.query.ambito || 'pessoal'), ano: String(req.query.ano || ''),
+        de: String(req.query.de || ''), ate: String(req.query.ate || '') }));
     } catch (e) {
       console.error('[farol] GET /api/financas/relatorios:', e.message);
       res.status(500).json({ error: 'Não foi possível montar o relatório.' });
