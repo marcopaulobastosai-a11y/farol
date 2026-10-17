@@ -36,7 +36,7 @@ var FN = {
 function fnGuardar(){ try { localStorage.setItem('fnEstado', JSON.stringify({ aba: FN.aba, ambito: FN.ambito })); } catch (e) {} }
 
 var FN_ABAS = {
-  financas: [['resumo','Resumo'],['movimentos','Movimentos'],['orcamentos','Orçamentos'],['analise','Análise'],['cc','Contas correntes'],['partilhadas','Contas partilhadas'],['pessoas','Pessoas'],['categorias','Categorias & IA'],['area','Tarefas & papéis']],
+  financas: [['resumo','Resumo'],['movimentos','Movimentos'],['orcamentos','Orçamentos'],['analise','Análise'],['relatorios','Relatórios'],['cc','Contas correntes'],['partilhadas','Contas partilhadas'],['pessoas','Pessoas'],['categorias','Categorias & IA'],['area','Tarefas & papéis']],
   patrimonio: [['visao','Visão geral'],['contas','Contas'],['bens','Bens & dívidas'],['area','Tarefas & papéis']]
 };
 
