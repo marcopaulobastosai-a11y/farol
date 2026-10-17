@@ -7,7 +7,21 @@
  *   - Despesas: para onde vai o dinheiro, por categoria.
  * Os números vêm de GET /api/financas/relatorios (src/relatorios.js).
  */
-var RL = { vista: 'mapa', ambito: 'pessoal', ano: String(new Date().getFullYear()), aberta: null };
+var RL = { vista: 'mapa', ambito: 'pessoal', ano: String(new Date().getFullYear()), aberta: null,
+  per: { tipo: 'ano', n: 1, de: '', ate: '' } };
+/* O pedaço do ano que se está a ver: o ano todo, um semestre, um trimestre,
+   um mês ou um período à escolha (de um mês a outro). Devolve os meses de
+   início e fim, ou nada para o ano inteiro. */
+function rlIntervalo(){
+  var p = RL.per, a = RL.ano;
+  if (a === '12m' || p.tipo === 'ano') return null;
+  var mm = function(n){ return a + '-' + String(n).padStart(2, '0'); };
+  if (p.tipo === 'sem') return { de: mm(p.n * 6 - 5), ate: mm(p.n * 6) };
+  if (p.tipo === 'tri') return { de: mm(p.n * 3 - 2), ate: mm(p.n * 3) };
+  if (p.tipo === 'mes') return { de: mm(p.n), ate: mm(p.n) };
+  if (p.tipo === 'per' && p.de && p.ate) return p.de <= p.ate ? { de: p.de, ate: p.ate } : { de: p.ate, ate: p.de };
+  return null;
+}
 try { var _rl = JSON.parse(localStorage.getItem('fnRelatorios') || 'null'); if (_rl) { RL.vista = _rl.vista || RL.vista; RL.ambito = _rl.ambito || RL.ambito; } } catch (e) {}
 function rlGuardar(){ try { localStorage.setItem('fnRelatorios', JSON.stringify({ vista: RL.vista, ambito: RL.ambito })); } catch (e) {} }
 
@@ -60,8 +74,10 @@ var RL_CORES = ['var(--accent)', 'var(--fn-out)', 'var(--fn-c3)', 'var(--fn-c4)'
 
 function fn_financas_relatorios(corpo){
   rlEstilo();
-  var url = '/api/financas/relatorios?ambito=' + encodeURIComponent(RL.ambito) + '&ano=' + encodeURIComponent(RL.ano);
-  fnCarregar(corpo, fnLer('rl|' + RL.ambito + '|' + RL.ano, url), function(d){
+  var iv = rlIntervalo();
+  var url = '/api/financas/relatorios?ambito=' + encodeURIComponent(RL.ambito) + '&ano=' + encodeURIComponent(RL.ano) +
+    (iv ? '&de=' + iv.de + '&ate=' + iv.ate : '');
+  fnCarregar(corpo, fnLer('rl|' + RL.ambito + '|' + RL.ano + '|' + (iv ? iv.de + ':' + iv.ate : ''), url), function(d){
     if (d.ambito !== RL.ambito) { RL.ambito = d.ambito; }
     corpo.appendChild(rlBarra(d));
     if (RL.vista === 'saldo') rlSaldo(corpo, d);
@@ -79,13 +95,46 @@ function rlBarra(d){
   d.ambitos.forEach(function(a){
     amb.appendChild(h('button', { type: 'button', class: d.ambito === a.id ? 'on' : '', onclick: function(){ RL.ambito = a.id; RL.aberta = null; rlGuardar(); fnRender(); } }, a.nome));
   });
-  var ano = h('select', { class: 'fn-sel', 'aria-label': 'Período', onchange: function(e){ RL.ano = e.target.value; RL.aberta = null; fnRender(); } });
+  var ano = h('select', { class: 'fn-sel', 'aria-label': 'Ano', onchange: function(e){ RL.ano = e.target.value; RL.aberta = null; if (RL.per.tipo === 'per') RL.per = Object.assign({}, RL.per, { de: '', ate: '', tipo: 'ano' }); fnRender(); } });
   var anos = d.anos.slice();
   if (anos.indexOf(String(new Date().getFullYear())) < 0) anos.push(String(new Date().getFullYear()));
   anos.slice().reverse().forEach(function(a){ ano.appendChild(h('option', { value: a }, a)); });
   ano.appendChild(h('option', { value: '12m' }, 'Últimos 12 meses'));
   ano.value = d.ano;
-  return h('div', { class: 'rl-barra' }, [vistas, h('span', { class: 'fn-esp' }), amb, ano]);
+  return h('div', { class: 'rl-barra' }, [vistas, h('span', { class: 'fn-esp' }), amb, ano].concat(rlPeriodo(d)));
+}
+
+/* O filtro do pedaço do ano: semestre, trimestre, mês ou período. */
+function rlPeriodo(d){
+  if (d.ano === '12m') return [];
+  var p = RL.per;
+  var mudar = function(o){ RL.per = Object.assign({}, RL.per, o); RL.aberta = null; fnRender(); };
+  var tipo = h('div', { class: 'fn-seg', role: 'group', 'aria-label': 'Pedaço do ano' });
+  [['ano', 'Ano'], ['sem', 'Semestre'], ['tri', 'Trimestre'], ['mes', 'Mês'], ['per', 'Período']].forEach(function(t){
+    tipo.appendChild(h('button', { type: 'button', class: p.tipo === t[0] ? 'on' : '', onclick: function(){
+      var o = { tipo: t[0] };
+      if (t[0] === 'mes' && (p.tipo !== 'mes')) o.n = d.ano === String(new Date().getFullYear()) ? new Date().getMonth() + 1 : 1;
+      else if (t[0] !== p.tipo) o.n = 1;
+      if (t[0] === 'per' && !p.de) { o.de = d.ano + '-01'; o.ate = d.ano + '-' + String(d.ano === String(new Date().getFullYear()) ? new Date().getMonth() + 1 : 12).padStart(2, '0'); }
+      mudar(o);
+    } }, t[1]));
+  });
+  var out = [tipo];
+  var sel = function(rot, opcoes){
+    var s = h('select', { class: 'fn-sel', 'aria-label': rot, onchange: function(e){ mudar({ n: Number(e.target.value) }); } });
+    opcoes.forEach(function(o, i){ s.appendChild(h('option', { value: String(i + 1) }, o)); });
+    s.value = String(p.n);
+    return s;
+  };
+  if (p.tipo === 'sem') out.push(sel('Semestre', ['1.º semestre (jan–jun)', '2.º semestre (jul–dez)']));
+  if (p.tipo === 'tri') out.push(sel('Trimestre', ['1.º trimestre (jan–mar)', '2.º trimestre (abr–jun)', '3.º trimestre (jul–set)', '4.º trimestre (out–dez)']));
+  if (p.tipo === 'mes') out.push(sel('Mês', FN_MESES_L.map(function(m){ return m.charAt(0).toUpperCase() + m.slice(1); })));
+  if (p.tipo === 'per') {
+    var de = h('input', { type: 'month', class: 'fn-sel', 'aria-label': 'Do mês', value: p.de, onchange: function(e){ if (e.target.value) mudar({ de: e.target.value }); } });
+    var ate = h('input', { type: 'month', class: 'fn-sel', 'aria-label': 'Até ao mês', value: p.ate, onchange: function(e){ if (e.target.value) mudar({ ate: e.target.value }); } });
+    out.push(h('span', { class: 'fn-acoes', style: 'gap:6px' }, [de, h('span', { class: 'fn-muted' }, 'a'), ate]));
+  }
+  return out;
 }
 
 /* ---------------- 1. Entradas e saídas ---------------- */
