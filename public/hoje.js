@@ -42,6 +42,8 @@ var HJ_CSS =
   '#attnList .hj-box{flex:none;display:inline-flex}' +
   '#attnList .hj-box .tf-box{margin-top:0}' +
   '#attnList .hj-sem{flex:none;width:17px}' +
+  '#attnList .when{display:flex;align-items:center;gap:8px}' +
+  '#attnList .hj-data{font-size:.75rem;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}' +
   '#attnList article.hj-feito{opacity:.45}' +
   '#attnList article.hj-feito h4{text-decoration:line-through}' +
   /* A Agenda da semana */
@@ -140,6 +142,18 @@ function hjPeriodos() {
 
 /* O cartao de sempre (attnCard: cores, clique que abre a janela) com o icone
    e, numa tarefa ou pagamento, a caixinha. */
+var HJ_DS = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 's\u00e1b'];
+var HJ_MS = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+/* «dom, 25 out»; o ano so aparece quando nao e o corrente. */
+function hjDataCurta(iso) {
+  var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || ''));
+  if (!m) return '';
+  var d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  var txt = HJ_DS[d.getDay()] + ', ' + d.getDate() + ' ' + HJ_MS[d.getMonth()];
+  if (d.getFullYear() !== new Date().getFullYear()) txt += ' ' + d.getFullYear();
+  return txt;
+}
+
 function hjCartao(x) {
   var a = x.a;
   var art = attnCard(x);
@@ -150,6 +164,12 @@ function hjCartao(x) {
   if (p && a.origem === 'tarefa') p.textContent = a.detail || '';
   /* O lembrete de um evento: «evento · 10:00 · Hospital da Luz». */
   if (p && a.origem === 'evento') p.textContent = ['evento', a.detail].filter(Boolean).join(' \u00b7 ');
+
+  /* 23 out: a data por extenso ao lado do «em 2 dias», para nao ser preciso
+     fazer contas («dom, 25 out»). */
+  var qd = hjDataCurta(a.quando);
+  var wh = art.querySelector('.when');
+  if (qd && wh) wh.insertBefore(el('span', 'hj-data', qd), wh.firstChild);
 
   var ico = el('span', 'hj-ico ' + HJ_CLS[tipo]);
   ico.innerHTML = hjSvg(HJ_I[tipo], 14);
