@@ -29,7 +29,11 @@ var MP_CSS = [
   '#view-mapa .mp-mais{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}',
   '#view-mapa .mp-mais button{font:inherit;font-size:.875rem;font-weight:600;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:12px;min-height:52px;padding:0 14px;display:flex;align-items:center;gap:10px;cursor:pointer;text-align:left}',
   '#view-mapa .mp-mais button svg{width:18px;height:18px;flex:none;color:var(--muted)}',
-  '#view-mapa .mp-mais button .badge{margin-left:auto}'
+  '#view-mapa .mp-mais button .badge{margin-left:auto}',
+  '#view-mapa .mp-def{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px;display:flex;flex-direction:column;gap:10px;font-weight:600}',
+  '#view-mapa .mp-letra{display:flex;flex-wrap:wrap;gap:4px;padding:4px;border-radius:12px;background:var(--surface-2);border:1px solid var(--line)}',
+  '#view-mapa .mp-letra button{flex:1 1 auto;min-height:40px;border-radius:9px;border:0;background:none;font:inherit;font-size:.8125rem;font-weight:600;color:var(--ink-2);padding:0 10px}',
+  '#view-mapa .mp-letra button.on{background:var(--surface);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.08)}'
 ].join('\n');
 
 function mpEstilo(){
@@ -129,6 +133,25 @@ function mpRender(){
     mais.appendChild(b);
   });
   sec.appendChild(mais);
+
+  /* Definicoes deste aparelho: o tamanho da letra (telemovel). */
+  if (typeof TM_LETRAS !== 'undefined'){
+    var def = el('div', 'tm-so-movel');
+    def.appendChild(el('div', 'mp-h', 'Definições deste telemóvel'));
+    var cx = el('div', 'mp-def');
+    cx.appendChild(el('span', null, 'Tamanho da letra'));
+    var seg = el('div', 'fn-seg mp-letra');
+    var atual = tmLetraAtual();
+    TM_LETRAS.forEach(function(o){
+      var b = el('button', o[0] === atual ? 'on' : '', o[1]);
+      b.type = 'button';
+      b.addEventListener('click', function(){ tmLetra(o[0]); mpRender(); });
+      seg.appendChild(b);
+    });
+    cx.appendChild(seg);
+    def.appendChild(cx);
+    sec.appendChild(def);
+  }
 }
 
 function mpLigar(){

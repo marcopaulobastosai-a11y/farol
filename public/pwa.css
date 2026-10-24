@@ -35,7 +35,9 @@ html dialog.folha.folha{
 /* O iOS faz zoom à página sempre que se toca num campo com letra abaixo de
    16 px — e os campos do Farol têm 13. Só em ecrãs de toque. */
 @media (pointer:coarse){
-  input:not([type="checkbox"]):not([type="radio"]),select,textarea{font-size:16px !important;}
+  /* (24 out 2026) Ja nao e preciso: o viewport tem maximum-scale=1, que
+     impede o Safari de ampliar ao tocar num campo. A letra dos campos segue
+     o tamanho escolhido nas definicoes. */
 }
 
 /* Instalada, a app não deve deixar arrastar a página inteira para lá do
