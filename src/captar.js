@@ -357,7 +357,128 @@ async function proporAreas(limite, saltar) {
   return g;
 }
 
+/* ---- O resto sem area: tarefas abertas, eventos futuros e documentos ----
+ * Tarefas de um projeto com area, subtarefas e documentos de um projeto com
+ * area ja tem area por arrasto e ficam de fora. Os que a pessoa diz que nao
+ * tem area ficam em settings ('itens_area_dispensados', «tipo:id»). */
+const TABELA_ITEM = { tarefa: 'tasks', evento: 'events', documento: 'documents' };
+
+async function itensDispensados() {
+  const r = await all("SELECT value FROM settings WHERE key = 'itens_area_dispensados'");
+  try { const v = r.length ? JSON.parse(r[0].value) : []; return Array.isArray(v) ? v : []; } catch (e) { return []; }
+}
+
+async function itensSemArea() {
+  const fora = new Set(await itensDispensados());
+  const hoje = hojeLisboa();
+  const [t, e, d] = await Promise.all([
+    all(`SELECT t.id, t.title AS titulo, to_char(t.due_on,'YYYY-MM-DD') AS data, t.notes AS nota, pe.name AS pessoa
+           FROM tasks t LEFT JOIN projects p ON p.id = t.project_id LEFT JOIN people pe ON pe.id = t.owner_id
+          WHERE t.context_id IS NULL AND p.context_id IS NULL AND t.parent_id IS NULL
+            AND t.status = 'aberta' AND NOT t.done
+          ORDER BY t.due_on NULLS LAST, t.id`),
+    all(`SELECT e.id, e.title AS titulo, to_char(e.day,'YYYY-MM-DD') AS data, e.detail AS nota,
+                (SELECT string_agg(pe.name, ', ') FROM event_people ep JOIN people pe ON pe.id = ep.person_id WHERE ep.event_id = e.id) AS pessoa
+           FROM events e WHERE e.context_id IS NULL AND e.day >= $1::date
+          ORDER BY e.day, e.id`, [hoje]),
+    all(`SELECT d.id, d.name AS titulo, to_char(d.valid_on,'YYYY-MM-DD') AS data, COALESCE(d.entity, d.kind) AS nota, pe.name AS pessoa
+           FROM documents d LEFT JOIN projects p ON p.id = d.project_id LEFT JOIN people pe ON pe.id = d.person_id
+          WHERE d.context_id IS NULL AND p.context_id IS NULL
+          ORDER BY d.id`)
+  ]);
+  const itens = [];
+  t.forEach((x) => itens.push(Object.assign({ tipo: 'tarefa' }, x)));
+  e.forEach((x) => itens.push(Object.assign({ tipo: 'evento' }, x)));
+  d.forEach((x) => itens.push(Object.assign({ tipo: 'documento' }, x)));
+  return itens.filter((x) => !fora.has(x.tipo + ':' + x.id));
+}
+
+async function proporAreasItens() {
+  const [itens, ctx] = await Promise.all([itensSemArea(), contexto()]);
+  const lista = itens.slice(0, 80);
+  if (!lista.length) return { itens: [], total: 0 };
+  const sist = [
+    'Es o assistente do Farol, a app de gestao de uma casa em Portugal.',
+    'Recebes tarefas, eventos da agenda e documentos sem area e dizes a que area da casa pertence cada um,',
+    'escolhendo exactamente um nome da lista. Se nao der para saber, deixa a area vazia - nao adivinhes.',
+    'confianca alta so quando o titulo deixa pouca duvida (ex.: consulta medica -> Saude & rotinas).',
+    '',
+    'Areas (Area > Sub-area). Prefere a sub-area quando for clara; senao a area de topo:',
+    ctx.areas.map((a) => '- ' + a.nome).join('\n'),
+    '',
+    'Pessoas da casa:',
+    ctx.pessoas.map((p) => '- ' + p.name + (p.role ? ' (' + p.role + ')' : '')).join('\n')
+  ].join('\n');
+  const texto = lista.map((x, i) => [i, x.tipo, x.titulo, x.data ? 'data ' + x.data : '',
+    x.pessoa ? 'pessoas: ' + x.pessoa : '', x.nota ? 'nota: ' + String(x.nota).slice(0, 160) : '']
+    .filter(Boolean).join(' | ')).join('\n');
+  let resp = null, ultimo = null;
+  for (let i = 0; i <= ESPERAS.length; i++) {
+    try { resp = await chamarGemini(sist, texto, ESQUEMA_AREAS); break; }
+    catch (e) {
+      ultimo = e;
+      const tempo = /Timeout|Abort/.test(String(e.name) + String(e.message));
+      if (!(e.transitorio || tempo) || i === ESPERAS.length) throw e;
+      await dormir(ESPERAS[i]);
+    }
+  }
+  if (!resp) throw ultimo || new Error('Sem resposta do Gemini.');
+  const porI = {};
+  (resp.propostas || []).forEach((p) => { porI[p.i] = p; });
+  return {
+    total: itens.length,
+    itens: lista.map((x, i) => {
+      const p = porI[i] || {};
+      const area = acharArea(ctx, p.area);
+      return Object.assign({}, x, { nota: undefined, area_id: area, confianca: area ? (p.confianca || 'baixa') : null });
+    })
+  };
+}
+
 function instalar(app) {
+  app.get('/api/captar/itens-sem-area', async (_req, res) => {
+    try {
+      const itens = await itensSemArea();
+      const n = { tarefa: 0, evento: 0, documento: 0 };
+      itens.forEach((x) => { n[x.tipo]++; });
+      res.json({ total: itens.length, tarefas: n.tarefa, eventos: n.evento, documentos: n.documento });
+    } catch (err) { console.error('[farol] itens sem area:', err.message); res.status(500).json({ error: 'Não foi possível contar.' }); }
+  });
+
+  app.post('/api/captar/itens-areas', async (_req, res) => {
+    if (!CHAVE) return res.status(503).json({ error: 'A leitura automática não está ligada (falta a chave do Gemini).' });
+    try { res.json(await proporAreasItens()); }
+    catch (err) { console.error('[farol] propor areas (itens):', err.message); res.status(502).json({ error: err.message || 'Não foi possível propor áreas.' }); }
+  });
+
+  /* { itens: [{tipo, id, context_id}] } - context_id null desfaz. */
+  app.post('/api/captar/itens-area', async (req, res) => {
+    try {
+      const itens = ((req.body || {}).itens || []).slice(0, 500);
+      let feitos = 0;
+      for (const x of itens) {
+        const tabela = TABELA_ITEM[x && x.tipo];
+        const id = Number(x && x.id);
+        if (!tabela || !id) continue;
+        const ctx = x.context_id ? Number(x.context_id) : null;
+        const r = await query(`UPDATE ${tabela} SET context_id = $1 WHERE id = $2`, [ctx, id]);
+        feitos += r.rowCount;
+      }
+      res.json({ feitos });
+    } catch (err) { console.error('[farol] itens area:', err.message); res.status(500).json({ error: 'Não foi possível gravar.' }); }
+  });
+
+  app.post('/api/captar/itens-dispensar', async (req, res) => {
+    try {
+      const novas = ((req.body || {}).chaves || []).map((c) => String(c).slice(0, 40)).filter((c) => /^(tarefa|evento|documento):\d+$/.test(c));
+      const todas = [...new Set((await itensDispensados()).concat(novas))].slice(-3000);
+      await query(`INSERT INTO settings (key, value) VALUES ('itens_area_dispensados', $1)
+                   ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`, [JSON.stringify(todas)]);
+      res.json({ dispensados: todas.length });
+    } catch (err) { console.error('[farol] dispensar itens:', err.message); res.status(500).json({ error: 'Não foi possível guardar.' }); }
+  });
+
+
   app.get('/api/captar/movimentos-sem-area', async (_req, res) => {
     try { const g = await gruposSemArea(0); res.json({ movimentos: g.restantes_mov, grupos: g.restantes_grupos }); }
     catch (err) { console.error('[farol] movimentos sem area:', err.message); res.status(500).json({ error: 'Não foi possível contar os movimentos.' }); }

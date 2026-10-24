@@ -11,7 +11,8 @@
  * Abre-se do separador Movimentos de qualquer area (areas-molde.js).
  */
 
-var AM = { dlg: null, estado: 'fechado', grupos: [], resto: null, erro: null, contagem: null, aContar: false, ultimo: null, depois: null, saltar: [] };
+var AM = { dlg: null, estado: 'fechado', grupos: [], resto: null, erro: null, contagem: null, aContar: false, ultimo: null, depois: null, saltar: [],
+  it: { estado: null, lista: [], total: 0, erro: null, ultimo: null } };
 
 var AM_CSS = [
   '#amDlg .am{padding:22px 22px 26px;display:flex;flex-direction:column;gap:14px}',
@@ -40,6 +41,9 @@ var AM_CSS = [
   '#amDlg .am-a-ler{display:flex;align-items:center;gap:12px;color:var(--muted);padding:24px 4px}',
   '#amDlg .am-a-ler i{width:18px;height:18px;border-radius:50%;border:2px solid var(--line);border-top-color:var(--accent);animation:amRoda .8s linear infinite}',
   '@keyframes amRoda{to{transform:rotate(360deg)}}',
+  '#amDlg .am-sec{font-size:1rem;font-weight:700;margin:6px 0 0;display:flex;align-items:center;gap:8px}',
+  '#amDlg .am-sec small{font-weight:500;color:var(--muted);font-size:.8125rem}',
+  '#amDlg .am-tipo{display:inline-block;font-size:.6875rem;font-weight:600;border-radius:4px;padding:1px 6px;margin-right:6px;background:var(--surface-2);color:var(--ink-2);border:1px solid var(--line-soft)}',
   '#amDlg .am-erro{color:var(--bad);font-size:.875rem}',
   '#amDlg .am-ok{background:var(--accent-soft);color:var(--accent-ink);border-radius:10px;padding:10px 12px;font-size:.875rem;display:flex;gap:10px;align-items:center}',
   '#amDlg .am-ok button{margin-left:auto;font-weight:600;text-decoration:underline}',
@@ -67,17 +71,21 @@ function amAreas(){ return typeof cpAreas === 'function' ? cpAreas() : []; }
 function amContar(force){
   if (AM.aContar || (AM.contagem && !force)) return;
   AM.aContar = true;
-  apiGestao('/api/captar/movimentos-sem-area')
-    .then(function(d){ AM.contagem = d; })
-    .catch(function(){ AM.contagem = { movimentos: 0, grupos: 0 }; })
+  Promise.all([
+    apiGestao('/api/captar/movimentos-sem-area').catch(function(){ return { movimentos: 0, grupos: 0 }; }),
+    apiGestao('/api/captar/itens-sem-area').catch(function(){ return { total: 0 }; })
+  ]).then(function(r){ AM.contagem = Object.assign({}, r[0], { itens: r[1].total || 0 }); })
     .then(function(){ AM.aContar = false; document.querySelectorAll('.am-aviso').forEach(amPreencherAviso); });
 }
 function amPreencherAviso(box){
   clear(box);
   var c = AM.contagem;
-  if (!c || !c.movimentos){ box.hidden = true; return; }
+  if (!c || !(c.movimentos || c.itens)){ box.hidden = true; return; }
   box.hidden = false;
-  box.appendChild(el('span', null, c.movimentos + ' movimentos do banco ainda não têm área (' + c.grupos + ' comerciantes).'));
+  var partes = [];
+  if (c.movimentos) partes.push(c.movimentos + ' movimentos do banco (' + c.grupos + ' comerciantes)');
+  if (c.itens) partes.push(c.itens + (c.itens === 1 ? ' tarefa, evento ou documento' : ' tarefas, eventos e documentos'));
+  box.appendChild(el('span', null, partes.join(' e ') + ' ainda sem área.'));
   var b = el('button', 'btn primary', 'Arrumar');
   b.type = 'button';
   b.addEventListener('click', function(){ amAbrir(box._depois); });
@@ -100,10 +108,11 @@ function amAbrir(depois){
   if (!AM.dlg){
     AM.dlg = el('dialog', 'folha larga');
     AM.dlg.id = 'amDlg';
-    AM.dlg.setAttribute('aria-label', 'Arrumar movimentos sem área');
+    AM.dlg.setAttribute('aria-label', 'Arrumar o que não tem área');
     document.body.appendChild(AM.dlg);
   }
   if (!AM.dlg.open) AM.dlg.showModal();
+  amPedirItens();
   amPedir();
 }
 function amFechar(){ if (AM.dlg && AM.dlg.open) AM.dlg.close(); }
@@ -126,7 +135,7 @@ function amPedir(){
 
 function amCabeca(c){
   var h = el('div', 'am-h');
-  h.appendChild(el('h2', null, 'Arrumar movimentos sem área'));
+  h.appendChild(el('h2', null, 'Arrumar o que não tem área'));
   var x = el('button', 'am-fechar', '×');
   x.type = 'button'; x.setAttribute('aria-label', 'Fechar');
   x.addEventListener('click', amFechar);
@@ -150,6 +159,8 @@ function amDesenhar(){
   var c = el('div', 'am');
   AM.dlg.appendChild(c);
   amCabeca(c);
+  amSecItens(c);
+  if (AM.it.estado === 'lista' || AM.it.ultimo) c.appendChild(el('h3', 'am-sec', 'Movimentos do banco'));
   if (AM.ultimo) c.appendChild(amUltimo());
   if (AM.estado === 'a-ler'){
     var l = el('div', 'am-a-ler'); l.appendChild(el('i'));
@@ -272,4 +283,122 @@ function amDepois(){
   AM.contagem = null;
   if (typeof AM.depois === 'function') { try { AM.depois(); } catch (e) { console.error(e); } }
   amContar(true);
+}
+
+/* ---------- tarefas, eventos e documentos sem area ---------- */
+var AM_TIPO = { tarefa: 'Tarefa', evento: 'Evento', documento: 'Documento' };
+
+function amPedirItens(){
+  var it = AM.it;
+  it.estado = 'a-ler'; it.erro = null; it.lista = [];
+  amPost('/api/captar/itens-areas', {})
+    .then(function(d){
+      it.total = d.total || 0;
+      it.lista = (d.itens || []).map(function(x){
+        return Object.assign({}, x, { escolha: x.area_id ? String(x.area_id) : '', marcado: !!x.area_id && x.confianca !== 'baixa' });
+      });
+      it.estado = it.lista.length ? 'lista' : 'vazio';
+    })
+    .catch(function(e){ it.estado = 'erro'; it.erro = (e && e.message) || 'Não foi possível propor áreas.'; })
+    .then(amDesenhar);
+}
+
+function amDataCurta(d){
+  if (!d) return '';
+  var p = String(d).split('-');
+  return p.length === 3 ? p[2] + '/' + p[1] + '/' + p[0] : d;
+}
+
+function amSecItens(c){
+  var it = AM.it;
+  if (it.ultimo){
+    var ok = el('div', 'am-ok');
+    ok.appendChild(el('span', null, it.ultimo.n + (it.ultimo.n === 1 ? ' coisa arrumada' : ' coisas arrumadas') + (it.ultimo.fora ? ', ' + it.ultimo.fora + ' postas de parte' : '') + '.'));
+    if (it.ultimo.itens.length){
+      var u = el('button', null, 'Desfazer'); u.type = 'button';
+      u.addEventListener('click', function(){
+        u.disabled = true; u.textContent = 'A desfazer…';
+        amPost('/api/captar/itens-area', { itens: it.ultimo.itens.map(function(x){ return { tipo: x.tipo, id: x.id, context_id: null }; }) })
+          .then(function(){ it.ultimo = null; amDepois(); amPedirItens(); amDesenhar(); if (typeof toast === 'function') toast('Desfeito.'); })
+          .catch(function(){ u.textContent = 'Não deu para desfazer'; });
+      });
+      ok.appendChild(u);
+    }
+    c.appendChild(ok);
+  }
+  if (it.estado === 'a-ler'){
+    var l = el('div', 'am-a-ler'); l.appendChild(el('i'));
+    l.appendChild(el('span', null, 'A ver as tarefas, eventos e documentos sem área…'));
+    c.appendChild(l);
+    return;
+  }
+  if (it.estado === 'erro'){
+    c.appendChild(el('p', 'am-erro', it.erro));
+    var t = el('button', 'btn', 'Tentar outra vez'); t.type = 'button'; t.addEventListener('click', function(){ amPedirItens(); amDesenhar(); });
+    c.appendChild(t);
+    return;
+  }
+  if (it.estado !== 'lista') return;
+  var h = el('h3', 'am-sec', 'Tarefas, eventos e documentos');
+  h.appendChild(el('small', null, it.total + ' sem área'));
+  c.appendChild(h);
+  var areas = amAreas();
+  var lista = el('div', 'am-lista');
+  it.lista.forEach(function(x){
+    var r = el('div', 'am-g' + (x.marcado ? '' : ' off'));
+    var cb = el('input'); cb.type = 'checkbox'; cb.checked = x.marcado;
+    cb.setAttribute('aria-label', 'Aplicar a ' + x.titulo);
+    cb.addEventListener('change', function(){ x.marcado = cb.checked; amDesenhar(); });
+    r.appendChild(cb);
+    var t = el('div', 'am-t');
+    var b = el('b', null, x.titulo || ''); b.title = x.titulo || '';
+    t.appendChild(b);
+    var s = el('small');
+    s.appendChild(el('span', 'am-tipo', AM_TIPO[x.tipo] || x.tipo));
+    s.appendChild(document.createTextNode([amDataCurta(x.data), x.pessoa].filter(Boolean).join(' · ')));
+    if (x.confianca) s.appendChild(el('span', 'am-conf ' + x.confianca, x.confianca === 'alta' ? 'certo' : x.confianca === 'media' ? 'provável' : 'dúvida'));
+    t.appendChild(s);
+    r.appendChild(t);
+    var sel = el('select');
+    var o0 = el('option', null, 'Escolher área…'); o0.value = ''; sel.appendChild(o0);
+    areas.forEach(function(a){ var o = el('option', null, a[1]); o.value = String(a[0]); sel.appendChild(o); });
+    var of = el('option', null, 'Não tem área — não voltar a propor'); of.value = 'fora'; sel.appendChild(of);
+    sel.value = x.escolha;
+    sel.setAttribute('aria-label', 'Área de ' + x.titulo);
+    sel.addEventListener('change', function(){ x.escolha = sel.value; x.marcado = !!sel.value; amDesenhar(); });
+    r.appendChild(sel);
+    lista.appendChild(r);
+  });
+  c.appendChild(lista);
+  var n = 0, fora = 0;
+  it.lista.forEach(function(x){ if (x.marcado && x.escolha) { if (x.escolha === 'fora') fora++; else n++; } });
+  var ac = el('div', 'am-acoes');
+  ac.appendChild(el('span', 'am-n', (n ? n + ' com área' : 'Nada marcado') + (fora ? ' · ' + fora + ' sem área' : '')));
+  var ap = el('button', 'btn primary', 'Aplicar');
+  ap.type = 'button';
+  ap.disabled = !(n || fora);
+  ap.addEventListener('click', function(){ ap.disabled = true; ap.textContent = 'A aplicar…'; amAplicarItens(); });
+  ac.appendChild(ap);
+  c.appendChild(ac);
+}
+
+function amAplicarItens(){
+  var it = AM.it, gravar = [], fora = [];
+  it.lista.forEach(function(x){
+    if (!x.marcado || !x.escolha) return;
+    if (x.escolha === 'fora') fora.push(x.tipo + ':' + x.id);
+    else gravar.push({ tipo: x.tipo, id: x.id, context_id: Number(x.escolha) });
+  });
+  var pedidos = [];
+  if (gravar.length) pedidos.push(amPost('/api/captar/itens-area', { itens: gravar }));
+  if (fora.length) pedidos.push(amPost('/api/captar/itens-dispensar', { chaves: fora }));
+  Promise.all(pedidos)
+    .then(function(){
+      it.ultimo = { n: gravar.length, fora: fora.length, itens: gravar };
+      if (typeof cpRecarregar === 'function') cpRecarregar();
+      amDepois();
+      amPedirItens();
+      amDesenhar();
+    })
+    .catch(function(e){ it.estado = 'erro'; it.erro = (e && e.message) || 'Não foi possível aplicar.'; amDesenhar(); });
 }
