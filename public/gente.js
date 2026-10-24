@@ -13,11 +13,14 @@
  *                destinatarios dos emails: senhorio, contabilista...).
  *   Esta semana - em cada cartao, o que a pessoa tem nos proximos 7 dias.
  *
- * Cada cartao abre a ficha (data-ficha). Nao toca na base de dados nem nos
- * outros modulos. So aparece com o menu novo ligado.
+ * Cada cartao abre a ficha (data-ficha). O ⋯ de cada cartao ajusta o
+ * circulo (Agregado, Familia alargada, Amigos e proximos, nao mostrar), os
+ * cuidados e as preferencias da pessoa (colunas circulo, cuidados e
+ * preferencias de people; NULL = automatico pelo tipo). So aparece com o
+ * menu novo ligado.
  */
 
-var GT = { destinatarios: null, aLerDest: false };
+var GT = { destinatarios: null, aLerDest: false, verEscondidos: false, dlg: null };
 
 var GT_CSS = [
   '#nav button[data-view="gente"]{display:none}',
@@ -50,7 +53,22 @@ var GT_CSS = [
   '#view-gente .gt-resp{flex:none;font-size:.75rem;padding:3px 9px;border-radius:999px;background:var(--line-soft);color:var(--ink-2);white-space:nowrap}',
   '#view-gente .gt-resp.falta{background:var(--warn-soft,#fbebd0);color:var(--warn,#7a4a06);font-weight:500}',
   '#view-gente .gt-vazio{color:var(--muted);font-size:.8125rem;padding:10px 14px;margin:0;border-top:1px solid var(--line-soft)}',
-  '#view-gente .gt-nota{color:var(--muted);font-size:.8125rem;margin:8px 2px 0}'
+  '#view-gente .gt-nota{color:var(--muted);font-size:.8125rem;margin:8px 2px 0}',
+  '#view-gente .gt-cw{position:relative;display:flex}',
+  '#view-gente .gt-cw .gt-card{flex:1;padding-right:44px}',
+  '#view-gente .gt-aj{position:absolute;right:6px;bottom:6px;width:32px;height:32px;border-radius:8px;color:var(--muted);font-size:1.125rem;line-height:1;display:inline-flex;align-items:center;justify-content:center}',
+  '#view-gente .gt-aj:hover{background:var(--surface-2);color:var(--ink)}',
+  '#view-gente .gt-pref{font-size:.75rem;color:var(--ink-2);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}',
+  '#view-gente .gt-mostrar{font-size:.8125rem;text-decoration:underline;color:var(--muted);margin-left:4px}',
+  '#gtDlg .gt-f{padding:22px;display:flex;flex-direction:column;gap:14px}',
+  '#gtDlg .gt-f h2{margin:0;font-size:1.25rem;font-weight:700}',
+  '#gtDlg .gt-f label{display:flex;flex-direction:column;gap:6px;font-size:.8125rem;font-weight:500;color:var(--ink-2)}',
+  '#gtDlg .gt-f select,#gtDlg .gt-f textarea{font:inherit;font-size:.9375rem;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 12px}',
+  '#gtDlg .gt-f textarea{min-height:120px;resize:vertical}',
+  '#gtDlg .gt-f small{color:var(--muted);font-weight:400}',
+  '#gtDlg .gt-acoes{display:flex;gap:10px;justify-content:flex-end}',
+  '#gtDlg .gt-acoes .btn{min-height:44px;padding:0 18px}',
+  '#gtDlg .gt-erro{color:var(--bad);font-size:.875rem;margin:0}'
 ].join('\n');
 
 var GT_TIPO = { adulto: 'Adulto', crianca: 'Criança', familiar: 'Família', animal: 'Animal' };
@@ -89,6 +107,14 @@ function gtMaisDias(iso, n){
 function gtPessoa(id){ return ((window.G && G.people) || []).filter(function(p){ return p.id === id; })[0] || null; }
 function gtAberta(t){ return t.status !== 'concluida' && t.status !== 'cancelada' && !t.done; }
 function gtTipoT(t){ return typeof tfTipo === 'function' ? tfTipo(t) : (t.tipo || 'tarefa'); }
+
+/* O circulo e os cuidados vem do tipo da pessoa, a nao ser que se tenham
+   ajustado a mao (colunas circulo e cuidados; NULL = automatico). */
+var GT_CIRC = [['agregado', 'Agregado — vive na casa'], ['alargada', 'Família alargada'], ['amigos', 'Amigos e próximos'], ['escondido', 'Não mostrar aqui']];
+function gtCircAuto(p){ return p.kind === 'familiar' ? 'alargada' : 'agregado'; }
+function gtCirculo(p){ return p.circulo || gtCircAuto(p); }
+function gtCuidAuto(p){ return p.kind === 'familiar' && !p.can_own_tasks; }
+function gtCuidados(p){ return p.cuidados === true || p.cuidados === false ? p.cuidados : gtCuidAuto(p); }
 
 /* O que uma pessoa tem entre dois dias: tarefas (de que e responsavel ou
    por causa de quem) e eventos em que esta. Com «atrasadas», tambem o que
@@ -168,9 +194,77 @@ function gtCartao(p, hoje, fim){
     if (semana.length > 3) s.appendChild(el('span', null, '+' + (semana.length - 3)));
     t.appendChild(s);
   }
+  if (p.preferencias) t.appendChild(el('span', 'gt-pref', '♥ ' + p.preferencias));
   b.appendChild(t);
-  if (!p.can_own_tasks && p.kind === 'familiar') b.appendChild(el('span', 'gt-tag', 'Cuidados'));
-  return b;
+  if (gtCuidados(p)) b.appendChild(el('span', 'gt-tag', 'Cuidados'));
+  var w = el('div', 'gt-cw');
+  w.appendChild(b);
+  var aj = el('button', 'gt-aj', '⋯');
+  aj.type = 'button';
+  aj.title = 'Círculo, cuidados e preferências de ' + p.name;
+  aj.setAttribute('aria-label', aj.title);
+  aj.addEventListener('click', function(ev){ ev.stopPropagation(); gtAjustar(p); });
+  w.appendChild(aj);
+  return w;
+}
+
+/* ------------------------------ ajustar ------------------------------ */
+function gtAjustar(p){
+  if (!GT.dlg){
+    GT.dlg = el('dialog', 'folha');
+    GT.dlg.id = 'gtDlg';
+    document.body.appendChild(GT.dlg);
+  }
+  var d = GT.dlg;
+  clear(d);
+  var f = el('form', 'gt-f');
+  f.method = 'dialog';
+  f.appendChild(el('h2', null, p.name));
+
+  var l1 = el('label', null, 'Círculo');
+  var s1 = el('select');
+  var auto = GT_CIRC.filter(function(x){ return x[0] === gtCircAuto(p); })[0];
+  var o0 = el('option', null, 'Automático (' + auto[1].split(' — ')[0] + ')'); o0.value = ''; s1.appendChild(o0);
+  GT_CIRC.forEach(function(x){ var o = el('option', null, x[1]); o.value = x[0]; s1.appendChild(o); });
+  s1.value = p.circulo || '';
+  l1.appendChild(s1); f.appendChild(l1);
+
+  var l2 = el('label', null, 'Cuidados');
+  var s2 = el('select');
+  [['', 'Automático (' + (gtCuidAuto(p) ? 'sim' : 'não') + ')'], ['sim', 'Sim — mostrar o que vem aí e quem trata'], ['nao', 'Não']].forEach(function(x){
+    var o = el('option', null, x[1]); o.value = x[0]; s2.appendChild(o);
+  });
+  s2.value = p.cuidados === true ? 'sim' : p.cuidados === false ? 'nao' : '';
+  l2.appendChild(s2); f.appendChild(l2);
+
+  var l3 = el('label', null, 'Preferências');
+  l3.appendChild(el('small', null, 'Gostos, tamanhos, ideias de presentes, o que evitar…'));
+  var ta = el('textarea');
+  ta.value = p.preferencias || '';
+  ta.maxLength = 2000;
+  l3.appendChild(ta); f.appendChild(l3);
+
+  var erro = el('p', 'gt-erro'); erro.hidden = true; f.appendChild(erro);
+  var ac = el('div', 'gt-acoes');
+  var cancelar = el('button', 'btn', 'Cancelar'); cancelar.type = 'button';
+  cancelar.addEventListener('click', function(){ d.close(); });
+  var gravar = el('button', 'btn primary', 'Guardar'); gravar.type = 'submit';
+  ac.appendChild(cancelar); ac.appendChild(gravar); f.appendChild(ac);
+  f.addEventListener('submit', function(ev){
+    ev.preventDefault();
+    gravar.disabled = true; gravar.textContent = 'A guardar…'; erro.hidden = true;
+    var corpo = { circulo: s1.value || null, cuidados: s2.value === 'sim' ? true : s2.value === 'nao' ? false : null, preferencias: ta.value };
+    apiGestao('/api/pessoas/' + p.id, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo) })
+      .then(function(){
+        p.circulo = corpo.circulo; p.cuidados = corpo.cuidados; p.preferencias = corpo.preferencias.trim() || null;
+        d.close();
+        gtRender();
+        if (typeof loadGestao === 'function') loadGestao();
+      })
+      .catch(function(e){ erro.textContent = (e && e.message) || 'Não foi possível guardar.'; erro.hidden = false; gravar.disabled = false; gravar.textContent = 'Guardar'; });
+  });
+  d.appendChild(f);
+  d.showModal();
 }
 
 function gtBlocoCuidados(box, cuidar, hoje){
@@ -277,15 +371,31 @@ function gtRender(){
   var hoje = gtHojeISO();
   var fim = gtMaisDias(hoje, 6);
   var ativas = G.people.filter(function(p){ return p.active !== false; });
-  var cuidar = ativas.filter(function(p){ return p.kind === 'familiar' && !p.can_own_tasks; });
+  var cuidar = ativas.filter(gtCuidados);
   gtBlocoCuidados(sec, cuidar, hoje);
-  gtBlocoCirculo(sec, 'Agregado', 'quem vive na casa',
-    ativas.filter(function(p){ return p.kind === 'adulto' || p.kind === 'crianca' || p.kind === 'animal'; }), hoje, fim);
-  gtBlocoCirculo(sec, 'Família alargada', 'não vive na casa',
-    ativas.filter(function(p){ return p.kind === 'familiar'; }), hoje, fim);
+  var deC = function(c){ return ativas.filter(function(p){ return gtCirculo(p) === c; }); };
+  gtBlocoCirculo(sec, 'Agregado', 'quem vive na casa', deC('agregado'), hoje, fim);
+  gtBlocoCirculo(sec, 'Família alargada', 'não vive na casa', deC('alargada'), hoje, fim);
+  gtBlocoCirculo(sec, 'Amigos e próximos', 'quem conta, fora da família', deC('amigos'), hoje, fim);
+  var escondidas = deC('escondido');
+  if (escondidas.length && GT.verEscondidos) gtBlocoCirculo(sec, 'Não mostradas', 'escondidas daqui com ⋯', escondidas, hoje, fim);
   gtBlocoPrestadores(sec);
   var inativas = G.people.length - ativas.length;
-  if (inativas) sec.appendChild(el('p', 'gt-nota', inativas + (inativas === 1 ? ' pessoa desativada' : ' pessoas desativadas') + ' em Administração › Pessoas.'));
+  var notas = [];
+  if (inativas) notas.push(inativas + (inativas === 1 ? ' pessoa desativada' : ' pessoas desativadas') + ' em Administração › Pessoas.');
+  if (escondidas.length) notas.push(escondidas.length + (escondidas.length === 1 ? ' pessoa escondida daqui.' : ' pessoas escondidas daqui.'));
+  if (notas.length){
+    var pn = el('p', 'gt-nota', notas.join(' '));
+    if (escondidas.length){
+      var mb = el('button', 'gt-mostrar', GT.verEscondidos ? 'Esconder' : 'Mostrar');
+      mb.type = 'button';
+      mb.addEventListener('click', function(){ GT.verEscondidos = !GT.verEscondidos; gtRender(); });
+      pn.appendChild(mb);
+    }
+    sec.appendChild(pn);
+  }
+  var ajuda = el('p', 'gt-nota', 'O círculo, os cuidados e as preferências de cada pessoa ajustam-se no ⋯ do cartão.');
+  sec.appendChild(ajuda);
   if (sec.classList.contains('is-active')) window.scrollTo(0, y);
 }
 

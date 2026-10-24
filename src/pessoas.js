@@ -43,7 +43,8 @@ const COLUNAS = `id, code, name, full_name, role, kind, can_own_tasks, color, in
                  to_char(birth_on, 'YYYY-MM-DD') AS birth_on, phone, email, address,
                  nif, sns, id_doc_tipo, id_doc_numero,
                  to_char(id_doc_validade, 'YYYY-MM-DD') AS id_doc_validade,
-                 emerg_nome, emerg_tel, conta_email, responsavel_id, detalhes`;
+                 emerg_nome, emerg_tel, conta_email, responsavel_id, detalhes,
+                 circulo, cuidados, preferencias`;
 
 /* ------------------------------------------------------------------ *
  * Os dados de cada pessoa
@@ -60,6 +61,7 @@ const DETALHES = {
 };
 const DOCS_ID = ['cc', 'tr'];               // cartao de cidadao, titulo de residencia
 const HUMANOS = ['adulto', 'crianca', 'familiar'];
+const CIRCULOS = ['agregado', 'alargada', 'amigos', 'escondido'];
 
 /* O NIF portugues traz um digito de controlo: apanha o numero mal copiado
    antes de ele ir parar a uma fatura. */
@@ -466,6 +468,13 @@ function instalar(app) {
     if (c.color !== undefined) por('color', limpar(c.color) || 'var(--c1)');
     if (c.initials !== undefined) por('initials', limpar(c.initials) || null);
     if (c.note !== undefined) por('note', limpar(c.note) || null);
+    if (c.circulo !== undefined) {
+      const v = limpar(c.circulo) || null;
+      if (v && CIRCULOS.indexOf(v) < 0) return res.status(400).json({ error: 'Círculo desconhecido.' });
+      por('circulo', v);
+    }
+    if (c.cuidados !== undefined) por('cuidados', c.cuidados === null || c.cuidados === '' ? null : Boolean(c.cuidados));
+    if (c.preferencias !== undefined) por('preferencias', (limpar(c.preferencias) || '').slice(0, 2000) || null);
 
     try {
       /* O tipo manda nos detalhes: vale o novo se vier no pedido. */

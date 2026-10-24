@@ -1205,3 +1205,11 @@ CREATE TABLE IF NOT EXISTS event_google (
   PRIMARY KEY (event_id, person_id)
 );
 CREATE INDEX IF NOT EXISTS event_google_gid_idx ON event_google (person_id, google_id);
+
+-- Pessoas: circulo e cuidados ajustaveis a mao (24 out 2026). NULL = o que
+-- vem do tipo da pessoa (adulto/crianca/animal -> agregado; familiar ->
+-- familia alargada; familiar sem tarefas -> cuidados). Preferencias: gostos,
+-- tamanhos, ideias de presentes - texto livre.
+ALTER TABLE people ADD COLUMN IF NOT EXISTS circulo      TEXT;
+ALTER TABLE people ADD COLUMN IF NOT EXISTS cuidados     BOOLEAN;
+ALTER TABLE people ADD COLUMN IF NOT EXISTS preferencias TEXT;

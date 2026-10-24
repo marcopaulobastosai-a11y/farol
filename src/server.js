@@ -345,7 +345,8 @@ async function codigoLivre(base) {
 
 async function carregarGestao() {
   const [people, projects, members, tasks, contextos, contagens] = await Promise.all([
-    all(`SELECT id, code, name, full_name, role, kind, initials, color, can_own_tasks, active, note
+    all(`SELECT id, code, name, full_name, role, kind, initials, color, can_own_tasks, active, note,
+                circulo, cuidados, preferencias
            FROM people WHERE origin = 'real' ORDER BY sort, id`),
     all(`SELECT id, name, description, area, context_id, depends_on_id, status,
                 tipo, parent_id,
