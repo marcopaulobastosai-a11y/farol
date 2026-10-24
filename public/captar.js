@@ -32,7 +32,7 @@ var CP_CSS = [
   '#cpDlg textarea{width:100%;box-sizing:border-box;font:inherit;font-size:1rem;line-height:1.5;padding:14px;border-radius:12px;border:1.5px solid var(--line);background:var(--surface);color:var(--ink);resize:vertical;min-height:110px}',
   '#cpDlg textarea:focus{outline:none;border-color:var(--accent)}',
   '#cpDlg .cp-ex{color:var(--muted);font-size:.8125rem;margin:6px 0 0}',
-  '#cpDlg .cp-botoes{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}',
+  '#cpDlg .cp-botoes{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:10px}',
   '#cpDlg .cp-gr{min-height:64px;border-radius:12px;border:1px solid var(--line);background:var(--surface);display:flex;align-items:center;justify-content:center;gap:8px;font-size:.875rem;font-weight:500;color:var(--ink)}',
   '#cpDlg .cp-gr:hover{border-color:var(--accent)}',
   '#cpDlg .cp-gr.on{border-color:var(--bad);color:var(--bad)}',
@@ -169,19 +169,27 @@ function cpPassoTexto(c){
     bv.addEventListener('click', function(){ CP.aOuvir ? cpParar() : cpOuvir(t); });
     bs.appendChild(bv);
   }
-  var bf = el('button', 'cp-gr');
-  bf.type = 'button';
-  bf.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="3" y="7" width="18" height="13" rx="3"/><circle cx="12" cy="13.5" r="3.5"/><path d="M8 7l1.5-3h5L16 7"/></svg>';
-  bf.appendChild(el('span', null, 'Foto ou ficheiro'));
-  bf.title = 'Vai para a Caixa de entrada, que lê o papel sozinha';
-  bf.addEventListener('click', function(){
-    cpFechar();
-    if (window.IB && !IB.carregado && typeof ibCarregar === 'function') ibCarregar();
-    show('inbox');
-    var f = document.getElementById('ibFicheiro');
-    if (f) f.click();
+  /* Fotografar abre a camara; Ficheiro abre a escolha de ficheiros. Os dois
+     vao para a Caixa de entrada, que le o papel sozinha. */
+  [['foto', 'Fotografar', '<rect x="3" y="7" width="18" height="13" rx="3"/><circle cx="12" cy="13.5" r="3.5"/><path d="M8 7l1.5-3h5L16 7"/>'],
+   ['ficheiro', 'Ficheiro', '<path d="M14 3H6v18h12V7z"/><path d="M14 3v4h4"/>']].forEach(function(x){
+    var b = el('button', 'cp-gr');
+    b.type = 'button';
+    b.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">' + x[2] + '</svg>';
+    b.appendChild(el('span', null, x[1]));
+    b.title = 'Vai para a Caixa de entrada, que lê o papel sozinha';
+    b.addEventListener('click', function(){
+      cpFechar();
+      if (window.IB && !IB.carregado && typeof ibCarregar === 'function') ibCarregar();
+      show('inbox');
+      var f = document.getElementById('ibFicheiro');
+      if (!f) return;
+      if (x[0] === 'foto'){ f.accept = 'image/*'; f.setAttribute('capture', 'environment'); }
+      else { f.accept = 'image/*,application/pdf,.doc,.docx,.xls,.xlsx,.txt'; f.removeAttribute('capture'); }
+      f.click();
+    });
+    bs.appendChild(b);
   });
-  bs.appendChild(bf);
   c.appendChild(bs);
 
   var ac = el('div', 'cp-acoes');
