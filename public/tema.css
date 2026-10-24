@@ -424,3 +424,24 @@ html.tm-visor-on,html.tm-visor-on body{overflow:hidden}
   body.mn-on .tm-rec.aberto > header{margin-bottom:12px}
   body.mn-on .tm-rec.aberto > header::after{content:"\2212"}
 }
+
+/* ---------- bloqueio da app (codigo / Face ID) ---------- */
+html.bq-on body > *:not(#bqCadeado){visibility:hidden !important}
+#bqCadeado{position:fixed;inset:0;z-index:5000;background:#14213D;color:#fff;display:flex;align-items:center;justify-content:center;
+  padding:env(safe-area-inset-top,0px) 16px env(safe-area-inset-bottom,0px);font-family:"Manrope",-apple-system,sans-serif;visibility:visible !important}
+#bqCadeado .bq-c{width:100%;max-width:300px;display:flex;flex-direction:column;align-items:center;gap:10px}
+#bqCadeado .bq-farol{width:44px;height:44px;border-radius:50%;border:2px solid #F3C27A;background:radial-gradient(circle at 50% 42%,#F3C27A 0 32%,rgba(243,194,122,.25) 33% 62%,transparent 63%)}
+#bqCadeado h1{margin:4px 0 0;font-size:1.5rem;font-weight:700}
+#bqCadeado .bq-sub{margin:0;color:#C9D0E0;font-size:.875rem}
+#bqCadeado .bq-pontos{display:flex;gap:14px;margin:14px 0 4px;min-height:14px}
+#bqCadeado .bq-pontos i{width:13px;height:13px;border-radius:50%;border:2px solid #C9D0E0}
+#bqCadeado .bq-pontos i.on{background:#F3C27A;border-color:#F3C27A}
+#bqCadeado .bq-pontos.abana{animation:bqAbana .35s}
+@keyframes bqAbana{20%,60%{transform:translateX(-8px)}40%,80%{transform:translateX(8px)}}
+#bqCadeado .bq-erro{min-height:1.2em;margin:0;color:#F7C1C1;font-size:.8125rem}
+#bqCadeado .bq-tecl{display:grid;grid-template-columns:repeat(3,72px);gap:14px 22px;margin:6px 0 10px}
+#bqCadeado .bq-tecl button{width:72px;height:72px;border-radius:50%;border:0;background:rgba(255,255,255,.1);color:#fff;font:inherit;font-size:1.75rem;font-weight:500}
+#bqCadeado .bq-tecl button:active{background:rgba(255,255,255,.25)}
+#bqCadeado .bq-tecl .bq-vazio{background:none}
+#bqCadeado .bq-bio{min-height:48px;padding:0 20px;border-radius:12px;border:0;background:#F3C27A;color:#3D2503;font:inherit;font-weight:700}
+#bqCadeado .bq-esq{border:0;background:none;color:#C9D0E0;font:inherit;font-size:.8125rem;text-decoration:underline;padding:10px}

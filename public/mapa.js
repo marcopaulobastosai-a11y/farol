@@ -33,7 +33,14 @@ var MP_CSS = [
   '#view-mapa .mp-def{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px;display:flex;flex-direction:column;gap:10px;font-weight:600}',
   '#view-mapa .mp-letra{display:flex;flex-wrap:wrap;gap:4px;padding:4px;border-radius:12px;background:var(--surface-2);border:1px solid var(--line)}',
   '#view-mapa .mp-letra button{flex:1 1 auto;min-height:40px;border-radius:9px;border:0;background:none;font:inherit;font-size:.8125rem;font-weight:600;color:var(--ink-2);padding:0 10px}',
-  '#view-mapa .mp-letra button.on{background:var(--surface);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.08)}'
+'#view-mapa .mp-def + .mp-def{margin-top:10px}',
+  '#view-mapa .mp-info{font-weight:400;color:var(--muted);font-size:.8125rem}',
+  '#view-mapa .mp-erro{color:var(--bad);font-weight:500}',
+  '#view-mapa .mp-form{display:flex;flex-direction:column;gap:8px}',
+  '#view-mapa .mp-form input[type=password]{font:inherit;font-weight:400;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--surface-2);color:var(--ink)}',
+  '#view-mapa .mp-chk{font-weight:500;font-size:.875rem;display:flex;align-items:center;gap:6px}',
+  '#view-mapa .mp-acoes{display:flex;flex-wrap:wrap;gap:8px}',
+    '#view-mapa .mp-letra button.on{background:var(--surface);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.08)}'
 ].join('\n');
 
 function mpEstilo(){
@@ -150,8 +157,60 @@ function mpRender(){
     });
     cx.appendChild(seg);
     def.appendChild(cx);
+    if (typeof bqEstado === 'function') def.appendChild(mpBloqueio());
     sec.appendChild(def);
   }
+}
+
+/* Bloqueio da app neste aparelho (bloqueio.js): codigo e Face ID. */
+function mpBloqueio(){
+  var cx = el('div', 'mp-def');
+  var est = bqEstado();
+  cx.appendChild(el('span', null, 'Bloqueio da app'));
+  var info = el('small', 'mp-info', est.ligado ? ('Ligado: código' + (est.bio ? ' e Face ID / impressão digital' : '') + '. Pede-se ao abrir e ao voltar depois de 1 minuto fora.')
+    : 'Desligado. Com o bloqueio, o Farol pede o código ou o Face ID ao abrir.');
+  cx.appendChild(info);
+  var erro = el('small', 'mp-erro'); erro.hidden = true;
+  var falha = function(e){ erro.textContent = (e && e.message) || 'Não deu.'; erro.hidden = false; };
+  var acoes = el('div', 'mp-acoes');
+  if (!est.ligado){
+    var f = el('div', 'mp-form');
+    var c1 = el('input'); c1.type = 'password'; c1.inputMode = 'numeric'; c1.autocomplete = 'new-password'; c1.placeholder = 'Código (4 a 8 algarismos)'; c1.maxLength = 8;
+    var c2 = el('input'); c2.type = 'password'; c2.inputMode = 'numeric'; c2.autocomplete = 'new-password'; c2.placeholder = 'Repetir o código'; c2.maxLength = 8;
+    var lb = el('label', 'mp-chk'); var ck = el('input'); ck.type = 'checkbox'; lb.appendChild(ck); lb.appendChild(document.createTextNode(' Também com Face ID / impressão digital'));
+    lb.hidden = true;
+    bqTemBiometria().then(function(sim){ if (sim){ lb.hidden = false; ck.checked = true; } });
+    var ok = el('button', 'btn primary', 'Ligar o bloqueio'); ok.type = 'button';
+    ok.addEventListener('click', function(){
+      erro.hidden = true;
+      if (c1.value !== c2.value) return falha(new Error('Os dois códigos não são iguais.'));
+      ok.disabled = true;
+      bqLigar(c1.value, ck.checked && !lb.hidden).then(function(){ mpRender(); if (typeof toast === 'function') toast('Bloqueio ligado neste aparelho.'); })
+        .catch(function(e){ ok.disabled = false; falha(e); mpRender(); });
+    });
+    [c1, c2, lb, ok].forEach(function(x){ f.appendChild(x); });
+    cx.appendChild(f);
+  } else {
+    if (!est.bio){
+      var bb = el('button', 'btn', 'Juntar Face ID / impressão digital'); bb.type = 'button';
+      bb.addEventListener('click', function(){ bqBio().then(function(){ mpRender(); }).catch(falha); });
+      bqTemBiometria().then(function(sim){ if (!sim) bb.remove(); });
+      acoes.appendChild(bb);
+    }
+    var ag = el('button', 'btn', 'Bloquear agora'); ag.type = 'button';
+    ag.addEventListener('click', function(){ bqAgora(); });
+    acoes.appendChild(ag);
+    var de = el('button', 'btn', 'Desligar'); de.type = 'button';
+    de.addEventListener('click', function(){
+      var c = prompt('Para desligar, escreve o código:');
+      if (c === null) return;
+      bqDesligar(c).then(function(){ mpRender(); if (typeof toast === 'function') toast('Bloqueio desligado neste aparelho.'); }).catch(falha);
+    });
+    acoes.appendChild(de);
+    cx.appendChild(acoes);
+  }
+  cx.appendChild(erro);
+  return cx;
 }
 
 function mpLigar(){
