@@ -1517,8 +1517,9 @@ function instalar(app) {
      que passam os filtros (para os totais, os avisos e o «escolher todos»);
      depois o detalhe completo so da pagina pedida (desde, limite). */
   /* Os movimentos de uma area (fase 3 do menu novo, 24 out 2026). Quase todos
-     os movimentos nao tem area marcada: chegam a area pela categoria, pela
-     conta, pela despesa ou pelo projeto a que estao ligados. «via» diz por
+     os movimentos nao tem area marcada: chegam a area pela despesa, pelo
+     projeto ou pela categoria a que estao ligados. A conta nao conta: uma
+     conta da casa levava para a Familia o ordenado e tudo o resto. «via» diz por
      onde - a primeira que bater, por esta ordem. So leitura. */
   app.get('/api/financas/movimentos-area', async (req, res) => {
     try {
@@ -1532,8 +1533,7 @@ function instalar(app) {
                 CASE WHEN m.context_id = ANY($1::int[]) THEN 'movimento'
                      WHEN e.context_id = ANY($1::int[]) THEN 'despesa'
                      WHEN p.context_id = ANY($1::int[]) THEN 'projeto'
-                     WHEN cat.context_id = ANY($1::int[]) THEN 'categoria'
-                     ELSE 'conta' END AS via
+                     ELSE 'categoria' END AS via
            FROM fin_movimentos m
            JOIN fin_contas c ON c.id = m.conta_id
            LEFT JOIN fin_categorias cat ON cat.id = m.categoria_id
@@ -1543,7 +1543,6 @@ function instalar(app) {
              OR e.context_id = ANY($1::int[])
              OR p.context_id = ANY($1::int[])
              OR cat.context_id = ANY($1::int[])
-             OR c.context_id = ANY($1::int[])
           ORDER BY m.data DESC, m.id DESC
           LIMIT $2`, [ids, limite]);
       res.json({ movimentos: rows });

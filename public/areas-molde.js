@@ -174,7 +174,7 @@ function moPagMovimentos(a, card, alvo){
   if (!c.lista){ card.appendChild(el('p', 'mo-vazio', 'A ler os movimentos…')); return; }
   var lista = c.lista || [];
   if (c.erro){ card.appendChild(el('p', 'mo-vazio', 'Não foi possível ler os movimentos.')); return; }
-  card.appendChild(el('p', 'mo-sub', 'Os movimentos do banco que pertencem a esta área — marcados nela, ou ligados por uma despesa, um projeto, a categoria ou a conta. Os 300 mais recentes.'));
+  card.appendChild(el('p', 'mo-sub', 'Os movimentos do banco que pertencem a esta área — marcados nela, ou ligados por uma despesa, um projeto ou a categoria. Os 300 mais recentes.'));
   if (!lista.length){ card.appendChild(el('p', 'mo-vazio', 'Nenhum movimento ligado a esta área.')); }
   else {
     var ent = 0, sai = 0;
