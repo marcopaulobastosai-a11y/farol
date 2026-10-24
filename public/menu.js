@@ -35,15 +35,13 @@ function mnGravar(k, v){
 var MN_ORDEM = {
   hoje: 10, agenda: 11, tarefas: 12,
   familia: 21, casa: 22, patrimonio: 23, financas: 24, profissional: 25, saude: 26, viagens: 27,
-  projetos: 39,
-  gente: 41, documentos: 42, revisao: 43,
+  gente: 41, projetos: 42, documentos: 43, revisao: 44,
   acessos: 51, areas: 52, pessoas: 53, destinatarios: 54, splitwise: 55, eventos: 56, despesas: 57
 };
 var MN_FORA = { inbox: true };
 var MN_GRUPOS = [
   ['painel', 'Painel', 9],
   ['areas', 'Áreas', 20],
-  ['programas', 'Programas', 30],
   ['transversal', 'Transversal', 40],
   ['admin', 'Administração', 50]
 ];
@@ -103,6 +101,14 @@ var MN_CSS = [
   '#mnPop{position:fixed;z-index:1200;min-width:220px;padding:6px;border-radius:12px;border:1px solid var(--line);background:var(--surface);box-shadow:0 10px 30px rgba(0,0,0,.14);display:flex;flex-direction:column;gap:2px}',
   '#mnPop button{display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:10px 12px;border-radius:8px;font:inherit;font-size:.875rem;color:var(--ink);min-height:44px}',
   '#mnPop button:hover,#mnPop button:focus-visible{background:var(--surface-2)}',
+  /* a largura do menu: so no computador, com o menu aberto */
+  '#mnPuxador{display:none}',
+  '@media (min-width:901px){',
+  '  body.mn-on:not(.mn-mini) .app{grid-template-columns:var(--mn-larg,248px) minmax(0,1fr)}',
+  '  body.mn-on:not(.mn-mini) #mnPuxador{display:block;position:fixed;top:0;bottom:0;left:calc(var(--mn-larg,248px) - 4px);width:8px;z-index:40;cursor:col-resize;touch-action:none}',
+  '  body.mn-on:not(.mn-mini) #mnPuxador:hover,body.mn-on:not(.mn-mini) #mnPuxador:focus-visible,body.mn-a-puxar #mnPuxador{background:linear-gradient(to right,transparent 3px,var(--accent) 3px,var(--accent) 5px,transparent 5px);outline:none}',
+  '  body.mn-a-puxar{cursor:col-resize;user-select:none}',
+  '}',
   /* menu recolhido, so no computador */
   '@media (min-width:901px){',
   '  body.mn-on.mn-mini .app{grid-template-columns:68px minmax(0,1fr)}',
@@ -332,7 +338,8 @@ function mnAplicar(){
   mnRotulos(nav);
   mnTopo(nav);
   mnRecolher();
-  mnProgramas(nav);
+  /* 24 out: o bloco dos programas saiu do menu (repetia os Projetos e
+     cortava os nomes). Os programas vivem nos Projetos e no topo de cada area. */
   var outros = 60;
   Array.prototype.forEach.call(nav.children, function(n){
     var c = n.classList;
@@ -472,6 +479,51 @@ function mnEmbrulharShow(){
   window.show = novo;
 }
 
+/* ----------------------- a largura do menu (24 out) ----------------------- */
+/* Arrasta-se a borda direita do menu; duplo clique volta ao normal. Fica
+   guardada neste browser. So no computador e com o menu aberto. */
+var MN_LARG = { min: 200, max: 380, normal: 248 };
+function mnLarguraPor(px, guardar){
+  var w = Math.round(Math.min(MN_LARG.max, Math.max(MN_LARG.min, px)));
+  document.body.style.setProperty('--mn-larg', w + 'px');
+  if (guardar) mnGravar('farolMenuLargura', String(w));
+}
+function mnLarguraLigar(){
+  if (document.getElementById('mnPuxador')) return;
+  var guardada = Number(mnLer('farolMenuLargura'));
+  mnLarguraPor(guardada || MN_LARG.normal, false);
+  var p = el('div');
+  p.id = 'mnPuxador';
+  p.setAttribute('role', 'separator');
+  p.setAttribute('aria-orientation', 'vertical');
+  p.setAttribute('aria-label', 'Largura do menu');
+  p.title = 'Arrastar para mudar a largura do menu · duplo clique para voltar ao normal';
+  p.tabIndex = 0;
+  document.body.appendChild(p);
+  var aArrastar = false;
+  p.addEventListener('pointerdown', function(e){
+    aArrastar = true;
+    p.setPointerCapture(e.pointerId);
+    document.body.classList.add('mn-a-puxar');
+    e.preventDefault();
+  });
+  p.addEventListener('pointermove', function(e){ if (aArrastar) mnLarguraPor(e.clientX, false); });
+  function acabar(e){
+    if (!aArrastar) return;
+    aArrastar = false;
+    document.body.classList.remove('mn-a-puxar');
+    mnLarguraPor(e.clientX, true);
+  }
+  p.addEventListener('pointerup', acabar);
+  p.addEventListener('pointercancel', acabar);
+  p.addEventListener('dblclick', function(){ mnLarguraPor(MN_LARG.normal, true); });
+  p.addEventListener('keydown', function(e){
+    var atual = parseInt(getComputedStyle(document.body).getPropertyValue('--mn-larg'), 10) || MN_LARG.normal;
+    if (e.key === 'ArrowLeft'){ mnLarguraPor(atual - 16, true); e.preventDefault(); }
+    if (e.key === 'ArrowRight'){ mnLarguraPor(atual + 16, true); e.preventDefault(); }
+  });
+}
+
 /* ------------------------------- arranque -------------------------------- */
 /* Quem e o utilizador: antes de entrar com a conta Google a resposta e 401,
    por isso tenta-se outra vez de tempos a tempos, poucas vezes. */
@@ -526,8 +578,7 @@ function mnLigar(){
         if (inp) setTimeout(function(){ inp.focus(); }, 30);
       }
     });
-    /* os programas so chegam com as tarefas, e mudam sem o menu mexer */
-    setInterval(function(){ var nav = document.getElementById('nav'); if (nav) mnProgramas(nav); }, 4000);
+    mnLarguraLigar();
   }
   /* O Hoje tem coisas que so aparecem com o menu novo («So eu / Agregado»). */
   if (typeof hjRender === 'function' && window.D && D.attention){
