@@ -112,6 +112,7 @@ var MN_CSS = [
   '  body.mn-on.mn-mini #nav button .badge{display:none}',
   '  body.mn-on.mn-mini #nav button.mn-tem::after{content:"";position:absolute;top:7px;right:12px;width:7px;height:7px;border-radius:50%;background:var(--accent)}',
   '  body.mn-on.mn-mini #nav .mn-ini{display:inline-flex;font-size:.8125rem;font-weight:500;width:18px;justify-content:center}',
+  '  body.mn-on.mn-mini #nav .mn-label,body.mn-on.mn-mini #nav .ae-nsubs{display:none!important}',
   '  body.mn-on.mn-mini #nav .ps-caixa input,body.mn-on.mn-mini #nav .ps-caixa .ps-tecla{display:none}',
   '  body.mn-on.mn-mini #nav .ps-caixa{justify-content:center;cursor:pointer}',
   '  body.mn-on.mn-mini .rail-foot{justify-content:center}',
