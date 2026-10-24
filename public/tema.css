@@ -373,6 +373,18 @@ body.mn-on .tm-procurar,body.mn-on #view-gente .tm-saltos{display:none}
   body.mn-on .tm-folha-c > .ag-tb2 > button.btn,body.mn-on .tm-folha-c > .ag-tb2 .ag-esp{display:none}
   body.mn-on .tm-folha-c .who-filter{flex-wrap:wrap}
   body.mn-on .tm-grupo{display:flex;flex-direction:column;gap:10px}
+  /* Agenda: ja tem o seu «Filtros»; as vistas e a barra de baixo numa linha que desliza */
+  body.mn-on #view-agenda .ag-seg{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;max-width:100%}
+  body.mn-on #view-agenda .ag-seg::-webkit-scrollbar{display:none}
+  body.mn-on #view-agenda .ag-seg > *{flex:none}
+  body.mn-on #view-agenda .ag-tb2{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}
+  body.mn-on #view-agenda .ag-tb2::-webkit-scrollbar{display:none}
+  body.mn-on #view-agenda .ag-tb2 > *{flex:none}
+  body.mn-on #view-agenda .ag-tb2 .ag-esp{display:none}
+  body.mn-on #view-agenda .ag-tb2 .ag-q{width:150px}
+  /* Movimentos mais juntos: descricao numa linha */
+  body.mn-on .fn-movtab tr{padding:7px 2px;row-gap:0}
+  body.mn-on .fn-movtab td:nth-child(4) *{white-space:nowrap !important;overflow:hidden !important;text-overflow:ellipsis !important;display:block}
   html body.mn-on dialog.tm-folha.folha{display:none}
   html body.mn-on dialog.tm-folha.folha[open]{display:flex;flex-direction:column;width:min(24rem,88vw) !important;background:var(--ground)}
   html body.mn-on dialog.tm-folha.folha > *{min-height:0 !important;background:transparent !important}

@@ -41,7 +41,7 @@ function tmLupa(){
  * que continuam la dentro e sao redesenhados pelos ecras como sempre.
  * ------------------------------------------------------------------ */
 var TM = { aberta: null, quando: 0 };
-var TM_FILTROS = ['.fn-presa', '.ae-filtros', '#ibFiltros', '.ag-tb2', '#docsAreas'];
+var TM_FILTROS = ['.fn-presa', '.ae-filtros', '#ibFiltros', '#docsAreas'];
 
 /* Os Documentos tem os filtros em tres blocos seguidos (areas, pessoas e o
    «Limpar filtros»): juntam-se numa caixa so antes de irem para a folha. */
