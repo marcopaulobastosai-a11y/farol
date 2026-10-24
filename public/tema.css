@@ -457,4 +457,5 @@ html.bq-on body > *:not(#bqCadeado){visibility:hidden !important}
   body.mn-on .tm-fundo.on{display:block;position:fixed;inset:0;z-index:59;background:rgba(20,33,61,.45)}
   html.tm-painel-on,html.tm-painel-on body{overflow:hidden}
   body.mn-on .fn-corpo > .tm-fl{margin-bottom:10px}
+  body.mn-on .tm-folha-c .rl-barra,body.mn-on .tm-folha-c .fm-filtros{display:flex;flex-direction:column;align-items:stretch;gap:10px}
 }
