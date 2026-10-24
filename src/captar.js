@@ -323,6 +323,8 @@ async function proporAreas(limite, saltar) {
     'pertence cada grupo, escolhendo exactamente um nome da lista. Se o grupo nao pertencer claramente a',
     'nenhuma (transferencias, levantamentos, coisas ambiguas), deixa a area vazia - nao adivinhes.',
     'confianca alta so quando o comerciante deixa pouca duvida (ex.: farmacia -> Saude; renda -> Casa).',
+    'Supermercados, padarias e entregas de comida sao as compras do dia a dia da casa: propoe a area Casa com confianca media.',
+    'Uber, Bolt e taxis: Viagens e lazer com confianca baixa, a nao ser que a descricao diga mais.',
     '',
     'Areas (Area > Sub-area). Prefere a sub-area quando for clara; senao a area de topo:',
     ctx.areas.map((a) => '- ' + a.nome).join('\n'),
