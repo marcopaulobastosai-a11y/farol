@@ -173,7 +173,7 @@ tmLetra(tmLetraAtual());
  * abre o ficheiro por cima de tudo, sem barra nem botao de voltar - ficava-
  * -se preso no documento. No telemovel (ou na app instalada) passam a
  * abrir num visor por cima da pagina, com «Fechar» (e o gesto de voltar)
- * que deixa tudo onde estava, e «Abrir à parte» para partilhar/guardar.
+ * que deixa tudo onde estava, e «Guardar» para partilhar/guardar.
  * ------------------------------------------------------------------ */
 function tmVisorUsar(){
   var standalone = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone;
@@ -200,8 +200,10 @@ function tmVisorAbrir(url, titulo){
   fechar.addEventListener('click', function(){ tmVisorFechar(false); });
   barra.appendChild(fechar);
   barra.appendChild(el('span', 'tm-v-tit', titulo || ''));
-  var fora = el('a', 'tm-v-fora', 'Abrir à parte');
-  fora.href = url; fora.target = '_blank'; fora.rel = 'noopener';
+  /* Na app instalada, abrir noutra janela voltava a prender: «Guardar»
+     descarrega, e o iPhone mostra a folha de partilhar/guardar. */
+  var fora = el('a', 'tm-v-fora', 'Guardar');
+  fora.href = url; fora.setAttribute('download', '');
   fora.dataset.tmFora = '1';
   barra.appendChild(fora);
   v.appendChild(barra);
