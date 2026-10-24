@@ -41,7 +41,7 @@ function tmLupa(){
  * que continuam la dentro e sao redesenhados pelos ecras como sempre.
  * ------------------------------------------------------------------ */
 var TM = { aberta: null, quando: 0 };
-var TM_FILTROS = ['.fn-presa', '.ae-filtros', '#ibFiltros', '#docsAreas'];
+var TM_FILTROS = ['.fn-presa', '.ae-filtros', '#ibFiltros', '#docsAreas', '.fn-corpo > .fn-barra'];
 
 /* Os Documentos tem os filtros em tres blocos seguidos (areas, pessoas e o
    «Limpar filtros»): juntam-se numa caixa so antes de irem para a folha. */
@@ -176,7 +176,11 @@ function tmVerFiltros(){
   if (!tmMovel()) return;
   TM_FILTROS.forEach(function(sel){
     document.querySelectorAll('main ' + sel).forEach(function(box){
-      if (!box.dataset.tm && !box.closest('.tm-folha')) tmPrepararFiltros(box);
+      if (box.dataset.tm || box.closest('.tm-folha')) return;
+      /* Nas Financas, so a barra que tem filtros (ambito, area...), nao as
+         barras de numeros. */
+      if (sel === '.fn-corpo > .fn-barra' && !box.querySelector('.fn-seg, select')) return;
+      tmPrepararFiltros(box);
     });
   });
 }
@@ -299,4 +303,36 @@ function tmRecolherCaixa(){
 (function tmEsperarCaixa(n){
   if (document.getElementById('ibFicheiro')) { try { tmRecolherCaixa(); } catch (e) {} return; }
   if (n < 120) setTimeout(function(){ tmEsperarCaixa(n + 1); }, 500);
+})(0);
+
+
+/* ------------------------------------------------------------------ *
+ * Paineis de filtros que ja existiam e abriam no meio da pagina (a
+ * Agenda: pessoas, areas, o que mostrar, por agendar). No telemovel
+ * passam a abrir da direita, por cima, com fundo escuro e «×».
+ * ------------------------------------------------------------------ */
+var TM_PAINEIS = ['#agSide'];
+function tmPainel(p){
+  if (p.dataset.tmPainel) return;
+  p.dataset.tmPainel = '1';
+  var cab = el('div', 'tm-painel-h');
+  cab.appendChild(el('h2', null, 'Filtros'));
+  var x = el('button', 'tm-folha-x', '×'); x.type = 'button'; x.setAttribute('aria-label', 'Fechar');
+  x.addEventListener('click', function(){ p.classList.remove('aberto'); });
+  cab.appendChild(x);
+  p.insertBefore(cab, p.firstChild);
+  var fundo = el('div', 'tm-fundo');
+  fundo.addEventListener('click', function(){ p.classList.remove('aberto'); });
+  p.parentNode.insertBefore(fundo, p);
+  var marcar = function(){
+    var a = p.classList.contains('aberto');
+    fundo.classList.toggle('on', a);
+    document.documentElement.classList.toggle('tm-painel-on', a && tmMovel());
+  };
+  new MutationObserver(marcar).observe(p, { attributes: true, attributeFilter: ['class'] });
+  marcar();
+}
+(function tmPaineis(n){
+  TM_PAINEIS.forEach(function(sel){ var p = document.querySelector(sel); if (p) tmPainel(p); });
+  if (n < 120) setTimeout(function(){ tmPaineis(n + 1); }, 1000);
 })(0);

@@ -445,3 +445,16 @@ html.bq-on body > *:not(#bqCadeado){visibility:hidden !important}
 #bqCadeado .bq-tecl .bq-vazio{background:none}
 #bqCadeado .bq-bio{min-height:48px;padding:0 20px;border-radius:12px;border:0;background:#F3C27A;color:#3D2503;font:inherit;font-weight:700}
 #bqCadeado .bq-esq{border:0;background:none;color:#C9D0E0;font:inherit;font-size:.8125rem;text-decoration:underline;padding:10px}
+
+/* ---------- paineis de filtros antigos (Agenda) a abrir da direita ---------- */
+.tm-painel-h,.tm-fundo{display:none}
+@media (max-width:900px){
+  html body.mn-on #view-agenda .ag-side.aberto{position:fixed !important;top:0;right:0;bottom:0;width:min(22rem,88vw);z-index:60;overflow-y:auto;
+    background:var(--ground);padding:0 14px calc(16px + env(safe-area-inset-bottom,0px));box-shadow:-20px 0 60px -30px rgba(0,0,0,.45);gap:10px;zoom:1}
+  body.mn-on .ag-side.aberto .tm-painel-h{display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:2;background:var(--ground);
+    padding:calc(10px + env(safe-area-inset-top,0px)) 0 6px}
+  body.mn-on .tm-painel-h h2{margin:0;font-size:1.25rem;font-weight:700}
+  body.mn-on .tm-fundo.on{display:block;position:fixed;inset:0;z-index:59;background:rgba(20,33,61,.45)}
+  html.tm-painel-on,html.tm-painel-on body{overflow:hidden}
+  body.mn-on .fn-corpo > .tm-fl{margin-bottom:10px}
+}
