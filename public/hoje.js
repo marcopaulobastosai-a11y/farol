@@ -18,11 +18,18 @@
  */
 'use strict';
 
-var HJ = { fechados: {}, pendente: false };
+var HJ = { fechados: {}, pendente: false, quem: 'todos', eu: null };
+try { if (localStorage.getItem('hjQuem') === 'eu') HJ.quem = 'eu'; } catch (e) {}
 try { HJ.fechados = JSON.parse(localStorage.getItem('hjFechados') || '{}') || {}; } catch (e) { HJ.fechados = {}; }
 function hjGuardar() { try { localStorage.setItem('hjFechados', JSON.stringify(HJ.fechados)); } catch (e) {} }
 
 var HJ_CSS =
+  '.hj-topo{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:8px}' +
+  '.hj-topo #attnLabel{margin-bottom:0!important}' +
+  '.hj-quem{display:inline-flex;padding:3px;border-radius:9px;background:var(--line-soft);gap:2px}' +
+  '.hj-quem[hidden]{display:none}' +
+  '.hj-quem button{font:inherit;font-size:.8125rem;padding:0 12px;min-height:32px;border-radius:7px;color:var(--muted);background:none;border:none;cursor:pointer}' +
+  '.hj-quem button.on{background:var(--surface);color:var(--ink);font-weight:500;box-shadow:0 1px 2px rgba(0,0,0,.08)}' +
   '#attnList .hj-per{margin-bottom:6px}' +
   '#attnList .hj-per > h4{display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:.6875rem;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);font-weight:500;padding:8px 2px 6px;cursor:pointer;user-select:none;margin:0}' +
   '#attnList .hj-per > h4:hover{color:var(--ink)}' +
@@ -117,6 +124,77 @@ var HJ_NOMES = { tarefa: 'Tarefa', pagamento: 'Pagamento', lembrete: 'Lembrete',
   documento: 'Documento a perder validade', pessoa: 'Documento de identificação', evento: 'Evento (lembrete)' };
 var HJ_CLS = { tarefa: '', pagamento: 'pag', lembrete: 'lem', aniversario: 'ani', documento: 'doc', pessoa: 'doc', evento: 'ev' };
 
+/* ------------------------------------------------------------------ *
+ * «So eu» / «Agregado» (fase 2 do menu novo, 24 out 2026)
+ *
+ * Agregado e o Hoje de sempre. So eu deixa so o que e da pessoa da conta:
+ * as tarefas e pagamentos de que e responsavel (e os que nao tem
+ * responsavel), os eventos em que esta (ou sem ninguem marcado), os papeis
+ * dela ou de ninguem, e o cartao de cidadao dela. A pessoa da conta vem do
+ * /api/me. O botao so aparece com o menu novo ligado.
+ * ------------------------------------------------------------------ */
+function hjSoEu() { return HJ.quem === 'eu' && HJ.eu != null && document.body.classList.contains('mn-on'); }
+function hjDoEvento(id) { return ((window.D && D.events) || []).filter(function (e) { return e.id === id; })[0] || null; }
+function hjDoDoc(id) { return ((window.D && D.documents) || []).filter(function (d) { return d.id === id; })[0] || null; }
+function hjTarefaMinha(t) { return !t || t.owner_id == null || t.owner_id === HJ.eu; }
+function hjEventoMeu(e) { return !e || !e.pessoas || !e.pessoas.length || e.pessoas.indexOf(HJ.eu) >= 0; }
+function hjMeu(a) {
+  if (a.origem === 'tarefa') return hjTarefaMinha(hjTarefa(a.id));
+  if (a.origem === 'pessoa') return a.id === HJ.eu;
+  if (a.origem === 'evento') return hjEventoMeu(hjDoEvento(a.id));
+  if (a.origem === 'documento') { var d = hjDoDoc(a.id); return !d || d.person_id == null || d.person_id === HJ.eu; }
+  return true;
+}
+
+function hjQuemBotoes() {
+  var lab = $('attnLabel');
+  if (!lab) return;
+  var caixa = $('hjQuem');
+  var ver = HJ.eu != null && document.body.classList.contains('mn-on');
+  if (!ver) { if (caixa) caixa.hidden = true; return; }
+  if (!caixa) {
+    caixa = el('div', 'hj-quem');
+    caixa.id = 'hjQuem';
+    caixa.setAttribute('role', 'group');
+    caixa.setAttribute('aria-label', 'De quem');
+    [['eu', 'Só eu'], ['todos', 'Agregado']].forEach(function (o) {
+      var b = el('button', null, o[1]);
+      b.type = 'button';
+      b.dataset.quem = o[0];
+      b.addEventListener('click', function () {
+        if (HJ.quem === o[0]) return;
+        HJ.quem = o[0];
+        try { localStorage.setItem('hjQuem', o[0]); } catch (e) {}
+        try { hjRender(); hjAgenda(); hjAlinhar(); } catch (e) { console.error('[farol] hoje: quem', e); }
+      });
+      caixa.appendChild(b);
+    });
+    var linha = el('div', 'hj-topo');
+    lab.parentNode.insertBefore(linha, lab);
+    linha.appendChild(lab);
+    linha.appendChild(caixa);
+  }
+  caixa.hidden = false;
+  caixa.querySelectorAll('button').forEach(function (b) {
+    var on = b.dataset.quem === HJ.quem;
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+  });
+}
+
+function hjQuemSou(n) {
+  fetch('/api/me', { credentials: 'same-origin' })
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (me) {
+      if (!me) { if (n < 20) setTimeout(function () { hjQuemSou(n + 1); }, 3000); return; }
+      if (me.pessoa_id == null) return;
+      HJ.eu = me.pessoa_id;
+      if (window.D && D.attention) { try { hjRender(); hjAgenda(); hjAlinhar(); } catch (e) {} }
+    })
+    .catch(function () { if (n < 20) setTimeout(function () { hjQuemSou(n + 1); }, 3000); });
+}
+hjQuemSou(0);
+
 /* Os periodos. Uma data cai no primeiro que a aceitar. */
 function hjDia(d) { return new Date(d.getFullYear(), d.getMonth(), d.getDate()); }
 function hjPeriodos() {
@@ -200,8 +278,11 @@ function hjRender() {
   var list = $('attnList');
   if (!list || !window.D || !D.attention) return;
   hjEstilo();
+  hjQuemBotoes();
+  var soEu = hjSoEu();
   /* O que nao se faz - lembretes e aniversarios - vive na Agenda, nao aqui. */
   var itens = (D.attention || []).filter(function (a) {
+    if (soEu && !hjMeu(a)) return false;
     if (a.origem !== 'tarefa') return true;
     var t = hjTarefa(a.id);
     return !(t && t.tipo === 'lembrete');
@@ -211,7 +292,7 @@ function hjRender() {
   });
   var atras = itens.filter(function (x) { return x.dias !== null && x.dias < 0; }).length;
   var lab = $('attnLabel');
-  if (lab) lab.textContent = 'Precisa de ti \u00b7 ' + (itens.length - atras) + ' a chegar' + (atras ? ' \u00b7 ' + atras + ' em atraso' : '');
+  if (lab) lab.textContent = (soEu ? 'Para mim' : 'Precisa de ti') + ' \u00b7 ' + (itens.length - atras) + ' a chegar' + (atras ? ' \u00b7 ' + atras + ' em atraso' : '');
   var bh = $('badgeHoje'); if (bh) bh.textContent = itens.length || '';
   if (!itens.length) {
     clear(list);
@@ -282,8 +363,10 @@ function hjAgenda() {
   var de = hjIso(dias[0]), ate = hjIso(dias[13]), hoje = hjIso(h);
 
   var itens = [];
+  var soEu = hjSoEu();
   (D.events || []).forEach(function (e) {
     if (e.day < de || e.day > ate || e.ocupado) return;
+    if (soEu && !hjEventoMeu(e)) return;
     var aniv = e.calendar === 'aniversarios';
     itens.push({ dia: e.day, hora: e.at || '', titulo: e.title, sub: e.detail || (aniv ? 'Anivers\u00e1rio' : calName(e.calendar)),
       tipo: aniv ? 'aniversario' : 'evento', ctx: e.context_id });
@@ -292,6 +375,7 @@ function hjAgenda() {
     if (t.parent_id || !t.due_on || t.due_on < de || t.due_on > ate) return;
     if (t.tipo !== 'lembrete' && t.tipo !== 'nota') return;
     if (t.status === 'cancelada') return;
+    if (soEu && !hjTarefaMinha(t)) return;
     var tipo = t.tipo === 'nota' ? 'nota' : (/YEARLY/.test(t.repeat_rule || '') ? 'aniversario' : 'lembrete');
     itens.push({ dia: t.due_on, hora: t.due_time || '', titulo: t.title,
       sub: (typeof areaNome === 'function' ? areaNome(t.context_id) : '') || HJ_NOMES[tipo] || 'Nota',

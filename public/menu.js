@@ -529,6 +529,10 @@ function mnLigar(){
     /* os programas so chegam com as tarefas, e mudam sem o menu mexer */
     setInterval(function(){ var nav = document.getElementById('nav'); if (nav) mnProgramas(nav); }, 4000);
   }
+  /* O Hoje tem coisas que so aparecem com o menu novo («So eu / Agregado»). */
+  if (typeof hjRender === 'function' && window.D && D.attention){
+    try { hjRender(); if (typeof hjAgenda === 'function') hjAgenda(); } catch (e) { console.error('[farol] menu: hoje', e); }
+  }
   mnAgendar();
 }
 

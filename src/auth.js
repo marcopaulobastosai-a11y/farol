@@ -111,11 +111,33 @@ function instalar(app) {
     });
   });
 
-  app.get('/api/me', (req, res) => {
-    if (!ativa()) return res.json({ email: null, aberto: true });
+  /* A pessoa do Farol que corresponde a esta conta: a que tem este email em
+     «conta», ou, para o administrador sem pessoa ligada, o primeiro adulto da
+     casa. Serve o «So eu» do Hoje. */
+  async function pessoaDaConta(email, admin) {
+    try {
+      const { query } = require('./db');
+      let r = await query("SELECT id, name FROM people WHERE active AND lower(conta_email) = lower($1) LIMIT 1", [email || '']);
+      if (!r.rows.length && admin) {
+        r = await query("SELECT id, name FROM people WHERE active AND kind = 'adulto' ORDER BY sort, id LIMIT 1");
+      }
+      return r.rows[0] || null;
+    } catch (e) {
+      console.error('[farol] pessoa da conta:', e.message);
+      return null;
+    }
+  }
+
+  app.get('/api/me', async (req, res) => {
+    if (!ativa()) {
+      const p = await pessoaDaConta(null, true);
+      return res.json({ email: null, aberto: true, pessoa_id: p ? p.id : null, pessoa: p ? p.name : null });
+    }
     const s = sessao(req);
     if (!s) return res.status(401).json({ error: 'Entra com a tua conta Google.' });
-    res.json(Object.assign({}, s, { admin: acessos.ehAdmin(s.email) }));
+    const admin = acessos.ehAdmin(s.email);
+    const p = await pessoaDaConta(s.email, admin);
+    res.json(Object.assign({}, s, { admin: admin, pessoa_id: p ? p.id : null, pessoa: p ? p.name : null }));
   });
 
   app.post('/auth/google', async (req, res) => {
