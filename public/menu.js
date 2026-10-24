@@ -131,10 +131,12 @@ var MN_CSS = [
   '  body.mn-on main{padding-bottom:calc(96px + env(safe-area-inset-bottom,0px))}',
   '  body.mn-on #mnBarra{display:flex;position:fixed;left:0;right:0;bottom:0;z-index:950;justify-content:space-around;align-items:center;',
   '    padding:6px 6px calc(8px + env(safe-area-inset-bottom,0px));background:var(--surface);border-top:1px solid var(--line)}',
-  '  #mnBarra button{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-width:56px;min-height:48px;',
-  '    font:inherit;font-size:.6875rem;color:var(--muted);background:none;border:none;position:relative}',
-  '  #mnBarra button.is-active{color:var(--accent-ink);font-weight:500}',
-  '  #mnBarra button.mn-mais{width:54px;height:54px;min-width:54px;border-radius:16px;background:var(--accent);color:#fff;margin-top:-20px}',
+  '  #mnBarra button{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;min-width:56px;min-height:48px;',
+  '    font:inherit;font-size:.6875rem;font-weight:600;color:var(--muted);background:none;border:none;position:relative}',
+  '  #mnBarra .mn-dot{width:6px;height:6px;border-radius:3px;background:transparent}',
+  '  #mnBarra button.is-active{color:var(--ink);font-weight:700}',
+  '  #mnBarra button.is-active .mn-dot{background:#E8A33D}',
+  '  #mnBarra button.mn-mais{width:56px;height:56px;min-width:56px;border-radius:18px;background:var(--accent);color:#fff;margin-top:-18px}',
   '  :root[data-theme="dark"] #mnBarra button.mn-mais{color:#06181A}',
   '  #mnBarra .mn-pt{position:absolute;top:4px;right:12px;min-width:16px;height:16px;padding:0 4px;border-radius:8px;background:var(--accent);color:#fff;',
   '    font-family:var(--mono);font-size:.625rem;line-height:16px;text-align:center}',
@@ -371,7 +373,9 @@ function mnBarra(){
   var barra = el('nav');
   barra.id = 'mnBarra';
   barra.setAttribute('aria-label', 'Menu');
-  [['hoje', 'Hoje'], ['agenda', 'Agenda'], ['+', 'Captar'], ['tarefas', 'Tarefas'], ['menu', 'Menu']].forEach(function(i){
+  /* Como no mockup: Hoje · Agenda · + · Areas · Pessoas. «Areas» abre a
+     gaveta com o menu inteiro (areas, Tarefas, Projetos, Administracao). */
+  [['hoje', 'Hoje'], ['agenda', 'Agenda'], ['+', 'Captar'], ['menu', 'Áreas'], ['gente', 'Pessoas']].forEach(function(i){
     var b = el('button');
     b.type = 'button';
     b.dataset.mn = i[0];
@@ -382,7 +386,7 @@ function mnBarra(){
       b.innerHTML = mnSvg(MN_I.mais, 24);
       b.addEventListener('click', function(e){ e.stopPropagation(); mnCaptar(b); });
     } else {
-      b.innerHTML = mnSvg(MN_I[i[0]], 20) + '<span>' + i[1] + '</span>';
+      b.innerHTML = '<span class="mn-dot" aria-hidden="true"></span><span>' + i[1] + '</span>';
       if (i[0] === 'hoje'){ var pt = el('span', 'mn-pt'); pt.hidden = true; b.appendChild(pt); }
       if (i[0] === 'menu'){
         b.setAttribute('aria-expanded', 'false');
@@ -397,7 +401,11 @@ function mnBarra(){
 }
 function mnMarcarBarra(view){
   var bs = document.querySelectorAll('#mnBarra button[data-mn]');
-  for (var i = 0; i < bs.length; i++) bs[i].classList.toggle('is-active', bs[i].dataset.mn === view);
+  var area = (window.AE_AREAS || []).some(function(a){ return a.view === view; }) || /^(tarefas|projetos|documentos|revisao|financas|despesas)$/.test(view);
+  for (var i = 0; i < bs.length; i++){
+    var k = bs[i].dataset.mn;
+    bs[i].classList.toggle('is-active', k === view || (k === 'menu' && area));
+  }
 }
 
 /* Ao mudar de ecra: realcar na barra e fechar a gaveta. */

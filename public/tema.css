@@ -176,3 +176,80 @@ html[data-theme="light"] body.mn-on .ae-novo-tipos button.on{color:#fff}
 /* No menu lateral o destaque e ambar: texto escuro por cima. */
 html body.mn-on .rail .nav .btn.btn.primary,
 html body.mn-on .rail .nav .btn.btn.primary:hover{color:var(--ambar-ink)}
+
+/* =====================================================================
+   Telemovel (ate 900 px), como no mockup «Farol — integracao do novo
+   menu» (24 out 2026): nada a sair para o lado, cabecalho com a data em
+   ambar por cima do titulo e a lupa, numeros do Hoje numa faixa que
+   desliza, a captura como folha que sobe de baixo, Pessoas em lista e a
+   revisao com «Fechar a semana» sempre a mao.
+   ===================================================================== */
+@media (max-width:900px){
+  /* nada passa da largura do ecra */
+  body.mn-on .g4,body.mn-on .g3,body.mn-on .g2,body.mn-on .split{grid-template-columns:minmax(0,1fr)}
+  body.mn-on .grid > *{min-width:0}
+  body.mn-on .tf-tipos{flex-wrap:wrap}
+  body.mn-on .pj-arv{overflow-x:auto}
+  body.mn-on #view-gente .gt-cw,body.mn-on #view-gente .gt-cw .gt-card{min-width:0}
+
+  /* cabecalho */
+  body.mn-on .topbar{padding-top:calc(18px + env(safe-area-inset-top,0px));padding-bottom:10px;align-items:flex-start}
+  body.mn-on .topbar > div:first-child{flex-direction:column-reverse;align-items:flex-start;gap:2px}
+  body.mn-on .topbar h1{font-size:1.75rem;font-weight:700;letter-spacing:-.02em}
+  body.mn-on .topbar .sub{font-size:.8125rem;font-weight:600;color:var(--warn)}
+  body.mn-on #btnReload{display:none}
+  body.mn-on .tm-procurar{display:inline-flex}
+  body.mn-on .topbar .right .btn{min-height:44px}
+
+  /* Hoje: os numeros numa faixa que desliza */
+  body.mn-on #view-hoje .card:has(> #tiles){background:none;border:0;box-shadow:none;padding:0;margin:0 0 12px !important}
+  body.mn-on #view-hoje .card:has(> #tiles) > header{display:none}
+  body.mn-on #view-hoje .tiles{display:flex;overflow-x:auto;gap:8px;scroll-snap-type:x mandatory;padding-bottom:4px;margin:0 -16px;padding-left:16px;padding-right:16px;scrollbar-width:none}
+  body.mn-on #view-hoje .tiles::-webkit-scrollbar{display:none}
+  body.mn-on #view-hoje .tile{flex:0 0 auto;min-width:150px;scroll-snap-align:start;background:var(--surface);border:1px solid var(--line);border-radius:12px}
+
+  /* captura: folha que sobe de baixo */
+  html body.mn-on dialog#cpDlg.folha.folha{inset:auto 0 0 0 !important;width:100vw !important;height:auto !important;max-height:92dvh !important;
+    border:0;border-radius:24px 24px 0 0;background:var(--ground);box-shadow:0 -20px 60px -30px rgba(0,0,0,.5)}
+  html body.mn-on dialog#cpDlg.folha.folha > *{min-height:0;background:var(--ground)}
+  html body.mn-on dialog#cpDlg.folha.folha[open]{animation:tmSobe .2s ease}
+  html body.mn-on dialog#cpDlg.folha.folha::backdrop{background:rgba(20,33,61,.55)}
+  body.mn-on #cpDlg .cp{padding-top:12px}
+  body.mn-on #cpDlg .cp::before{content:"";align-self:center;width:40px;height:5px;border-radius:3px;background:var(--line);margin-bottom:-4px}
+  body.mn-on #cpDlg textarea{border-color:var(--ink);background:var(--surface)}
+  body.mn-on #cpDlg .cp-gr{min-height:76px;flex-direction:column;gap:6px;font-weight:600;border-radius:14px}
+  body.mn-on #cpDlg .cp-acoes .btn{min-height:52px;border-radius:14px;font-weight:700}
+
+  /* Pessoas: saltos por circulo e cartoes em lista */
+  body.mn-on #view-gente .tm-saltos{display:flex}
+  body.mn-on #view-gente .gt-cards{grid-template-columns:minmax(0,1fr);gap:0;background:var(--surface);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+  body.mn-on #view-gente .gt-cards > *{border-bottom:1px solid var(--line-soft)}
+  body.mn-on #view-gente .gt-cards > *:last-child{border-bottom:0}
+  body.mn-on #view-gente .gt-card{border:0;border-radius:0;padding:12px 44px 12px 14px;align-items:center}
+  body.mn-on #view-gente .gt-cards > .gt-card{padding-right:14px}
+  body.mn-on #view-gente .gt-sem{display:none}
+  body.mn-on #view-gente .gt-t b{font-weight:700;font-size:.9375rem}
+  body.mn-on #view-gente .gt-aj{top:50%;bottom:auto;transform:translateY(-50%);width:40px;height:40px}
+  body.mn-on #view-gente .gt-tag{align-self:center;margin-right:28px}
+
+  /* Areas: os separadores deslizam; o + de baixo faz de «Captar aqui» */
+  body.mn-on .mo-tabs{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}
+  body.mn-on .mo-tabs::-webkit-scrollbar{display:none}
+  body.mn-on .mo-tabs .mo-captar{display:none}
+
+  /* Revisao: «Fechar a semana» sempre a mao, por cima da barra de baixo */
+  body.mn-on #view-revisao .rv-fim{position:sticky;bottom:calc(84px + env(safe-area-inset-bottom,0px));z-index:5;background:var(--ground);
+    padding:12px 0;margin:16px 0 0;flex-wrap:wrap}
+  body.mn-on #view-revisao .rv-fim .btn.primary{flex:1 1 100%;min-height:54px;border-radius:14px;font-size:1rem;font-weight:700}
+  body.mn-on #view-revisao .rv-fim .rv-ult{flex:1 1 100%;text-align:center}
+}
+@keyframes tmSobe{from{transform:translateY(24px);opacity:.5}to{transform:none;opacity:1}}
+body.mn-on .tm-procurar,body.mn-on #view-gente .tm-saltos{display:none}
+@media (max-width:900px){
+  body.mn-on .tm-procurar{display:inline-flex}
+  body.mn-on #view-gente .tm-saltos{display:flex}
+}
+.tm-procurar{width:44px;height:44px;border-radius:12px;border:1px solid var(--line);background:var(--surface);color:var(--ink);align-items:center;justify-content:center;padding:0}
+#view-gente .tm-saltos{gap:8px;overflow-x:auto;margin:0 0 16px;scrollbar-width:none}
+#view-gente .tm-saltos button{flex:none;min-height:36px;padding:0 14px;border-radius:999px;border:0;background:var(--line-soft);color:var(--ink);font:inherit;font-size:.8125rem;font-weight:600}
+#view-gente .tm-saltos button:first-child{background:var(--ink);color:var(--ground);font-weight:700}

@@ -272,6 +272,7 @@ function gtBlocoCuidados(box, cuidar, hoje){
   var bl = el('div', 'gt-bloco');
   var h = el('div', 'gt-h');
   h.appendChild(el('h3', null, 'Cuidados'));
+  bl.dataset.salto = 'Cuidados';
   var fim = gtMaisDias(hoje, 30);
   var semResp = 0;
   var porPessoa = cuidar.map(function(p){
@@ -322,6 +323,7 @@ function gtBlocoCirculo(box, titulo, sub, pessoas, hoje, fim){
   var h = el('div', 'gt-h');
   h.appendChild(el('h3', null, titulo));
   h.appendChild(el('span', null, sub));
+  bl.dataset.salto = titulo;
   bl.appendChild(h);
   var g = el('div', 'gt-cards');
   pessoas.forEach(function(p){ g.appendChild(gtCartao(p, hoje, fim)); });
@@ -343,6 +345,7 @@ function gtBlocoPrestadores(box){
   var bl = el('div', 'gt-bloco');
   var h = el('div', 'gt-h');
   h.appendChild(el('h3', null, 'Prestadores'));
+  bl.dataset.salto = 'Prestadores';
   h.appendChild(el('span', null, 'a quem se mandam os emails dos pagamentos'));
   bl.appendChild(h);
   var g = el('div', 'gt-cards');
@@ -396,6 +399,18 @@ function gtRender(){
   }
   var ajuda = el('p', 'gt-nota', 'O círculo, os cuidados e as preferências de cada pessoa ajustam-se no ⋯ do cartão.');
   sec.appendChild(ajuda);
+  /* No telemovel: uma fila de botoes para saltar para cada bloco (tema.css). */
+  var blocos = sec.querySelectorAll('[data-salto]');
+  if (blocos.length > 1){
+    var saltos = el('div', 'tm-saltos');
+    Array.prototype.forEach.call(blocos, function(b){
+      var bt = el('button', null, b.dataset.salto === 'Família alargada' ? 'Família' : b.dataset.salto);
+      bt.type = 'button';
+      bt.addEventListener('click', function(){ b.scrollIntoView({ behavior: 'smooth', block: 'start' }); });
+      saltos.appendChild(bt);
+    });
+    sec.insertBefore(saltos, sec.firstChild);
+  }
   if (sec.classList.contains('is-active')) window.scrollTo(0, y);
 }
 

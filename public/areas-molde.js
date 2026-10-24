@@ -108,6 +108,7 @@ function moTabs(a, ativo){
     var c = el('button', 'btn primary mo-captar', '+ Captar aqui');
     c.type = 'button';
     c.title = 'Captar alguma coisa para ' + alvo.nome;
+    c.dataset.ctx = alvo.alvoId; c.dataset.nome = alvo.nome;
     c.addEventListener('click', function(){ cpAbrir({ context_id: alvo.alvoId, nome: alvo.nome }); });
     bar.appendChild(c);
   }

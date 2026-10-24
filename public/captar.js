@@ -542,7 +542,14 @@ function cpNaFicha(){
 function cpLigar(){
   cpNaFicha();
   /* O + do menu novo (menu.js) chama mnCaptar pelo nome: passa a abrir isto. */
-  window.mnCaptar = function(){ if (typeof mnGaveta === 'function') mnGaveta(false); cpAbrir(); };
+  /* No telemovel nao ha «+ Captar aqui» na area: o + da barra de baixo faz
+     esse papel e abre ja com a area em que se esta. */
+  window.mnCaptar = function(){
+    if (typeof mnGaveta === 'function') mnGaveta(false);
+    var aqui = window.matchMedia && window.matchMedia('(max-width:900px)').matches
+      ? document.querySelector('.view.is-active .mo-captar[data-ctx]') : null;
+    cpAbrir(aqui ? { context_id: Number(aqui.dataset.ctx), nome: aqui.dataset.nome } : null);
+  };
   fetch('/api/me', { credentials: 'same-origin' }).then(function(r){ return r.ok ? r.json() : null; })
     .then(function(me){ if (me && me.pessoa_id) CP.eu = me.pessoa_id; }).catch(function(){});
 }
