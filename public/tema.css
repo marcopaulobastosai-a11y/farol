@@ -345,6 +345,7 @@ body.mn-on .tm-procurar,body.mn-on #view-gente .tm-saltos{display:none}
   body.mn-on .tm-fl{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 12px}
   body.mn-on .tm-fl-btn{display:inline-flex;align-items:center;gap:6px;min-height:40px;border-radius:999px;padding:0 14px;font-weight:600}
   body.mn-on .tm-fl-n{min-width:20px;height:20px;border-radius:10px;background:var(--ink);color:var(--ground);font-size:.6875rem;font-weight:700;display:inline-flex;align-items:center;justify-content:center;padding:0 5px}
+  body.mn-on .tm-fl-n[hidden]{display:none}
   body.mn-on .tm-fl-acoes{display:flex;align-items:center;gap:8px;flex:1;justify-content:flex-end;flex-wrap:wrap}
   body.mn-on .tm-fl-acoes .fn-acoes b{min-width:0 !important;font-size:.8125rem}
   body.mn-on .tm-fl-acoes .btn{min-height:40px}
@@ -360,7 +361,7 @@ body.mn-on .tm-procurar,body.mn-on #view-gente .tm-saltos{display:none}
   body.mn-on .tm-folha-c .fn-barra + .fn-barra{margin-top:14px}
   body.mn-on .tm-folha-c .fn-seg{flex-wrap:wrap;border-radius:14px}
   body.mn-on .tm-folha-c select,body.mn-on .tm-folha-c input{width:100% !important;max-width:none}
-  body.mn-on .tm-folha-c .fn-acoes,body.mn-on .tm-folha-c .fn-barra > button.btn{display:none}
+  body.mn-on .tm-folha-c .fn-barra > .fn-acoes:has(button[aria-label="Mês anterior"]),body.mn-on .tm-folha-c .fn-barra > button.btn{display:none}
   body.mn-on .tm-folha-c .ae-filtros{border:0;box-shadow:none;background:none;padding:0}
   body.mn-on .tm-folha-p{padding:12px 16px calc(12px + env(safe-area-inset-bottom,0px));border-top:1px solid var(--line)}
   body.mn-on .tm-folha-p .btn{width:100%;min-height:48px;border-radius:12px;font-weight:700}

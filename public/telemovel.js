@@ -63,12 +63,13 @@ function tmContar(box){
 function tmEspelho(box, linha){
   var acoes = linha.querySelector('.tm-fl-acoes');
   clear(acoes);
-  box.querySelectorAll('.fn-acoes').forEach(function(pa, i){
+  var passos = function(){ return Array.prototype.filter.call(box.querySelectorAll('.fn-acoes'), function(x){ return x.querySelector('button[aria-label="Mês anterior"]'); }); };
+  passos().forEach(function(pa, i){
     var c = pa.cloneNode(true);
     c.classList.add('tm-esp');
     c.querySelectorAll('button').forEach(function(b, j){
       b.addEventListener('click', function(){
-        var o = box.querySelectorAll('.fn-acoes')[i];
+        var o = passos()[i];
         var ob = o && o.querySelectorAll('button')[j];
         if (ob) ob.click();
       });
