@@ -205,7 +205,7 @@ html body.mn-on .rail .nav .btn.btn.primary:hover{color:var(--ambar-ink)}
   /* Hoje: os numeros numa faixa que desliza */
   body.mn-on #view-hoje .card:has(> #tiles){background:none;border:0;box-shadow:none;padding:0;margin:0 0 12px !important}
   body.mn-on #view-hoje .card:has(> #tiles) > header{display:none}
-  body.mn-on #view-hoje .tiles{display:flex;overflow-x:auto;gap:8px;scroll-snap-type:x mandatory;padding-bottom:4px;margin:0 -16px;padding-left:16px;padding-right:16px;scrollbar-width:none}
+  body.mn-on #view-hoje .tiles{display:flex;overflow-x:auto;gap:8px;scroll-snap-type:x mandatory;padding:0 0 4px;margin:0;scrollbar-width:none}
   body.mn-on #view-hoje .tiles::-webkit-scrollbar{display:none}
   body.mn-on #view-hoje .tile{flex:0 0 160px;width:160px;min-width:0;scroll-snap-align:start;background:var(--surface);border:1px solid var(--line);border-radius:12px}
   /* Hoje: o titulo de cada linha a toda a largura, a data por baixo */
@@ -237,6 +237,12 @@ html body.mn-on .rail .nav .btn.btn.primary:hover{color:var(--ambar-ink)}
   body.mn-on #view-gente .gt-t b{font-weight:700;font-size:.9375rem}
   body.mn-on #view-gente .gt-aj{top:50%;bottom:auto;transform:translateY(-50%);width:40px;height:40px}
   body.mn-on #view-gente .gt-tag{align-self:center;margin-right:28px}
+
+  /* Ficha da pessoa: nome a toda a largura, Editar e Captar por baixo */
+  body.mn-on #fiCorpo .fi-topo{flex-wrap:wrap;row-gap:12px}
+  body.mn-on #fiCorpo .fi-topo > .grow{flex:1 1 0;min-width:0}
+  body.mn-on #fiCorpo .fi-topo > .fi-editar{flex:1 1 40%;min-height:46px;border-radius:12px;font-weight:700}
+  body.mn-on #fiCorpo .fi-topo > .cp-aqui{order:9}
 
   /* Areas: os separadores deslizam; o + de baixo faz de «Captar aqui» */
   body.mn-on .mo-tabs{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}
