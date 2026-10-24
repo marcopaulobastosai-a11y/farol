@@ -1,7 +1,7 @@
 'use strict';
 /* Farol - bloqueio da app neste aparelho (24 out 2026).
  *
- * Ao abrir o Farol (e ao voltar a ele depois de um bocado noutra app), pede
+ * So no telemovel. Ao abrir o Farol (e ao voltar depois de um bocado noutra app), pede
  * o codigo ou o Face ID / impressao digital. Liga-se e desliga-se em Areas ›
  * Definicoes deste aparelho, e vale so para o aparelho onde se ligou.
  *
@@ -27,8 +27,13 @@
   function ler(){ try { return JSON.parse(localStorage.getItem(K) || 'null'); } catch (e) { return null; } }
   function gravar(c){ try { if (c) localStorage.setItem(K, JSON.stringify(c)); else localStorage.removeItem(K); } catch (e) {} }
 
+  /* So no telemovel (pedido do Marco): ecra estreito ou de toque. No
+     computador nunca bloqueia, mesmo que la tenha ficado ligado. */
+  function telemovel(){
+    try { return window.matchMedia('(max-width:900px)').matches || window.matchMedia('(pointer:coarse)').matches; } catch (e) { return false; }
+  }
   var cfg = ler();
-  if (cfg && cfg.hash) document.documentElement.classList.add('bq-on');
+  if (cfg && cfg.hash && telemovel()) document.documentElement.classList.add('bq-on');
 
   function b64(buf){ var s = ''; var a = new Uint8Array(buf); for (var i = 0; i < a.length; i++) s += String.fromCharCode(a[i]); return btoa(s); }
   function deB64(t){ var s = atob(t); var a = new Uint8Array(s.length); for (var i = 0; i < s.length; i++) a[i] = s.charCodeAt(i); return a; }
@@ -78,7 +83,7 @@
 
   function mostrar(){
     cfg = ler();
-    if (!cfg || !cfg.hash || aberto) return;
+    if (!cfg || !cfg.hash || aberto || !telemovel()) { document.documentElement.classList.remove('bq-on'); return; }
     aberto = true;
     document.documentElement.classList.add('bq-on');
     var o = document.createElement('div');
