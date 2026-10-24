@@ -41,13 +41,27 @@ function tmLupa(){
  * que continuam la dentro e sao redesenhados pelos ecras como sempre.
  * ------------------------------------------------------------------ */
 var TM = { aberta: null, quando: 0 };
-var TM_FILTROS = ['.fn-presa', '.ae-filtros'];
+var TM_FILTROS = ['.fn-presa', '.ae-filtros', '#ibFiltros', '.ag-tb2', '#docsAreas'];
+
+/* Os Documentos tem os filtros em tres blocos seguidos (areas, pessoas e o
+   «Limpar filtros»): juntam-se numa caixa so antes de irem para a folha. */
+function tmJuntar(box){
+  if (box.id !== 'docsAreas') return box;
+  var g = el('div', 'tm-grupo');
+  box.parentNode.insertBefore(g, box);
+  g.appendChild(box);
+  var pes = document.getElementById('docsFiltro');
+  if (pes) g.appendChild(pes);
+  var nx = g.nextElementSibling;
+  if (nx && /Limpar filtros/.test(nx.textContent || '') && !nx.querySelector('table')) g.appendChild(nx);
+  return g;
+}
 
 function tmMovel(){ return window.matchMedia && window.matchMedia('(max-width:900px)').matches; }
 
 function tmContar(box){
   var n = 0;
-  box.querySelectorAll('.fn-seg, .ae-chips').forEach(function(g){
+  box.querySelectorAll('.fn-seg, .ae-chips, .who-filter, .ag-seg').forEach(function(g){
     var bs = g.querySelectorAll('button');
     var on = g.querySelector('button.on');
     if (on && bs.length && on !== bs[0]) n++;
@@ -76,15 +90,38 @@ function tmEspelho(box, linha){
     });
     acoes.appendChild(c);
   });
-  box.querySelectorAll('.fn-barra > button.btn').forEach(function(ob, i){
-    var b = el('button', ob.className, ob.textContent);
-    b.type = 'button';
-    b.addEventListener('click', function(){
-      var o = box.querySelectorAll('.fn-barra > button.btn')[i];
-      if (o) o.click();
+  /* Os botoes de acao (Importar extrato, + Movimento, Actualizar...) vao
+     para um menu «⋯» que abre e fecha, para a linha caber numa so. */
+  var BOT = ':scope > button.btn, :scope > .fn-barra > button.btn';
+  var obs = box.querySelectorAll(BOT);
+  if (obs.length){
+    var wrap = el('div', 'tm-mais');
+    var mb = el('button', 'btn tm-mais-btn');
+    mb.type = 'button';
+    mb.setAttribute('aria-label', 'Mais ações');
+    mb.setAttribute('aria-expanded', 'false');
+    mb.textContent = '⋯';
+    var menu = el('div', 'tm-mais-menu');
+    menu.hidden = true;
+    obs.forEach(function(ob, i){
+      var b = el('button', null, ob.textContent);
+      b.type = 'button';
+      b.addEventListener('click', function(){
+        menu.hidden = true; mb.setAttribute('aria-expanded', 'false');
+        var o = box.querySelectorAll(BOT)[i];
+        if (o) o.click();
+      });
+      menu.appendChild(b);
     });
-    acoes.appendChild(b);
-  });
+    mb.addEventListener('click', function(e){
+      e.stopPropagation();
+      menu.hidden = !menu.hidden;
+      mb.setAttribute('aria-expanded', menu.hidden ? 'false' : 'true');
+    });
+    document.addEventListener('click', function(){ menu.hidden = true; mb.setAttribute('aria-expanded', 'false'); });
+    wrap.appendChild(mb); wrap.appendChild(menu);
+    acoes.appendChild(wrap);
+  }
   var n = tmContar(box);
   var conta = linha.querySelector('.tm-fl-n');
   conta.textContent = n ? String(n) : '';
@@ -93,6 +130,8 @@ function tmEspelho(box, linha){
 
 function tmPrepararFiltros(box){
   if (box.dataset.tm) return;
+  box.dataset.tm = '1';
+  box = tmJuntar(box);
   box.dataset.tm = '1';
   var linha = el('div', 'tm-fl');
   var b = el('button', 'btn tm-fl-btn');
@@ -137,7 +176,7 @@ function tmVerFiltros(){
   if (!tmMovel()) return;
   TM_FILTROS.forEach(function(sel){
     document.querySelectorAll('main ' + sel).forEach(function(box){
-      if (!box.closest('.tm-folha') || !box.dataset.tm) tmPrepararFiltros(box);
+      if (!box.dataset.tm && !box.closest('.tm-folha')) tmPrepararFiltros(box);
     });
   });
 }
@@ -155,14 +194,16 @@ function tmVerFiltros(){
 
 /* ------------------------------------------------------------------ *
  * Tamanho da letra no telemovel (24 out 2026). Guardado neste aparelho.
- * No iPhone usa o -webkit-text-size-adjust, que muda so a letra e deixa o
- * resto da pagina como esta. Por omissao, um pouco mais pequena.
+ * Encolhe o <main> com zoom. Por omissao, um pouco mais pequena.
  * ------------------------------------------------------------------ */
 var TM_LETRAS = [['80', 'Mais pequena'], ['88', 'Pequena'], ['100', 'Normal'], ['112', 'Grande']];
 function tmLetraAtual(){ try { return localStorage.getItem('farolLetra') || '88'; } catch (e) { return '88'; } }
 function tmLetra(v){
   try { localStorage.setItem('farolLetra', v); } catch (e) {}
-  document.documentElement.style.setProperty('--tm-letra', v + '%');
+  /* zoom no <main>: encolhe a letra e o resto na mesma proporcao (o
+     text-size-adjust nao fazia nada na app instalada). A barra de baixo
+     fica como esta. */
+  document.documentElement.style.setProperty('--tm-z', String(Number(v) / 100));
 }
 tmLetra(tmLetraAtual());
 
