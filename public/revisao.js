@@ -10,7 +10,9 @@
  *   4. Programas sem avanco (nada fechado nos ultimos 14 dias)
  *   5. O que vem nos proximos 14 dias
  *
- * Cada passo marca-se como visto (fica neste browser, so para a semana).
+ * Cada passo marca-se como visto (so para a semana). Fica no servidor, para
+ * valer no telemovel e no computador; o browser guarda uma copia para
+ * desenhar logo e para quando nao ha rede.
  * «Fechar a semana» grava no servidor (/api/revisao/fechar) - e isso que faz
  * o aviso do Hoje desaparecer. O aviso aparece ao domingo, e a segunda se a
  * semana ficou por fechar. So com o menu novo ligado.
@@ -79,9 +81,35 @@ function rvFechada(){ return (RV.fechos || []).some(function(f){ return f.semana
 
 function rvLerVistos(){
   try { var v = JSON.parse(localStorage.getItem('rvVistos') || '{}'); RV.vistos = v && v.semana === rvSemana() ? v : { semana: rvSemana() }; }
-  catch (e) { RV.vistos = { semana: rvSemana() }; }
+  catch (e) { if (!RV.vistos || RV.vistos.semana !== rvSemana()) RV.vistos = { semana: rvSemana() }; }
 }
 function rvGuardarVistos(){ try { localStorage.setItem('rvVistos', JSON.stringify(RV.vistos)); } catch (e) {} }
+
+/* O que vem do servidor manda. Se o servidor ainda nao tem nada desta
+   semana e este browser tem (marcados antes de os vistos irem para o
+   servidor), sobem uma vez. */
+function rvVistosDoServidor(v){
+  var sem = rvSemana();
+  if (v && v.semana === sem){
+    var n = { semana: sem };
+    Object.keys(v.passos || {}).forEach(function(k){ if (v.passos[k]) n[k] = true; });
+    RV.vistos = n; rvGuardarVistos();
+    return;
+  }
+  rvLerVistos();
+  var locais = {};
+  Object.keys(RV.vistos).forEach(function(k){ if (k !== 'semana' && RV.vistos[k]) locais[k] = true; });
+  if (Object.keys(locais).length && typeof apiGestao === 'function'){
+    apiGestao('/api/revisao/visto', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ semana: sem, passos: locais }) }).catch(function(){});
+  }
+}
+function rvMarcar(chave, visto){
+  RV.vistos[chave] = visto;
+  rvGuardarVistos();
+  if (typeof apiGestao !== 'function') return;
+  apiGestao('/api/revisao/visto', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ semana: rvSemana(), chave: chave, visto: visto }) })
+    .catch(function(){ if (typeof toast === 'function') toast('Sem ligação: o visto ficou só neste browser.'); });
+}
 
 /* ------------------------------ os numeros ------------------------------ */
 function rvCaixa(){
@@ -135,7 +163,7 @@ function rvCarregar(){
   if (RV.aLer || typeof apiGestao !== 'function') return;
   RV.aLer = true;
   Promise.all([
-    apiGestao('/api/revisao').then(function(d){ RV.fechos = d.fechos || []; }).catch(function(){ if (!RV.fechos) RV.fechos = []; }),
+    apiGestao('/api/revisao').then(function(d){ RV.fechos = d.fechos || []; RV.servidor = true; rvVistosDoServidor(d.vistos); }).catch(function(){ if (!RV.fechos) RV.fechos = []; }),
     apiGestao('/api/financas/cc').then(function(d){ RV.cc = d.pessoas || []; }).catch(function(){ if (!RV.cc) RV.cc = []; })
   ]).then(function(){ RV.aLer = false; rvRender(); rvBanner(); });
 }
@@ -156,7 +184,7 @@ function rvPasso(box, n, chave, titulo, resumo, acoes, itens, mais){
   });
   var bv = el('button', 'btn' + (visto ? '' : ' primary'), visto ? 'Desmarcar' : 'Visto');
   bv.type = 'button';
-  bv.addEventListener('click', function(){ RV.vistos[chave] = !visto; rvGuardarVistos(); rvRender(); });
+  bv.addEventListener('click', function(){ rvMarcar(chave, !visto); rvRender(); });
   ac.appendChild(bv);
   cab.appendChild(ac);
   p.appendChild(cab);
@@ -328,7 +356,7 @@ function rvLigar(){
     var antes = window.show;
     var novo = function(v){
       var r = antes.apply(this, arguments);
-      if (v === 'revisao'){ try { rvRender(); } catch (e) { console.error('[farol] revisao', e); } }
+      if (v === 'revisao'){ try { rvRender(); if (RV.fechos !== null) rvCarregar(); } catch (e) { console.error('[farol] revisao', e); } }
       return r;
     };
     for (var k in antes) if (Object.prototype.hasOwnProperty.call(antes, k)) novo[k] = antes[k];
