@@ -923,6 +923,8 @@ require('./pesquisa').instalar(app);
 require('./relatorios').instalar(app);
 /* A revisao da semana: quando cada semana foi fechada (fase 6 do menu novo). */
 require('./revisao').instalar(app);
+/* A captura universal: o + parte uma frase em cartoes (fase 5 do menu novo). */
+require('./captar').instalar(app);
 
 /* Mandar os papeis de um pagamento a quem se paga, pelo Gmail. */
 require('./emails').instalar(app, {

@@ -1,0 +1,155 @@
+/* Farol - o tema do menu novo (24 out 2026).
+ *
+ * O desenho do mockup «Farol — integração do novo menu»: menu lateral azul
+ * escuro, realces em ambar, fundo creme e a Manrope em tudo. So vale com o
+ * menu novo ligado (body.mn-on): quem ainda tem o menu antigo ve o Farol de
+ * sempre. Redefine as variaveis do styles.css em vez de reescrever cada
+ * ecra - os modulos usam-nas todas, por isso seguem sozinhos.
+ */
+
+body.mn-on{
+  --ground:#F6F5F2;
+  --surface:#FFFFFF;
+  --surface-2:#FAF9F6;
+  --line:#E3E0D8;
+  --line-soft:#EEEBE4;
+  --ink:#14213D;
+  --ink-2:#3A4256;
+  --muted:#5B6478;
+  --faint:#8A90A0;
+  --accent:#14213D;
+  --accent-ink:#14213D;
+  --accent-soft:#E7EAF2;
+  --warn:#7A4A06;
+  --warn-soft:#FBEBD0;
+  --radius:12px;
+  --sans:"Manrope",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  --serif:"Manrope",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  --navy:#14213D;
+  --navy-2:#1E2D4D;
+  --navy-3:#2A3A5E;
+  --ambar:#F3C27A;
+  --ambar-ink:#3D2503;
+  background:var(--ground);
+  font-family:var(--sans);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]) body.mn-on{
+    --ground:#0E1626;
+    --surface:#16213A;
+    --surface-2:#1C2944;
+    --line:#2A3858;
+    --line-soft:#223050;
+    --ink:#EEF1F7;
+    --ink-2:#C9D0E0;
+    --muted:#98A2B8;
+    --faint:#76819A;
+    --accent:#F3C27A;
+    --accent-ink:#F3C27A;
+    --accent-soft:#3A3020;
+    --warn:#F3C27A;
+    --warn-soft:#3A3020;
+  }
+}
+:root[data-theme="dark"] body.mn-on{
+  --ground:#0E1626;
+  --surface:#16213A;
+  --surface-2:#1C2944;
+  --line:#2A3858;
+  --line-soft:#223050;
+  --ink:#EEF1F7;
+  --ink-2:#C9D0E0;
+  --muted:#98A2B8;
+  --faint:#76819A;
+  --accent:#F3C27A;
+  --accent-ink:#F3C27A;
+  --accent-soft:#3A3020;
+  --warn:#F3C27A;
+  --warn-soft:#3A3020;
+}
+
+/* ---------- letra ---------- */
+body.mn-on h1, body.mn-on h2, body.mn-on h3, body.mn-on h4{font-family:var(--sans);letter-spacing:-.01em}
+body.mn-on .topbar h1{font-size:1.75rem;font-weight:700;letter-spacing:-.02em}
+body.mn-on .topbar .sub{font-size:.875rem}
+body.mn-on .card{border-radius:14px;border-color:var(--line)}
+body.mn-on .card header h3{font-weight:700}
+body.mn-on .btn{border-radius:10px;font-weight:500}
+body.mn-on .btn.primary{font-weight:600}
+
+/* ---------- o menu lateral, azul escuro ---------- */
+body.mn-on .rail{
+  --surface:var(--navy);
+  --surface-2:var(--navy-2);
+  --line:#2E3B58;
+  --line-soft:#26344F;
+  --ink:#FFFFFF;
+  --ink-2:#E6EAF2;
+  --muted:#8E99B3;
+  --faint:#8E99B3;
+  --accent:var(--ambar);
+  --accent-ink:#FFFFFF;
+  --accent-soft:var(--navy-3);
+  background:var(--navy);
+  border-right:none;
+  color:#E6EAF2;
+}
+body.mn-on .rail .brand b{font-family:var(--sans);font-weight:700;color:#fff}
+body.mn-on .rail .brand small{color:#8E99B3}
+body.mn-on .rail .nav button{color:#E6EAF2;font-weight:500}
+body.mn-on .rail .nav button:hover{background:var(--navy-2);color:#fff}
+body.mn-on .rail .nav button.is-active{background:var(--navy-3);color:#fff;font-weight:700}
+body.mn-on .rail .nav button svg{opacity:.85}
+body.mn-on .rail .badge{background:var(--navy-3);color:#C9D0E0}
+body.mn-on .rail .badge.alert{background:#5A2A2A;color:#F7C1C1}
+body.mn-on .rail .badge.aprovar,
+body.mn-on .rail .nav .mn-cx{background:var(--ambar);color:var(--ambar-ink);font-weight:700}
+body.mn-on .rail .mn-label{color:#8E99B3}
+body.mn-on .rail .nav .mn-captar{background:var(--ambar);border-color:var(--ambar);color:var(--ambar-ink);font-weight:700}
+body.mn-on .rail .nav .mn-captar:hover{filter:brightness(1.05);color:var(--ambar-ink)}
+body.mn-on .rail .ps-caixa{background:var(--navy-2);border-color:#2E3B58;color:#C9D0E0}
+body.mn-on .rail .ps-caixa input{color:#fff}
+body.mn-on .rail .ps-caixa input::placeholder{color:#8E99B3}
+body.mn-on .rail .ps-tecla{color:#8E99B3;border-color:#2E3B58}
+body.mn-on .rail .nav button.ae-nsub{color:#C9D0E0}
+body.mn-on .rail .nav button.ae-nsub.is-active{background:var(--navy-3);color:#fff}
+body.mn-on .rail .nav button.ae-nsub::before{background:#2E3B58}
+body.mn-on .rail .nav .ae-nseta{color:#8E99B3}
+body.mn-on .rail .nav .ae-nseta:hover{background:var(--navy-2);color:#fff}
+body.mn-on .rail .mn-prog::before{background:#2E3B58}
+body.mn-on .rail .mn-toggle{color:#8E99B3;border-color:#2E3B58}
+body.mn-on .rail .mn-recolher{border-color:#2E3B58;color:#C9D0E0}
+body.mn-on .rail .rail-foot{border-top-color:#2E3B58}
+body.mn-on .rail .rail-foot b{color:#fff}
+body.mn-on .rail .avatar{background:#D8E2F3;color:#1D3A6E;border-color:transparent;font-family:var(--sans);font-weight:700}
+body.mn-on .rail .beacon{border-color:var(--ambar);background:radial-gradient(circle at 50% 42%, var(--ambar) 0 32%, rgba(243,194,122,.25) 33% 62%, transparent 63%)}
+body.mn-on .rail .beacon::after{border-color:var(--ambar)}
+body.mn-on.mn-mini .rail .nav button.mn-tem::after{background:var(--ambar)}
+
+/* ---------- o aviso da caixa no Hoje ---------- */
+body.mn-on .mn-banner{background:var(--navy);border-color:var(--navy);color:#fff;border-radius:14px;padding:16px 20px}
+body.mn-on .mn-banner b{color:#fff;font-weight:700}
+body.mn-on .mn-banner .mn-bs{color:#C9D0E0}
+body.mn-on .mn-banner svg{color:var(--ambar)}
+body.mn-on .mn-banner .btn.primary{background:var(--ambar);border-color:var(--ambar);color:var(--ambar-ink)}
+
+/* ---------- «So eu / Agregado» e separadores ---------- */
+body.mn-on .hj-quem{background:transparent;gap:6px;padding:0}
+body.mn-on .hj-quem button{border:1px solid var(--line);background:var(--surface);color:var(--ink-2);border-radius:10px;min-height:36px;font-weight:600}
+body.mn-on .hj-quem button.on{background:var(--navy);border-color:var(--navy);color:#fff;box-shadow:none}
+:root[data-theme="dark"] body.mn-on .hj-quem button.on{background:var(--ambar);border-color:var(--ambar);color:var(--ambar-ink)}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]) body.mn-on .hj-quem button.on{background:var(--ambar);border-color:var(--ambar);color:var(--ambar-ink)}
+}
+body.mn-on .mo-tabs button.on{border-bottom-color:var(--ink);font-weight:700}
+
+/* ---------- telemovel ---------- */
+@media (max-width:900px){
+  body.mn-on #mnBarra button.mn-mais{background:var(--navy);color:#fff}
+  :root[data-theme="dark"] body.mn-on #mnBarra button.mn-mais{background:var(--ambar);color:var(--ambar-ink)}
+  body.mn-on #mnBarra .mn-pt{background:var(--ambar);color:var(--ambar-ink)}
+  body.mn-on.mn-gaveta .rail{background:var(--navy)}
+}
+@media (max-width:900px) and (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]) body.mn-on #mnBarra button.mn-mais{background:var(--ambar);color:var(--ambar-ink)}
+}
