@@ -68,7 +68,12 @@ var AE_AREAS = [
     icone: '<rect x="3.5" y="7" width="17" height="12" rx="2"/><path d="M9 7V5.5A1.5 1.5 0 0 1 10.5 4h3A1.5 1.5 0 0 1 15 5.5V7"/><path d="M3.5 12h17"/>' },
   { view: 'patrimonio', nome: 'patrimonio', novo: true, titulo: 'Património',
     sub: 'Bens que se gerem: imóveis, carro, terreno',
-    icone: '<path d="M3 20h18"/><path d="M5 20V10l7-5 7 5v10"/><path d="M9 20v-5h6v5"/><path d="M12 9.5v.01"/>' }
+    icone: '<path d="M3 20h18"/><path d="M5 20V10l7-5 7 5v10"/><path d="M9 20v-5h6v5"/><path d="M12 9.5v.01"/>' },
+  /* 24 out 2026: Viagens e lazer e uma area propria (decisao do Marco). So
+     aparece quando existir uma area com esse nome. */
+  { view: 'viagens', nome: 'viagens', novo: true, precisaArea: true, titulo: 'Viagens e lazer',
+    sub: 'Viagens, férias e tempos livres',
+    icone: '<path d="M10.5 13.5L3 11l1.5-1.5 7.5 1 4-4a2 2 0 0 1 3 3l-4 4 1 7.5L15.5 22l-2.5-7.5"/><path d="M6 17l-2 2"/>' }
 ];
 
 var AE_CSS =
@@ -391,6 +396,7 @@ function aeMontar(){
   var docsView = document.getElementById('view-documentos');
   AE_AREAS.forEach(function(a){
     if (!a.novo || document.getElementById('view-' + a.view)) return;
+    if (a.precisaArea && !aeArea(a)) return;
     TITLES[a.view] = [a.titulo, a.sub];
     var b = document.createElement('button');
     b.dataset.view = a.view;
