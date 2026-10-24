@@ -16,10 +16,11 @@
  *  - o menu recolhido (so icones) no computador;
  *  - a barra de baixo no telemovel (Hoje, Agenda, +, Tarefas, Menu).
  *
- * Interruptor: so o administrador o ve, no fim do menu. Fica guardado neste
- * browser (localStorage 'farolMenuNovo'). Desligado, este ficheiro so poe o
- * interruptor e mais nada. Tambem se liga com ?menu=novo e desliga com
- * ?menu=antigo, para a app instalada no iPhone.
+ * Interruptor: so o administrador o ve, no fim do menu. Para o administrador
+ * o menu novo vem ligado por omissao, em qualquer browser (24 out 2026); se
+ * ele escolher «Voltar ao menu antigo», essa escolha fica guardada naquele
+ * browser (localStorage 'farolMenuNovo' = '0'). Para os outros membros
+ * continua desligado. ?menu=novo e ?menu=antigo tambem servem.
  */
 
 var MN = { on: false, mini: false, admin: false, pendente: false, obs: null, progsChave: null };
@@ -172,7 +173,7 @@ function mnInterruptor(nav){
     t = el('button', 'mn-toggle', txt);
     t.type = 'button';
     t.addEventListener('click', function(){
-      mnGravar('farolMenuNovo', MN.on ? null : '1');
+      mnGravar('farolMenuNovo', MN.on ? '0' : '1');
       location.reload();
     });
     nav.appendChild(t);
@@ -480,6 +481,9 @@ function mnQuemSou(n){
     .then(function(me){
       if (!me){ if (n < 20) setTimeout(function(){ mnQuemSou(n + 1); }, 3000); return; }
       MN.admin = !!(me.admin || me.aberto);
+      /* O administrador tem o menu novo por omissao, salvo se o desligou
+         neste browser. */
+      if (MN.admin && !MN.on && mnLer('farolMenuNovo') !== '0') mnLigar();
       mnAgendar();
     })
     .catch(function(){ if (n < 20) setTimeout(function(){ mnQuemSou(n + 1); }, 3000); });
@@ -487,14 +491,26 @@ function mnQuemSou(n){
 
 function mnArrancar(){
   var q = /[?&]menu=(novo|antigo)\b/.exec(location.search);
-  if (q) mnGravar('farolMenuNovo', q[1] === 'novo' ? '1' : null);
-  MN.on = mnLer('farolMenuNovo') === '1';
+  if (q) mnGravar('farolMenuNovo', q[1] === 'novo' ? '1' : '0');
   MN.mini = mnLer('farolMenuMini') === '1';
   mnEstilo();
 
+  if (mnLer('farolMenuNovo') === '1') mnLigar();
   mnQuemSou(0);
 
-  if (MN.on){
+  var nav = document.getElementById('nav');
+  if (nav && window.MutationObserver){
+    MN.obs = new MutationObserver(mnAgendar);
+    MN.obs.observe(nav, { childList: true, subtree: true, characterData: true });
+  }
+  mnAgendar();
+}
+
+/* Liga o menu novo nesta pagina (uma vez so). */
+function mnLigar(){
+  if (MN.on) return;
+  MN.on = true;
+  {
     document.body.classList.add('mn-on');
     if (MN.mini) document.body.classList.add('mn-mini');
     mnBarra();
@@ -512,12 +528,6 @@ function mnArrancar(){
     });
     /* os programas so chegam com as tarefas, e mudam sem o menu mexer */
     setInterval(function(){ var nav = document.getElementById('nav'); if (nav) mnProgramas(nav); }, 4000);
-  }
-
-  var nav = document.getElementById('nav');
-  if (nav && window.MutationObserver){
-    MN.obs = new MutationObserver(mnAgendar);
-    MN.obs.observe(nav, { childList: true, subtree: true, characterData: true });
   }
   mnAgendar();
 }
