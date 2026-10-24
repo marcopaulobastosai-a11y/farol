@@ -284,7 +284,9 @@ function rvBanner(){
   if (!view) return;
   var ban = view.querySelector('.rv-banner');
   var dow = new Date().getDay();
-  var mostrar = document.body.classList.contains('mn-on') && RV.fechos !== null && (dow === 0 || dow === 1) && !rvFechada();
+  /* A revisao de domingo e do administrador: os outros veem a pagina, nao o aviso. */
+  var admin = !!(window.MN && MN.admin);
+  var mostrar = admin && document.body.classList.contains('mn-on') && RV.fechos !== null && (dow === 0 || dow === 1) && !rvFechada();
   var btn = document.querySelector('#nav button[data-view="revisao"]');
   if (btn) btn.classList.toggle('mn-tem', mostrar);
   if (!mostrar){ if (ban) ban.remove(); return; }

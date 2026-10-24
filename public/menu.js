@@ -16,11 +16,11 @@
  *  - o menu recolhido (so icones) no computador;
  *  - a barra de baixo no telemovel (Hoje, Agenda, +, Tarefas, Menu).
  *
- * Interruptor: so o administrador o ve, no fim do menu. Para o administrador
- * o menu novo vem ligado por omissao, em qualquer browser (24 out 2026); se
- * ele escolher «Voltar ao menu antigo», essa escolha fica guardada naquele
- * browser (localStorage 'farolMenuNovo' = '0'). Para os outros membros
- * continua desligado. ?menu=novo e ?menu=antigo tambem servem.
+ * Fase 7 (24 out 2026): o menu novo e o de todos. Ja nao ha interruptor.
+ * Fica so uma saida de emergencia, sem botao: abrir o Farol com ?menu=antigo
+ * volta ao menu de antes naquele browser (localStorage 'farolMenu'), e
+ * ?menu=novo desfaz. A chave antiga ('farolMenuNovo') deixa de contar, para
+ * ninguem ficar preso numa escolha de quando havia interruptor.
  */
 
 var MN = { on: false, mini: false, admin: false, pendente: false, obs: null, progsChave: null };
@@ -172,7 +172,10 @@ function mnOrdem(n, o){ o = String(o); if (n.style.order !== o) n.style.order = 
 
 /* ------------------------------ o interruptor ------------------------------ */
 function mnInterruptor(nav){
-  if (!MN.admin) return;
+  /* Fase 7: ja nao ha interruptor. Tira-se o botao se tiver ficado. */
+  var velho = nav.querySelector('.mn-toggle');
+  if (velho) velho.remove();
+  return;
   var t = nav.querySelector('.mn-toggle');
   var txt = MN.on ? 'Voltar ao menu antigo' : 'Experimentar o menu novo';
   if (!t){
@@ -533,9 +536,7 @@ function mnQuemSou(n){
     .then(function(me){
       if (!me){ if (n < 20) setTimeout(function(){ mnQuemSou(n + 1); }, 3000); return; }
       MN.admin = !!(me.admin || me.aberto);
-      /* O administrador tem o menu novo por omissao, salvo se o desligou
-         neste browser. */
-      if (MN.admin && !MN.on && mnLer('farolMenuNovo') !== '0') mnLigar();
+      if (typeof rvBanner === 'function') { try { rvBanner(); } catch (e) {} }
       mnAgendar();
     })
     .catch(function(){ if (n < 20) setTimeout(function(){ mnQuemSou(n + 1); }, 3000); });
@@ -543,11 +544,12 @@ function mnQuemSou(n){
 
 function mnArrancar(){
   var q = /[?&]menu=(novo|antigo)\b/.exec(location.search);
-  if (q) mnGravar('farolMenuNovo', q[1] === 'novo' ? '1' : '0');
+  if (q) mnGravar('farolMenu', q[1] === 'antigo' ? 'antigo' : null);
+  mnGravar('farolMenuNovo', null);
   MN.mini = mnLer('farolMenuMini') === '1';
   mnEstilo();
 
-  if (mnLer('farolMenuNovo') === '1') mnLigar();
+  if (mnLer('farolMenu') !== 'antigo') mnLigar();
   mnQuemSou(0);
 
   var nav = document.getElementById('nav');
