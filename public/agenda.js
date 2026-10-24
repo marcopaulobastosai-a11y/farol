@@ -31,6 +31,12 @@ var AG = {
       });
     }
   } catch (e) {}
+  /* No telemovel a semana em grelha nao se le (390 px para 7 colunas): abre
+     na Lista. Muda-se a vista no topo, como sempre. */
+  try {
+    if (window.matchMedia && window.matchMedia('(max-width:700px)').matches &&
+        ['semana', 'util', 'trim', 'ano'].indexOf(AG.view) >= 0) AG.view = 'lista';
+  } catch (e) {}
 })();
 function agGuardar(){
   try {

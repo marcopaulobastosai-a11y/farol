@@ -245,6 +245,59 @@ html body.mn-on .rail .nav .btn.btn.primary:hover{color:var(--ambar-ink)}
   body.mn-on #fiCorpo .fi-topo > .grow{flex:1 1 calc(100% - 90px);min-width:0}
   body.mn-on #fiCorpo .fi-topo > .fi-editar{order:9;flex:1 1 calc(50% - 8px);min-height:46px;border-radius:12px;font-weight:700}
 
+  /* cabecalho numa linha: titulo a encolher, botoes a direita */
+  body.mn-on .topbar{flex-wrap:nowrap;gap:10px}
+  body.mn-on .topbar > div:first-child{flex:1 1 auto;min-width:0}
+  body.mn-on .topbar .right{flex:none;gap:8px}
+
+  /* separadores das Financas: uma linha que desliza */
+  body.mn-on .fn-abas{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}
+  body.mn-on .fn-abas::-webkit-scrollbar{display:none}
+  body.mn-on .fn-abas > *{flex:none}
+
+  /* Movimentos das Financas: cada movimento um cartao (descricao e valor
+     em cima; data, conta, categoria e area por baixo) */
+  body.mn-on .fn-movtab thead{display:none}
+  body.mn-on .fn-movtab,body.mn-on .fn-movtab tbody{display:block;width:100%;min-width:0 !important}
+  body.mn-on .fn-movtab tr{display:flex;flex-wrap:wrap;align-items:center;gap:2px 10px;padding:10px 4px;border-bottom:1px solid var(--line-soft)}
+  body.mn-on .fn-movtab td{display:block;border:0 !important;padding:0 !important;font-size:.75rem;color:var(--muted);white-space:normal}
+  body.mn-on .fn-movtab td:nth-child(1){order:0;flex:0 0 22px}
+  body.mn-on .fn-movtab td:nth-child(4){order:1;flex:1 1 0;min-width:0;font-size:.875rem;color:var(--ink);font-weight:600}
+  body.mn-on .fn-movtab td:nth-child(6){order:2;flex:none;font-size:.875rem;font-weight:700;color:var(--ink)}
+  body.mn-on .fn-movtab td:nth-child(2){order:3;margin-left:32px}
+  body.mn-on .fn-movtab td:nth-child(3){order:4}
+  body.mn-on .fn-movtab td:nth-child(8){order:5}
+  body.mn-on .fn-movtab td:nth-child(9){order:6}
+  body.mn-on .fn-movtab td:nth-child(5),body.mn-on .fn-movtab td:nth-child(7),body.mn-on .fn-movtab td:nth-child(10),body.mn-on .fn-movtab td:nth-child(11){display:none}
+
+  /* Movimentos de uma area: o mesmo */
+  body.mn-on .mo-tab table thead{display:none}
+  body.mn-on .mo-tab table,body.mn-on .mo-tab tbody{display:block;width:100%}
+  body.mn-on .mo-tab tr{display:flex;flex-wrap:wrap;gap:2px 10px;padding:10px 2px;border-bottom:1px solid var(--line-soft)}
+  body.mn-on .mo-tab td{display:block;border:0 !important;padding:0 !important;font-size:.75rem;color:var(--muted)}
+  body.mn-on .mo-tab td:nth-child(2){order:1;flex:1 1 0;min-width:0;font-size:.875rem;font-weight:600;color:var(--ink)}
+  body.mn-on .mo-tab td:nth-child(6){order:2;font-size:.875rem;font-weight:700;color:var(--ink)}
+  body.mn-on .mo-tab td:nth-child(1){order:3;flex-basis:auto}
+  body.mn-on .mo-tab td:nth-child(3){order:4}
+  body.mn-on .mo-tab td:nth-child(4){order:5}
+  body.mn-on .mo-tab td:nth-child(5){display:none}
+  body.mn-on .mo-tab td:nth-child(2) small{display:block;font-weight:400;color:var(--muted)}
+
+  /* Documentos: cada papel um cartao */
+  body.mn-on #view-documentos table thead{display:none}
+  body.mn-on #view-documentos table,body.mn-on #view-documentos tbody{display:block;width:100%;min-width:0 !important}
+  body.mn-on #view-documentos tr{display:flex;flex-wrap:wrap;gap:2px 10px;padding:12px 0;border-bottom:1px solid var(--line-soft)}
+  body.mn-on #view-documentos td{display:block;border:0 !important;padding:0 !important;font-size:.75rem;color:var(--muted)}
+  body.mn-on #view-documentos td:first-child{flex:1 0 100%;font-size:.875rem;color:var(--ink)}
+  body.mn-on #view-documentos td:empty{display:none}
+
+  /* Projetos: o nome a toda a largura, estado e progresso por baixo */
+  body.mn-on #view-projetos .pj-no{flex-wrap:wrap;row-gap:4px}
+  body.mn-on #view-projetos .pj-no > .pj-rot{flex:1 1 calc(100% - 60px);min-width:0;white-space:normal}
+  body.mn-on #view-projetos .pj-no > .pj-rot *{white-space:normal}
+  body.mn-on #view-projetos .pj-grip,body.mn-on #view-projetos .pj-meta.data{display:none}
+  body.mn-on #view-projetos .pj-no > .pj-barra{flex:1 1 80px}
+
   /* Areas: os separadores deslizam; o + de baixo faz de «Captar aqui» */
   body.mn-on .mo-tabs{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}
   body.mn-on .mo-tabs::-webkit-scrollbar{display:none}
