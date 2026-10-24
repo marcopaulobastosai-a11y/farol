@@ -60,7 +60,9 @@ var MN_I = {
   agenda: '<rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/>',
   tarefas: '<path d="M9 6h11M9 12h11M9 18h11"/><path d="M4 6l1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2"/>',
   menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
-  caixa: '<path d="M4 13l2.5-7h11L20 13v6H4z"/><path d="M4 13h5l1 2h4l1-2h5"/>'
+  caixa: '<path d="M4 13l2.5-7h11L20 13v6H4z"/><path d="M4 13h5l1 2h4l1-2h5"/>',
+  mapa: '<rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/>',
+  gente: '<circle cx="9" cy="8" r="3"/><path d="M3 20c0-3.3 2.7-5 6-5s6 1.7 6 5"/><circle cx="17.5" cy="9.5" r="2.2"/><path d="M16 15c3 0 5 1.6 5 4.5"/>'
 };
 function mnSvg(d, w){
   return '<svg width="' + (w || 16) + '" height="' + (w || 16) + '" viewBox="0 0 24 24" fill="none" ' +
@@ -133,9 +135,9 @@ var MN_CSS = [
   '    padding:6px 6px calc(8px + env(safe-area-inset-bottom,0px));background:var(--surface);border-top:1px solid var(--line)}',
   '  #mnBarra button{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;min-width:56px;min-height:48px;',
   '    font:inherit;font-size:.6875rem;font-weight:600;color:var(--muted);background:none;border:none;position:relative}',
-  '  #mnBarra .mn-dot{width:6px;height:6px;border-radius:3px;background:transparent}',
+  '  #mnBarra .mn-ico{display:flex;align-items:center;justify-content:center;width:52px;height:30px;border-radius:999px}',
   '  #mnBarra button.is-active{color:var(--ink);font-weight:700}',
-  '  #mnBarra button.is-active .mn-dot{background:#E8A33D}',
+  '  #mnBarra button.is-active .mn-ico{background:var(--warn-soft);color:var(--ink)}',
   '  #mnBarra button.mn-mais{width:56px;height:56px;min-width:56px;border-radius:18px;background:var(--accent);color:#fff;margin-top:-18px}',
   '  :root[data-theme="dark"] #mnBarra button.mn-mais{color:#06181A}',
   '  #mnBarra .mn-pt{position:absolute;top:4px;right:12px;min-width:16px;height:16px;padding:0 4px;border-radius:8px;background:var(--accent);color:#fff;',
@@ -369,7 +371,7 @@ function mnCaptar(ancora){
 /* ------------------------- telemovel: barra e gaveta ------------------------ */
 function mnGaveta(sim){
   document.body.classList.toggle('mn-gaveta', !!sim);
-  var b = document.querySelector('#mnBarra [data-mn="menu"]');
+  var b = null;
   if (b) b.setAttribute('aria-expanded', sim ? 'true' : 'false');
 }
 function mnBarra(){
@@ -377,11 +379,12 @@ function mnBarra(){
   var barra = el('nav');
   barra.id = 'mnBarra';
   barra.setAttribute('aria-label', 'Menu');
-  /* Como no mockup: Hoje · Agenda · + · Areas · Pessoas. «Areas» abre a
-     gaveta com o menu inteiro (areas, Tarefas, Projetos, Administracao).
+  /* Como no mockup: Hoje · Agenda · + · Areas · Pessoas, com icones.
+     «Areas» abre a pagina das areas (mapa.js), que tambem leva ao resto
+     (Tarefas, Projetos, Documentos, Administracao).
      A barra fica por baixo de tudo o que abre por cima (detalhe de uma
      tarefa, janelas): z-index 38, abaixo dos 40+ das folhas e janelas. */
-  [['hoje', 'Hoje'], ['agenda', 'Agenda'], ['+', 'Captar'], ['menu', 'Áreas'], ['gente', 'Pessoas']].forEach(function(i){
+  [['hoje', 'Hoje'], ['agenda', 'Agenda'], ['+', 'Captar'], ['mapa', 'Áreas'], ['gente', 'Pessoas']].forEach(function(i){
     var b = el('button');
     b.type = 'button';
     b.dataset.mn = i[0];
@@ -392,14 +395,9 @@ function mnBarra(){
       b.innerHTML = mnSvg(MN_I.mais, 24);
       b.addEventListener('click', function(e){ e.stopPropagation(); mnCaptar(b); });
     } else {
-      b.innerHTML = '<span class="mn-dot" aria-hidden="true"></span><span>' + i[1] + '</span>';
+      b.innerHTML = '<span class="mn-ico">' + mnSvg(MN_I[i[0]], 22) + '</span><span>' + i[1] + '</span>';
       if (i[0] === 'hoje'){ var pt = el('span', 'mn-pt'); pt.hidden = true; b.appendChild(pt); }
-      if (i[0] === 'menu'){
-        b.setAttribute('aria-expanded', 'false');
-        b.addEventListener('click', function(){ mnGaveta(!document.body.classList.contains('mn-gaveta')); });
-      } else {
-        b.addEventListener('click', function(){ show(i[0]); });
-      }
+      b.addEventListener('click', function(){ show(i[0]); });
     }
     barra.appendChild(b);
   });
@@ -410,7 +408,7 @@ function mnMarcarBarra(view){
   var area = (window.AE_AREAS || []).some(function(a){ return a.view === view; }) || /^(tarefas|projetos|documentos|revisao|financas|despesas)$/.test(view);
   for (var i = 0; i < bs.length; i++){
     var k = bs[i].dataset.mn;
-    bs[i].classList.toggle('is-active', k === view || (k === 'menu' && area));
+    bs[i].classList.toggle('is-active', k === view || (k === 'mapa' && area));
   }
 }
 

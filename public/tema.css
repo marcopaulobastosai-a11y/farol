@@ -245,6 +245,18 @@ html body.mn-on .rail .nav .btn.btn.primary:hover{color:var(--ambar-ink)}
   body.mn-on #fiCorpo .fi-topo > .grow{flex:1 1 calc(100% - 90px);min-width:0}
   body.mn-on #fiCorpo .fi-topo > .fi-editar{order:9;flex:1 1 calc(50% - 8px);min-height:46px;border-radius:12px;font-weight:700}
 
+  /* cabecalho opaco: translucido, deixava ver borrado o que passa por baixo */
+  html body.mn-on .topbar{background:var(--ground) !important;-webkit-backdrop-filter:none !important;backdrop-filter:none !important}
+
+  /* janelas e folhas nunca mais largas do que o ecra: os campos encolhem
+     (no iPhone o campo de data tem uma largura minima propria) */
+  body.mn-on dialog{max-width:100vw}
+  body.mn-on dialog:not(.folha){max-width:calc(100vw - 16px);box-sizing:border-box}
+  body.mn-on dialog input,body.mn-on dialog select,body.mn-on dialog textarea{max-width:100%;min-width:0;box-sizing:border-box}
+  body.mn-on dialog input[type=date],body.mn-on dialog input[type=time],body.mn-on dialog input[type=datetime-local]{-webkit-appearance:none;appearance:none;min-height:40px;width:100%}
+  body.mn-on dialog .grid > *,body.mn-on dialog [class*=campos] > *,body.mn-on dialog label{min-width:0}
+  body.mn-on dialog *{overflow-wrap:anywhere}
+
   /* cabecalho numa linha: titulo a encolher, botoes a direita */
   body.mn-on .topbar{flex-wrap:nowrap;gap:10px}
   body.mn-on .topbar > div:first-child{flex:1 1 auto;min-width:0}
