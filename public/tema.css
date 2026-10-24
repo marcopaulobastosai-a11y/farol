@@ -358,6 +358,8 @@ body.mn-on .tm-procurar,body.mn-on #view-gente .tm-saltos{display:none}
   body.mn-on .tm-folha-c{flex:1;overflow:auto;padding:4px 16px 16px}
   body.mn-on .tm-folha-c .fn-presa{position:static !important;background:none !important;box-shadow:none !important;padding:0 !important;margin:0 !important;border:0 !important}
   body.mn-on .tm-folha-c .fn-barra{flex-direction:column;align-items:stretch;gap:10px}
+  body.mn-on .tm-folha-c .fn-barra > *{flex:none !important;height:auto}
+  body.mn-on .tm-folha-c .fn-barra > input{min-height:42px}
   body.mn-on .tm-folha-c .fn-barra + .fn-barra{margin-top:14px}
   body.mn-on .tm-folha-c .fn-seg{flex-wrap:wrap;border-radius:14px}
   body.mn-on .tm-folha-c select,body.mn-on .tm-folha-c input{width:100% !important;max-width:none}
