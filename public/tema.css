@@ -196,7 +196,8 @@ html body.mn-on .rail .nav .btn.btn.primary:hover{color:var(--ambar-ink)}
   body.mn-on .topbar{padding-top:calc(18px + env(safe-area-inset-top,0px));padding-bottom:10px;align-items:flex-start}
   body.mn-on .topbar > div:first-child{flex-direction:column-reverse;align-items:flex-start;gap:2px}
   body.mn-on .topbar h1{font-size:1.75rem;font-weight:700;letter-spacing:-.02em}
-  body.mn-on .topbar .sub{font-size:.8125rem;font-weight:600;color:var(--warn)}
+  body.mn-on .topbar .sub{font-size:.8125rem;font-weight:500;color:var(--muted)}
+  body.mn-on:has(#view-hoje.is-active) .topbar .sub,body.mn-on:has(#view-revisao.is-active) .topbar .sub{font-weight:600;color:var(--warn)}
   body.mn-on #btnReload{display:none}
   body.mn-on .tm-procurar{display:inline-flex}
   body.mn-on .topbar .right .btn{min-height:44px}
@@ -206,7 +207,12 @@ html body.mn-on .rail .nav .btn.btn.primary:hover{color:var(--ambar-ink)}
   body.mn-on #view-hoje .card:has(> #tiles) > header{display:none}
   body.mn-on #view-hoje .tiles{display:flex;overflow-x:auto;gap:8px;scroll-snap-type:x mandatory;padding-bottom:4px;margin:0 -16px;padding-left:16px;padding-right:16px;scrollbar-width:none}
   body.mn-on #view-hoje .tiles::-webkit-scrollbar{display:none}
-  body.mn-on #view-hoje .tile{flex:0 0 auto;min-width:150px;scroll-snap-align:start;background:var(--surface);border:1px solid var(--line);border-radius:12px}
+  body.mn-on #view-hoje .tile{flex:0 0 160px;width:160px;min-width:0;scroll-snap-align:start;background:var(--surface);border:1px solid var(--line);border-radius:12px}
+  /* Hoje: o titulo de cada linha a toda a largura, a data por baixo */
+  body.mn-on #view-hoje .hj-per article{flex-wrap:wrap;row-gap:4px}
+  body.mn-on #view-hoje .hj-per article > .grow{flex:1 1 0;min-width:0}
+  body.mn-on #view-hoje .hj-per article > .grow h4{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+  body.mn-on #view-hoje .hj-per article > .when{flex:1 0 100%;padding-left:60px;justify-content:flex-start;gap:8px;box-sizing:border-box}
 
   /* captura: folha que sobe de baixo */
   html body.mn-on dialog#cpDlg.folha.folha{inset:auto 0 0 0 !important;width:100vw !important;height:auto !important;max-height:92dvh !important;
@@ -241,7 +247,10 @@ html body.mn-on .rail .nav .btn.btn.primary:hover{color:var(--ambar-ink)}
   body.mn-on #view-revisao .rv-fim{position:sticky;bottom:calc(84px + env(safe-area-inset-bottom,0px));z-index:5;background:var(--ground);
     padding:12px 0;margin:16px 0 0;flex-wrap:wrap}
   body.mn-on #view-revisao .rv-fim .btn.primary{flex:1 1 100%;min-height:54px;border-radius:14px;font-size:1rem;font-weight:700}
-  body.mn-on #view-revisao .rv-fim .rv-ult{flex:1 1 100%;text-align:center}
+  body.mn-on #view-revisao .rv-fim .rv-ult{display:none}
+  body.mn-on #view-revisao .rv-cab{flex-wrap:wrap;row-gap:10px}
+  body.mn-on #view-revisao .rv-tt{flex:1 1 0;min-width:0}
+  body.mn-on #view-revisao .rv-acoes{flex:1 0 100%;padding-left:44px;box-sizing:border-box;flex-wrap:wrap}
 }
 @keyframes tmSobe{from{transform:translateY(24px);opacity:.5}to{transform:none;opacity:1}}
 body.mn-on .tm-procurar,body.mn-on #view-gente .tm-saltos{display:none}
