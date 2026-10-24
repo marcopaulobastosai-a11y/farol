@@ -135,11 +135,11 @@ var MN_CSS = [
   '  body.mn-on #mnBarra{display:flex;position:fixed;left:0;right:0;bottom:0;z-index:38;justify-content:space-around;align-items:center;',
   '    padding:6px 6px calc(8px + env(safe-area-inset-bottom,0px));background:var(--surface);border-top:1px solid var(--line)}',
   '  #mnBarra button{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;min-width:0;flex:1 1 0;min-height:48px;',
-  '    font:inherit;font-size:.6875rem;font-weight:600;color:var(--muted);background:none;border:none;position:relative}',
-  '  #mnBarra .mn-ico{display:flex;align-items:center;justify-content:center;width:46px;height:30px;border-radius:999px}',
+  '    font:inherit;font-size:.625rem;font-weight:600;color:var(--muted);background:none;border:none;position:relative;padding:0 1px;white-space:nowrap}',
+  '  #mnBarra .mn-ico{display:flex;align-items:center;justify-content:center;width:42px;height:30px;border-radius:999px}',
   '  #mnBarra button.is-active{color:var(--ink);font-weight:700}',
   '  #mnBarra button.is-active .mn-ico{background:var(--warn-soft);color:var(--ink)}',
-  '  #mnBarra button.mn-mais{flex:0 0 56px;width:56px;height:56px;min-width:56px;border-radius:18px;margin-left:4px;margin-right:4px;background:var(--accent);color:#fff;margin-top:-18px}',
+  '  #mnBarra button.mn-mais{flex:0 0 52px;width:52px;height:52px;min-width:52px;border-radius:16px;margin-left:2px;margin-right:2px;background:var(--accent);color:#fff;margin-top:-18px}',
   '  :root[data-theme="dark"] #mnBarra button.mn-mais{color:#06181A}',
   '  #mnBarra .mn-pt{position:absolute;top:4px;right:12px;min-width:16px;height:16px;padding:0 4px;border-radius:8px;background:var(--accent);color:#fff;',
   '    font-family:var(--mono);font-size:.625rem;line-height:16px;text-align:center}',
@@ -380,13 +380,13 @@ function mnBarra(){
   var barra = el('nav');
   barra.id = 'mnBarra';
   barra.setAttribute('aria-label', 'Menu');
-  /* Hoje · Agenda · Financas · + · Areas · Pessoas, com icones (Financas a
-     pedido do Marco, 24 out).
+  /* Hoje · Agenda · Tarefas · + · Financas · Areas · Pessoas, com icones,
+     tres de cada lado do + (pedido do Marco, 24 out).
      «Areas» abre a pagina das areas (mapa.js), que tambem leva ao resto
      (Tarefas, Projetos, Documentos, Administracao).
      A barra fica por baixo de tudo o que abre por cima (detalhe de uma
      tarefa, janelas): z-index 38, abaixo dos 40+ das folhas e janelas. */
-  [['hoje', 'Hoje'], ['agenda', 'Agenda'], ['financas', 'Finanças'], ['+', 'Captar'], ['mapa', 'Áreas'], ['gente', 'Pessoas']].forEach(function(i){
+  [['hoje', 'Hoje'], ['agenda', 'Agenda'], ['tarefas', 'Tarefas'], ['+', 'Captar'], ['financas', 'Finanças'], ['mapa', 'Áreas'], ['gente', 'Pessoas']].forEach(function(i){
     var b = el('button');
     b.type = 'button';
     b.dataset.mn = i[0];
@@ -410,7 +410,7 @@ function mnMarcarBarra(view){
   var area = (window.AE_AREAS || []).some(function(a){ return a.view === view; }) || /^(tarefas|projetos|documentos|revisao|financas|despesas)$/.test(view);
   for (var i = 0; i < bs.length; i++){
     var k = bs[i].dataset.mn;
-    bs[i].classList.toggle('is-active', k === view || (k === 'mapa' && area && view !== 'financas'));
+    bs[i].classList.toggle('is-active', k === view || (k === 'mapa' && area && view !== 'financas' && view !== 'tarefas'));
   }
 }
 
