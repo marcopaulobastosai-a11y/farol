@@ -58,7 +58,7 @@ var CP_CSS = [
   '#cpDlg .cp-chips{display:flex;flex-wrap:wrap;gap:6px}',
   '#cpDlg .cp-chips button{font-size:.8125rem;min-height:32px;padding:0 10px;border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--ink-2)}',
   '#cpDlg .cp-chips button[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:#fff}',
-  ':root[data-theme="dark"] #cpDlg .cp-chips button[aria-pressed=true],:root:not([data-theme="light"]) #cpDlg .cp-chips button[aria-pressed=true]{color:#06181A}',
+  ':root[data-theme="dark"] #cpDlg .cp-chips button[aria-pressed=true]{color:#06181A}',
   '#cpDlg .cp-sub{font-size:.6875rem;color:var(--muted);font-weight:500;margin-bottom:-4px}',
   '#cpDlg .cp-a-ler{display:flex;align-items:center;gap:12px;color:var(--muted);font-size:.9375rem;padding:24px 4px}',
   '#cpDlg .cp-a-ler i{width:18px;height:18px;border-radius:50%;border:2px solid var(--line);border-top-color:var(--accent);animation:cpRoda .8s linear infinite}',

@@ -139,10 +139,10 @@ var MN_CSS = [
   '    font:inherit;font-size:.6875rem;color:var(--muted);background:none;border:none;position:relative}',
   '  #mnBarra button.is-active{color:var(--accent-ink);font-weight:500}',
   '  #mnBarra button.mn-mais{width:54px;height:54px;min-width:54px;border-radius:16px;background:var(--accent);color:#fff;margin-top:-20px}',
-  '  :root[data-theme="dark"] #mnBarra button.mn-mais,:root:not([data-theme="light"]) #mnBarra button.mn-mais{color:#06181A}',
+  '  :root[data-theme="dark"] #mnBarra button.mn-mais{color:#06181A}',
   '  #mnBarra .mn-pt{position:absolute;top:4px;right:12px;min-width:16px;height:16px;padding:0 4px;border-radius:8px;background:var(--accent);color:#fff;',
   '    font-family:var(--mono);font-size:.625rem;line-height:16px;text-align:center}',
-  '  :root[data-theme="dark"] #mnBarra .mn-pt,:root:not([data-theme="light"]) #mnBarra .mn-pt{color:#06181A}',
+  '  :root[data-theme="dark"] #mnBarra .mn-pt{color:#06181A}',
   '}'
 ].join('\n');
 

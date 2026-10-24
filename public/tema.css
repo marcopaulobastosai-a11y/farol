@@ -158,3 +158,23 @@ body.mn-on .mo-tabs button.on{border-bottom-color:var(--ink);font-weight:700}
    novo e creme, como os outros ecras, e os cartoes ficam brancos. */
 body.mn-on:has(#view-hoje.is-active){background:var(--ground)}
 body.mn-on:has(#view-hoje.is-active) .topbar{background:color-mix(in srgb, var(--ground) 88%, transparent)}
+
+/* O Farol antigo poe texto escuro em tudo o que leva a cor de destaque, mesmo
+   no modo claro (regras «:root:not([data-theme=light])» fora de qualquer
+   @media). Com o azul escuro do tema novo isso deixava o texto invisivel: no
+   modo claro, o texto sobre a cor de destaque e branco. */
+@media not all and (prefers-color-scheme: dark){
+  html:not([data-theme="dark"]) body.mn-on .btn.btn.primary,
+  html:not([data-theme="dark"]) body.mn-on .btn.btn.primary:hover,
+  html:not([data-theme="dark"]) body.mn-on .ae-chip.ae-chip.on,
+  html:not([data-theme="dark"]) body.mn-on .ae-novo-tipos button.on{color:#fff}
+  html:not([data-theme="dark"]) body.mn-on .check .box svg,
+  html:not([data-theme="dark"]) body.mn-on .titem .box svg{stroke:#fff}
+}
+html[data-theme="light"] body.mn-on .btn.btn.primary,
+html[data-theme="light"] body.mn-on .btn.btn.primary:hover,
+html[data-theme="light"] body.mn-on .ae-chip.ae-chip.on,
+html[data-theme="light"] body.mn-on .ae-novo-tipos button.on{color:#fff}
+/* No menu lateral o destaque e ambar: texto escuro por cima. */
+body.mn-on .rail .btn.btn.primary,
+body.mn-on .rail .btn.btn.primary:hover{color:var(--ambar-ink)}
