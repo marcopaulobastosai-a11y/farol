@@ -258,7 +258,8 @@ async function dispensados() {
 }
 
 async function gruposSemArea(limite, saltar) {
-  const fora = (await dispensados()).concat((saltar || []).map(String).slice(0, 3000));
+  const fora = await dispensados();
+  const passar = new Set((saltar || []).map(String).slice(0, 3000));
   const rows = await all(SEM_AREA_SQL + `
     SELECT chave, count(*)::int AS n, sum(valor)::float AS total, to_char(max(data),'YYYY-MM-DD') AS ultimo,
            array_agg(id ORDER BY data DESC) AS ids, (array_agg(texto ORDER BY data DESC))[1] AS exemplo,
@@ -266,7 +267,7 @@ async function gruposSemArea(limite, saltar) {
       FROM sem WHERE chave <> '' AND NOT (chave = ANY($1::text[]))
      GROUP BY chave ORDER BY count(*) DESC, sum(abs(valor)) DESC`, [fora]);
   const total = rows.reduce((s2, g) => s2 + g.n, 0);
-  return { grupos: rows.slice(0, limite), restantes_grupos: rows.length, restantes_mov: total };
+  return { grupos: rows.filter((g) => !passar.has(g.chave)).slice(0, limite), restantes_grupos: rows.length, restantes_mov: total };
 }
 
 const ESQUEMA_AREAS = {

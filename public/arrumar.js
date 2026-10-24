@@ -168,7 +168,7 @@ function amDesenhar(){
     return;
   }
   c.appendChild(el('p', 'am-sub', 'Faltam ' + AM.resto.movimentos + ' movimentos em ' + AM.resto.grupos +
-    ' comerciantes. Estes são os ' + AM.grupos.length + ' com mais movimentos. Vêm marcados os que o Gemini tem a certeza; corrige a área onde precisares e aplica.'));
+    ' comerciantes. Aqui vão ' + AM.grupos.length + ', dos que têm mais movimentos. Vêm marcados os que o Gemini acha certos ou prováveis; corrige a área onde precisares e aplica.'));
 
   var f = el('div', 'am-filtro');
   [['Marcar todas com área', function(){ AM.grupos.forEach(function(g){ g.marcado = !!g.escolha; }); }],
