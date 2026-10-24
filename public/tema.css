@@ -153,3 +153,8 @@ body.mn-on .mo-tabs button.on{border-bottom-color:var(--ink);font-weight:700}
 @media (max-width:900px) and (prefers-color-scheme: dark){
   :root:not([data-theme="light"]) body.mn-on #mnBarra button.mn-mais{background:var(--ambar);color:var(--ambar-ink)}
 }
+
+/* O Hoje tinha o fundo branco de proposito (cartoes sem moldura). No tema
+   novo e creme, como os outros ecras, e os cartoes ficam brancos. */
+body.mn-on:has(#view-hoje.is-active){background:var(--ground)}
+body.mn-on:has(#view-hoje.is-active) .topbar{background:color-mix(in srgb, var(--ground) 88%, transparent)}
