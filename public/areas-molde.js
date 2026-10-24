@@ -185,7 +185,7 @@ function moPagMovimentos(a, card, alvo){
   var lista = c.lista || [];
   if (c.erro){ card.appendChild(el('p', 'mo-vazio', 'Não foi possível ler os movimentos.')); return; }
   card.appendChild(el('p', 'mo-sub', 'Os movimentos do banco que pertencem a esta área — marcados nela, ou ligados por uma despesa, um projeto ou a categoria. Os 300 mais recentes.'));
-  if (typeof arAviso === 'function') card.appendChild(arAviso(function(){ MO.movs = {}; if (MO.pag[a.view] === 'movimentos' && moLigado()) aeRenderArea(a); }));
+  if (typeof amAviso === 'function') card.appendChild(amAviso(function(){ MO.movs = {}; if (MO.pag[a.view] === 'movimentos' && moLigado()) aeRenderArea(a); }));
   if (!lista.length){ card.appendChild(el('p', 'mo-vazio', 'Nenhum movimento ligado a esta área.')); }
   else {
     var ent = 0, sai = 0;

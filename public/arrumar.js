@@ -11,132 +11,132 @@
  * Abre-se do separador Movimentos de qualquer area (areas-molde.js).
  */
 
-var AR = { dlg: null, estado: 'fechado', grupos: [], resto: null, erro: null, contagem: null, aContar: false, ultimo: null, depois: null, saltar: [] };
+var AM = { dlg: null, estado: 'fechado', grupos: [], resto: null, erro: null, contagem: null, aContar: false, ultimo: null, depois: null, saltar: [] };
 
-var AR_CSS = [
-  '#arDlg .ar{padding:22px 22px 26px;display:flex;flex-direction:column;gap:14px}',
-  '#arDlg .ar-h{display:flex;align-items:center;justify-content:space-between;gap:10px}',
-  '#arDlg .ar-h h2{font-family:var(--sans);font-size:1.375rem;font-weight:700;margin:0}',
-  '#arDlg .ar-fechar{min-width:44px;min-height:44px;border-radius:10px;color:var(--muted);font-size:1.25rem}',
-  '#arDlg .ar-sub{color:var(--muted);font-size:.875rem;margin:0}',
-  '#arDlg .ar-filtro{display:flex;gap:6px;flex-wrap:wrap}',
-  '#arDlg .ar-filtro button{font-size:.8125rem;min-height:32px;padding:0 12px;border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--ink-2)}',
-  '#arDlg .ar-lista{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:12px;overflow:hidden}',
-  '#arDlg .ar-g{display:grid;grid-template-columns:28px minmax(0,1fr) minmax(180px,240px);gap:10px;align-items:center;padding:10px 12px;border-top:1px solid var(--line-soft);background:var(--surface)}',
-  '#arDlg .ar-g:first-child{border-top:none}',
-  '#arDlg .ar-g.off{background:var(--surface-2)}',
-  '#arDlg .ar-g.off .ar-t{opacity:.6}',
-  '#arDlg .ar-g input[type=checkbox]{width:20px;height:20px;margin:0;accent-color:var(--accent)}',
-  '#arDlg .ar-t b{display:block;font-size:.875rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
-  '#arDlg .ar-t small{color:var(--muted);font-size:.75rem}',
-  '#arDlg .ar-g select{font:inherit;font-size:.8125rem;color:var(--ink);background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:6px 8px;min-height:36px;width:100%}',
-  '#arDlg .ar-conf{display:inline-block;font-size:.6875rem;font-weight:600;border-radius:4px;padding:1px 6px;margin-left:6px}',
-  '#arDlg .ar-conf.alta{background:var(--accent-soft);color:var(--accent-ink)}',
-  '#arDlg .ar-conf.media{background:var(--warn-soft);color:var(--warn)}',
-  '#arDlg .ar-conf.baixa{background:var(--surface-2);color:var(--muted)}',
-  '#arDlg .ar-acoes{display:flex;gap:10px;flex-wrap:wrap;align-items:center}',
-  '#arDlg .ar-acoes .btn{min-height:44px;padding:0 16px}',
-  '#arDlg .ar-acoes .ar-n{color:var(--muted);font-size:.8125rem;margin-right:auto}',
-  '#arDlg .ar-a-ler{display:flex;align-items:center;gap:12px;color:var(--muted);padding:24px 4px}',
-  '#arDlg .ar-a-ler i{width:18px;height:18px;border-radius:50%;border:2px solid var(--line);border-top-color:var(--accent);animation:arRoda .8s linear infinite}',
-  '@keyframes arRoda{to{transform:rotate(360deg)}}',
-  '#arDlg .ar-erro{color:var(--bad);font-size:.875rem}',
-  '#arDlg .ar-ok{background:var(--accent-soft);color:var(--accent-ink);border-radius:10px;padding:10px 12px;font-size:.875rem;display:flex;gap:10px;align-items:center}',
-  '#arDlg .ar-ok button{margin-left:auto;font-weight:600;text-decoration:underline}',
-  '.ar-aviso{display:flex;align-items:center;gap:12px;flex-wrap:wrap;background:var(--warn-soft);color:var(--warn);border-radius:12px;padding:10px 14px;margin:0 0 12px;font-size:.875rem}',
-  '.ar-aviso .btn{margin-left:auto}',
-  '@media (max-width:640px){ #arDlg .ar-g{grid-template-columns:28px minmax(0,1fr)} #arDlg .ar-g select{grid-column:2} }'
+var AM_CSS = [
+  '#amDlg .am{padding:22px 22px 26px;display:flex;flex-direction:column;gap:14px}',
+  '#amDlg .am-h{display:flex;align-items:center;justify-content:space-between;gap:10px}',
+  '#amDlg .am-h h2{font-family:var(--sans);font-size:1.375rem;font-weight:700;margin:0}',
+  '#amDlg .am-fechar{min-width:44px;min-height:44px;border-radius:10px;color:var(--muted);font-size:1.25rem}',
+  '#amDlg .am-sub{color:var(--muted);font-size:.875rem;margin:0}',
+  '#amDlg .am-filtro{display:flex;gap:6px;flex-wrap:wrap}',
+  '#amDlg .am-filtro button{font-size:.8125rem;min-height:32px;padding:0 12px;border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--ink-2)}',
+  '#amDlg .am-lista{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:12px;overflow:hidden}',
+  '#amDlg .am-g{display:grid;grid-template-columns:28px minmax(0,1fr) minmax(180px,240px);gap:10px;align-items:center;padding:10px 12px;border-top:1px solid var(--line-soft);background:var(--surface)}',
+  '#amDlg .am-g:first-child{border-top:none}',
+  '#amDlg .am-g.off{background:var(--surface-2)}',
+  '#amDlg .am-g.off .am-t{opacity:.6}',
+  '#amDlg .am-g input[type=checkbox]{width:20px;height:20px;margin:0;accent-color:var(--accent)}',
+  '#amDlg .am-t b{display:block;font-size:.875rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+  '#amDlg .am-t small{color:var(--muted);font-size:.75rem}',
+  '#amDlg .am-g select{font:inherit;font-size:.8125rem;color:var(--ink);background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:6px 8px;min-height:36px;width:100%}',
+  '#amDlg .am-conf{display:inline-block;font-size:.6875rem;font-weight:600;border-radius:4px;padding:1px 6px;margin-left:6px}',
+  '#amDlg .am-conf.alta{background:var(--accent-soft);color:var(--accent-ink)}',
+  '#amDlg .am-conf.media{background:var(--warn-soft);color:var(--warn)}',
+  '#amDlg .am-conf.baixa{background:var(--surface-2);color:var(--muted)}',
+  '#amDlg .am-acoes{display:flex;gap:10px;flex-wrap:wrap;align-items:center}',
+  '#amDlg .am-acoes .btn{min-height:44px;padding:0 16px}',
+  '#amDlg .am-acoes .am-n{color:var(--muted);font-size:.8125rem;margin-right:auto}',
+  '#amDlg .am-a-ler{display:flex;align-items:center;gap:12px;color:var(--muted);padding:24px 4px}',
+  '#amDlg .am-a-ler i{width:18px;height:18px;border-radius:50%;border:2px solid var(--line);border-top-color:var(--accent);animation:amRoda .8s linear infinite}',
+  '@keyframes amRoda{to{transform:rotate(360deg)}}',
+  '#amDlg .am-erro{color:var(--bad);font-size:.875rem}',
+  '#amDlg .am-ok{background:var(--accent-soft);color:var(--accent-ink);border-radius:10px;padding:10px 12px;font-size:.875rem;display:flex;gap:10px;align-items:center}',
+  '#amDlg .am-ok button{margin-left:auto;font-weight:600;text-decoration:underline}',
+  '.am-aviso{display:flex;align-items:center;gap:12px;flex-wrap:wrap;background:var(--warn-soft);color:var(--warn);border-radius:12px;padding:10px 14px;margin:0 0 12px;font-size:.875rem}',
+  '.am-aviso .btn{margin-left:auto}',
+  '@media (max-width:640px){ #amDlg .am-g{grid-template-columns:28px minmax(0,1fr)} #amDlg .am-g select{grid-column:2} }'
 ].join('\n');
 
-function arEstilo(){
-  if (document.getElementById('arCss')) return;
-  var st = document.createElement('style'); st.id = 'arCss'; st.textContent = AR_CSS;
+function amEstilo(){
+  if (document.getElementById('amCss')) return;
+  var st = document.createElement('style'); st.id = 'amCss'; st.textContent = AM_CSS;
   document.head.appendChild(st);
 }
 
-function arEuros(v){
+function amEuros(v){
   var n = Number(v || 0);
   return (n < 0 ? '−' : '') + Math.abs(n).toLocaleString('pt-PT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
 }
-function arPost(url, corpo){
+function amPost(url, corpo){
   return apiGestao(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo || {}) });
 }
-function arAreas(){ return typeof cpAreas === 'function' ? cpAreas() : []; }
+function amAreas(){ return typeof cpAreas === 'function' ? cpAreas() : []; }
 
 /* ---------- o aviso no separador Movimentos ---------- */
-function arContar(force){
-  if (AR.aContar || (AR.contagem && !force)) return;
-  AR.aContar = true;
+function amContar(force){
+  if (AM.aContar || (AM.contagem && !force)) return;
+  AM.aContar = true;
   apiGestao('/api/captar/movimentos-sem-area')
-    .then(function(d){ AR.contagem = d; })
-    .catch(function(){ AR.contagem = { movimentos: 0, grupos: 0 }; })
-    .then(function(){ AR.aContar = false; document.querySelectorAll('.ar-aviso').forEach(arPreencherAviso); });
+    .then(function(d){ AM.contagem = d; })
+    .catch(function(){ AM.contagem = { movimentos: 0, grupos: 0 }; })
+    .then(function(){ AM.aContar = false; document.querySelectorAll('.am-aviso').forEach(amPreencherAviso); });
 }
-function arPreencherAviso(box){
+function amPreencherAviso(box){
   clear(box);
-  var c = AR.contagem;
+  var c = AM.contagem;
   if (!c || !c.movimentos){ box.hidden = true; return; }
   box.hidden = false;
   box.appendChild(el('span', null, c.movimentos + ' movimentos do banco ainda não têm área (' + c.grupos + ' comerciantes).'));
   var b = el('button', 'btn primary', 'Arrumar');
   b.type = 'button';
-  b.addEventListener('click', function(){ arAbrir(box._depois); });
+  b.addEventListener('click', function(){ amAbrir(box._depois); });
   box.appendChild(b);
 }
 /* depois: o que fazer quando se aplicam areas (ex.: redesenhar a area). */
-function arAviso(depois){
-  arEstilo();
-  var box = el('div', 'ar-aviso');
+function amAviso(depois){
+  amEstilo();
+  var box = el('div', 'am-aviso');
   box.hidden = true;
   box._depois = depois;
-  if (AR.contagem) arPreencherAviso(box); else arContar();
+  if (AM.contagem) amPreencherAviso(box); else amContar();
   return box;
 }
 
 /* ---------- a folha ---------- */
-function arAbrir(depois){
-  arEstilo();
-  AR.depois = depois || null;
-  if (!AR.dlg){
-    AR.dlg = el('dialog', 'folha larga');
-    AR.dlg.id = 'arDlg';
-    AR.dlg.setAttribute('aria-label', 'Arrumar movimentos sem área');
-    document.body.appendChild(AR.dlg);
+function amAbrir(depois){
+  amEstilo();
+  AM.depois = depois || null;
+  if (!AM.dlg){
+    AM.dlg = el('dialog', 'folha larga');
+    AM.dlg.id = 'amDlg';
+    AM.dlg.setAttribute('aria-label', 'Arrumar movimentos sem área');
+    document.body.appendChild(AM.dlg);
   }
-  if (!AR.dlg.open) AR.dlg.showModal();
-  arPedir();
+  if (!AM.dlg.open) AM.dlg.showModal();
+  amPedir();
 }
-function arFechar(){ if (AR.dlg && AR.dlg.open) AR.dlg.close(); }
+function amFechar(){ if (AM.dlg && AM.dlg.open) AM.dlg.close(); }
 
-function arPedir(){
-  AR.estado = 'a-ler'; AR.erro = null; AR.grupos = [];
-  arDesenhar();
-  arPost('/api/captar/movimentos-areas', { limite: 40, saltar: AR.saltar })
+function amPedir(){
+  AM.estado = 'a-ler'; AM.erro = null; AM.grupos = [];
+  amDesenhar();
+  amPost('/api/captar/movimentos-areas', { limite: 40, saltar: AM.saltar })
     .then(function(d){
-      AR.resto = { movimentos: d.restantes_mov, grupos: d.restantes_grupos };
-      AR.contagem = AR.resto;
-      AR.grupos = (d.grupos || []).map(function(g){
+      AM.resto = { movimentos: d.restantes_mov, grupos: d.restantes_grupos };
+      AM.contagem = AM.resto;
+      AM.grupos = (d.grupos || []).map(function(g){
         return Object.assign({}, g, { escolha: g.area_id ? String(g.area_id) : '', marcado: !!g.area_id && g.confianca !== 'baixa' });
       });
-      AR.estado = AR.grupos.length ? 'lista' : 'vazio';
+      AM.estado = AM.grupos.length ? 'lista' : 'vazio';
     })
-    .catch(function(e){ AR.estado = 'erro'; AR.erro = (e && e.message) || 'Não foi possível propor áreas.'; })
-    .then(arDesenhar);
+    .catch(function(e){ AM.estado = 'erro'; AM.erro = (e && e.message) || 'Não foi possível propor áreas.'; })
+    .then(amDesenhar);
 }
 
-function arCabeca(c){
-  var h = el('div', 'ar-h');
+function amCabeca(c){
+  var h = el('div', 'am-h');
   h.appendChild(el('h2', null, 'Arrumar movimentos sem área'));
-  var x = el('button', 'ar-fechar', '×');
+  var x = el('button', 'am-fechar', '×');
   x.type = 'button'; x.setAttribute('aria-label', 'Fechar');
-  x.addEventListener('click', arFechar);
+  x.addEventListener('click', amFechar);
   h.appendChild(x);
   c.appendChild(h);
 }
 
-function arContas(){
+function amContas(){
   var mov = 0, grp = 0, fora = 0;
-  AR.grupos.forEach(function(g){
+  AM.grupos.forEach(function(g){
     if (!g.marcado) return;
     if (g.escolha === 'fora') fora++;
     else if (g.escolha){ grp++; mov += g.n; }
@@ -144,55 +144,55 @@ function arContas(){
   return { mov: mov, grp: grp, fora: fora };
 }
 
-function arDesenhar(){
-  if (!AR.dlg) return;
-  clear(AR.dlg);
-  var c = el('div', 'ar');
-  AR.dlg.appendChild(c);
-  arCabeca(c);
-  if (AR.ultimo) c.appendChild(arUltimo());
-  if (AR.estado === 'a-ler'){
-    var l = el('div', 'ar-a-ler'); l.appendChild(el('i'));
+function amDesenhar(){
+  if (!AM.dlg) return;
+  clear(AM.dlg);
+  var c = el('div', 'am');
+  AM.dlg.appendChild(c);
+  amCabeca(c);
+  if (AM.ultimo) c.appendChild(amUltimo());
+  if (AM.estado === 'a-ler'){
+    var l = el('div', 'am-a-ler'); l.appendChild(el('i'));
     l.appendChild(el('span', null, 'O Gemini está a ver os comerciantes com mais movimentos…'));
     c.appendChild(l);
     return;
   }
-  if (AR.estado === 'erro'){
-    c.appendChild(el('p', 'ar-erro', AR.erro));
-    var t = el('button', 'btn', 'Tentar outra vez'); t.type = 'button'; t.addEventListener('click', arPedir);
+  if (AM.estado === 'erro'){
+    c.appendChild(el('p', 'am-erro', AM.erro));
+    var t = el('button', 'btn', 'Tentar outra vez'); t.type = 'button'; t.addEventListener('click', amPedir);
     c.appendChild(t);
     return;
   }
-  if (AR.estado === 'vazio'){
-    c.appendChild(el('p', 'ar-sub', 'Já não há movimentos sem área. Bom trabalho.'));
+  if (AM.estado === 'vazio'){
+    c.appendChild(el('p', 'am-sub', 'Já não há movimentos sem área. Bom trabalho.'));
     return;
   }
-  c.appendChild(el('p', 'ar-sub', 'Faltam ' + AR.resto.movimentos + ' movimentos em ' + AR.resto.grupos +
-    ' comerciantes. Estes são os ' + AR.grupos.length + ' com mais movimentos. Vêm marcados os que o Gemini tem a certeza; corrige a área onde precisares e aplica.'));
+  c.appendChild(el('p', 'am-sub', 'Faltam ' + AM.resto.movimentos + ' movimentos em ' + AM.resto.grupos +
+    ' comerciantes. Estes são os ' + AM.grupos.length + ' com mais movimentos. Vêm marcados os que o Gemini tem a certeza; corrige a área onde precisares e aplica.'));
 
-  var f = el('div', 'ar-filtro');
-  [['Marcar todas com área', function(){ AR.grupos.forEach(function(g){ g.marcado = !!g.escolha; }); }],
-   ['Desmarcar todas', function(){ AR.grupos.forEach(function(g){ g.marcado = false; }); }]].forEach(function(x){
+  var f = el('div', 'am-filtro');
+  [['Marcar todas com área', function(){ AM.grupos.forEach(function(g){ g.marcado = !!g.escolha; }); }],
+   ['Desmarcar todas', function(){ AM.grupos.forEach(function(g){ g.marcado = false; }); }]].forEach(function(x){
     var b = el('button', null, x[0]); b.type = 'button';
-    b.addEventListener('click', function(){ x[1](); arDesenhar(); });
+    b.addEventListener('click', function(){ x[1](); amDesenhar(); });
     f.appendChild(b);
   });
   c.appendChild(f);
 
-  var areas = arAreas();
-  var lista = el('div', 'ar-lista');
-  AR.grupos.forEach(function(g){
-    var r = el('div', 'ar-g' + (g.marcado ? '' : ' off'));
+  var areas = amAreas();
+  var lista = el('div', 'am-lista');
+  AM.grupos.forEach(function(g){
+    var r = el('div', 'am-g' + (g.marcado ? '' : ' off'));
     var cb = el('input'); cb.type = 'checkbox'; cb.checked = g.marcado;
     cb.setAttribute('aria-label', 'Aplicar a ' + (g.exemplo || g.chave));
-    cb.addEventListener('change', function(){ g.marcado = cb.checked; arDesenhar(); });
+    cb.addEventListener('change', function(){ g.marcado = cb.checked; amDesenhar(); });
     r.appendChild(cb);
-    var t = el('div', 'ar-t');
+    var t = el('div', 'am-t');
     var b = el('b', null, g.entidade || g.exemplo || g.chave);
     b.title = g.exemplo || '';
     t.appendChild(b);
-    var s = el('small', null, g.n + (g.n === 1 ? ' movimento' : ' movimentos') + ' · ' + arEuros(g.total) + ' · ' + (g.conta || ''));
-    if (g.confianca){ s.appendChild(el('span', 'ar-conf ' + g.confianca, g.confianca === 'alta' ? 'certo' : g.confianca === 'media' ? 'provável' : 'dúvida')); }
+    var s = el('small', null, g.n + (g.n === 1 ? ' movimento' : ' movimentos') + ' · ' + amEuros(g.total) + ' · ' + (g.conta || ''));
+    if (g.confianca){ s.appendChild(el('span', 'am-conf ' + g.confianca, g.confianca === 'alta' ? 'certo' : g.confianca === 'media' ? 'provável' : 'dúvida')); }
     t.appendChild(s);
     r.appendChild(t);
     var sel = el('select');
@@ -201,35 +201,35 @@ function arDesenhar(){
     var of = el('option', null, 'Não tem área — não voltar a propor'); of.value = 'fora'; sel.appendChild(of);
     sel.value = g.escolha;
     sel.setAttribute('aria-label', 'Área de ' + (g.exemplo || g.chave));
-    sel.addEventListener('change', function(){ g.escolha = sel.value; g.marcado = !!sel.value; arDesenhar(); });
+    sel.addEventListener('change', function(){ g.escolha = sel.value; g.marcado = !!sel.value; amDesenhar(); });
     r.appendChild(sel);
     lista.appendChild(r);
   });
   c.appendChild(lista);
 
-  var n = arContas();
-  var ac = el('div', 'ar-acoes');
-  var txt = n.mov ? n.mov + ' movimentos em ' + n.grp + ' áreas' : 'Nada marcado';
+  var n = amContas();
+  var ac = el('div', 'am-acoes');
+  var txt = n.mov ? n.mov + ' movimentos de ' + n.grp + ' comerciantes' : 'Nada marcado';
   if (n.fora) txt += ' · ' + n.fora + ' sem área';
-  ac.appendChild(el('span', 'ar-n', txt));
+  ac.appendChild(el('span', 'am-n', txt));
   var seg = el('button', 'btn', 'Saltar para os seguintes');
   seg.type = 'button';
   seg.title = 'Deixa estes como estão e propõe os próximos';
   seg.addEventListener('click', function(){
-    AR.grupos.forEach(function(g){ if (!(g.marcado && g.escolha)) AR.saltar.push(g.chave); });
-    arPedir();
+    AM.grupos.forEach(function(g){ if (!(g.marcado && g.escolha)) AM.saltar.push(g.chave); });
+    amPedir();
   });
   var ap = el('button', 'btn primary', 'Aplicar');
   ap.type = 'button';
   ap.disabled = !(n.mov || n.fora);
-  ap.addEventListener('click', function(){ ap.disabled = true; ap.textContent = 'A aplicar…'; arAplicar(); });
+  ap.addEventListener('click', function(){ ap.disabled = true; ap.textContent = 'A aplicar…'; amAplicar(); });
   ac.appendChild(seg); ac.appendChild(ap);
   c.appendChild(ac);
 }
 
-function arUltimo(){
-  var u = AR.ultimo;
-  var d = el('div', 'ar-ok');
+function amUltimo(){
+  var u = AM.ultimo;
+  var d = el('div', 'am-ok');
   d.appendChild(el('span', null, u.mov + ' movimentos arrumados' + (u.fora ? ', ' + u.fora + ' comerciantes postos de parte' : '') + '.'));
   if (u.porArea.length){
     var b = el('button', null, 'Desfazer');
@@ -238,8 +238,8 @@ function arUltimo(){
       b.disabled = true; b.textContent = 'A desfazer…';
       var ids = [];
       u.porArea.forEach(function(x){ ids = ids.concat(x.ids); });
-      arPost('/api/financas/movimentos/lote', { ids: ids, context_id: null })
-        .then(function(){ AR.ultimo = null; arDepois(); arPedir(); if (typeof toast === 'function') toast('Desfeito.'); })
+      amPost('/api/financas/movimentos/lote', { ids: ids, context_id: null })
+        .then(function(){ AM.ultimo = null; amDepois(); amPedir(); if (typeof toast === 'function') toast('Desfeito.'); })
         .catch(function(){ b.textContent = 'Não deu para desfazer'; });
     });
     d.appendChild(b);
@@ -247,29 +247,29 @@ function arUltimo(){
   return d;
 }
 
-function arAplicar(){
+function amAplicar(){
   var porArea = {}, fora = [];
-  AR.grupos.forEach(function(g){
+  AM.grupos.forEach(function(g){
     if (!g.marcado || !g.escolha) return;
     if (g.escolha === 'fora') { fora.push(g.chave); return; }
     porArea[g.escolha] = (porArea[g.escolha] || []).concat(g.ids);
   });
-  AR.grupos.forEach(function(g){ if (!(g.marcado && g.escolha)) AR.saltar.push(g.chave); });
+  AM.grupos.forEach(function(g){ if (!(g.marcado && g.escolha)) AM.saltar.push(g.chave); });
   var lista = Object.keys(porArea).map(function(k){ return { context_id: Number(k), ids: porArea[k] }; });
-  var pedidos = lista.map(function(x){ return arPost('/api/financas/movimentos/lote', { ids: x.ids, context_id: x.context_id }); });
-  if (fora.length) pedidos.push(arPost('/api/captar/movimentos-dispensar', { chaves: fora }));
+  var pedidos = lista.map(function(x){ return amPost('/api/financas/movimentos/lote', { ids: x.ids, context_id: x.context_id }); });
+  if (fora.length) pedidos.push(amPost('/api/captar/movimentos-dispensar', { chaves: fora }));
   Promise.all(pedidos)
     .then(function(){
       var mov = 0; lista.forEach(function(x){ mov += x.ids.length; });
-      AR.ultimo = { mov: mov, fora: fora.length, porArea: lista };
-      arDepois();
-      arPedir();
+      AM.ultimo = { mov: mov, fora: fora.length, porArea: lista };
+      amDepois();
+      amPedir();
     })
-    .catch(function(e){ AR.estado = 'erro'; AR.erro = (e && e.message) || 'Não foi possível aplicar.'; arDesenhar(); });
+    .catch(function(e){ AM.estado = 'erro'; AM.erro = (e && e.message) || 'Não foi possível aplicar.'; amDesenhar(); });
 }
 
-function arDepois(){
-  AR.contagem = null;
-  if (typeof AR.depois === 'function') { try { AR.depois(); } catch (e) { console.error(e); } }
-  arContar(true);
+function amDepois(){
+  AM.contagem = null;
+  if (typeof AM.depois === 'function') { try { AM.depois(); } catch (e) { console.error(e); } }
+  amContar(true);
 }
