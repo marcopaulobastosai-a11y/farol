@@ -176,5 +176,5 @@ html[data-theme="light"] body.mn-on .btn.btn.primary:hover,
 html[data-theme="light"] body.mn-on .ae-chip.ae-chip.on,
 html[data-theme="light"] body.mn-on .ae-novo-tipos button.on{color:#fff}
 /* No menu lateral o destaque e ambar: texto escuro por cima. */
-body.mn-on .rail .btn.btn.primary,
-body.mn-on .rail .btn.btn.primary:hover{color:var(--ambar-ink)}
+html body.mn-on .rail .nav .btn.btn.primary,
+html body.mn-on .rail .nav .btn.btn.primary:hover{color:var(--ambar-ink)}
