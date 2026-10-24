@@ -186,6 +186,7 @@ html body.mn-on .rail .nav .btn.btn.primary:hover{color:var(--ambar-ink)}
    ===================================================================== */
 @media (max-width:900px){
   /* nada passa da largura do ecra */
+  html:has(body.mn-on),body.mn-on{overflow-x:clip}
   body.mn-on .g4,body.mn-on .g3,body.mn-on .g2,body.mn-on .split{grid-template-columns:minmax(0,1fr)}
   body.mn-on .grid > *{min-width:0}
   body.mn-on .tf-tipos{flex-wrap:wrap}
