@@ -1846,6 +1846,22 @@ function instalar(app) {
       res.status(400).json({ error: err.message || 'Não foi possível catalogar.' });
     }
   });
+  /* As contas por onde se pode ter pago uma despesa (24 out 2026): para o
+     «Pago com» da aprovacao. Fora o Splitwise e as desativadas; com o nome
+     da empresa quando a conta e de uma (cartao da empresa). */
+  app.get('/api/inbox/contas-pagamento', async (_req, res) => {
+    try {
+      res.json({ contas: await all(
+        `SELECT c.id, c.nome, c.empresa_id, p.nome AS empresa
+           FROM fin_contas c LEFT JOIN fin_cc_pessoas p ON p.id = c.empresa_id
+          WHERE c.ativo AND c.tipo <> 'splitwise'
+          ORDER BY (c.empresa_id IS NULL), c.sort, c.nome`) });
+    } catch (err) {
+      console.error('[farol] contas de pagamento:', err.message);
+      res.status(500).json({ error: 'Nao foi possivel ler as contas.' });
+    }
+  });
+
   /* Catalogar e um palpite da maquina; aprovar e uma decisao de quem manda.
      So aqui e que o documento passa a existir para o resto da app. */
   app.post('/api/inbox/:id/aprovar', async (req, res) => {
@@ -1871,9 +1887,35 @@ function instalar(app) {
          pagou. Fechar o pagamento e com o Marco, nas Tarefas. */
       const pagos = await pagarComComprovativo(id);
       await query('UPDATE inbox_items SET approved_at = now() WHERE id = $1', [id]);
+      /* «Pago com»: o movimento entra ja nessa conta, ligado a despesa. Se a
+         conta e de uma empresa (o cartao dela), fica registado como despesa
+         de representacao dessa empresa - pago por ela, sem divida. */
+      let lancado = null;
+      const contaId = Number((req.body || {}).conta_id) || null;
+      const desp = ligados.find((l) => l.target_type === 'despesa');
+      if (contaId && desp) {
+        const ja = await all('SELECT id FROM fin_movimentos WHERE expense_id = $1', [desp.target_id]);
+        const e = (await all(
+          `SELECT id, description, merchant, amount, to_char(spent_on,'YYYY-MM-DD') AS data, context_id
+             FROM expenses WHERE id = $1`, [desp.target_id]))[0];
+        const conta = (await all('SELECT id, nome, empresa_id FROM fin_contas WHERE id = $1 AND ativo', [contaId]))[0];
+        if (!ja.length && e && conta && Number(e.amount)) {
+          const r = (await all(
+            `INSERT INTO fin_movimentos (conta_id, data, descricao, entidade, valor, context_id, expense_id,
+                                         impressao, origem, repres_empresa_id, repres_estado)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'manual',$9,$10) RETURNING id`,
+            [conta.id, e.data, e.description || 'Despesa', e.merchant || null, -Math.abs(Number(e.amount)),
+              e.context_id || null, e.id, 'manual:' + crypto.randomBytes(8).toString('hex'),
+              conta.empresa_id || null, conta.empresa_id ? 'registada' : null]))[0];
+          lancado = { movimento_id: r.id, conta: conta.nome, representacao: Boolean(conta.empresa_id) };
+          try { require('./financas').categorizar([r.id]).catch(() => {}); } catch (x) { /* fica por categorizar */ }
+        } else if (ja.length) {
+          lancado = { movimento_id: ja[0].id, ja: true };
+        }
+      }
       console.log('[farol] item', id, 'aprovado:', ligados.map((l) => l.target_type).join(', '),
-        pagos.length ? '; comprovados: ' + pagos.join(', ') : '');
-      res.json({ ok: true, id, ...(await carregar(req.query.estado || 'catalogado')) });
+        pagos.length ? '; comprovados: ' + pagos.join(', ') : '', lancado ? '; movimento ' + lancado.movimento_id : '');
+      res.json({ ok: true, id, lancado, ...(await carregar(req.query.estado || 'catalogado')) });
     } catch (err) {
       console.error('[farol] POST aprovar:', err.message);
       res.status(500).json({ error: 'Nao foi possivel aprovar.' });

@@ -1736,10 +1736,15 @@ function ibAprovarDespesa(item) {
   var dl = ibDespesaSo(item);
   var x = (dl && dl.dados) || {};
   var temSw = typeof swBlocoPagar === 'function' && typeof swCarregar === 'function';
-  var pronto = temSw ? swCarregar() : Promise.resolve(null);
-  pronto.then(function (sw) {
+  var pronto = Promise.all([
+    temSw ? swCarregar().catch(function () { return null; }) : Promise.resolve(null),
+    apiGestao('/api/inbox/contas-pagamento').catch(function () { return { contas: [] }; })
+  ]);
+  pronto.then(function (rs) {
+    var sw = rs[0];
+    var contas = (rs[1] && rs[1].contas) || [];
     var ativos = sw && sw.ligado ? (sw.grupos || []).filter(function (g) { return g.ativo; }) : [];
-    if (!ativos.length) { ibAprovar(item.id); return; }
+    if (!ativos.length && !contas.length) { ibAprovar(item.id); return; }
 
     var dlg = el('dialog', 'ib-dlg');
     dlg.style.maxWidth = '32rem';
@@ -1750,13 +1755,50 @@ function ibAprovarDespesa(item) {
     if (x.spent_on) partes.push(ibDataPt(x.spent_on));
     if (x.merchant) partes.push(x.merchant);
     cx.appendChild(el('p', 'ib-atual', partes.join(' \u00b7 ')));
-    cx.appendChild(el('p', null, 'Fica nas Finan\u00e7as ao aprovar. Se o dinheiro for de mais do que um, marca o Splitwise e diz o grupo e a divis\u00e3o.'));
-    var bloco = swBlocoPagar({ splitwise_grupo: null }, function () { return Number(x.amount) || 0; });
-    cx.appendChild(bloco.no);
+    /* Pago com (24 out 2026): o movimento entra ja nessa conta, ligado a
+       despesa. Uma conta de empresa (o cartao dela) fica como despesa de
+       representacao dessa empresa. A area da despesa escolhe a conta da
+       empresa com o mesmo nome (area Credito Agricola -> Cartao CA). */
+    var pago = null;
+    if (contas.length) {
+      var lp = el('label', 'field');
+      lp.appendChild(el('span', null, 'Pago com'));
+      pago = el('select');
+      var o0 = el('option', null, 'Ainda n\u00e3o lan\u00e7ar no banco (liga-se depois ao extrato)'); o0.value = ''; pago.appendChild(o0);
+      var areaNome = '';
+      var ctx = ((window.G && G.contextos) || []).filter(function (c) { return c.id === x.context_id; })[0];
+      if (ctx) areaNome = ibSimples(ctx.name);
+      var sugerida = null;
+      contas.forEach(function (c) {
+        var o = el('option', null, c.nome + (c.empresa ? ' \u00b7 cart\u00e3o de ' + c.empresa : ''));
+        o.value = String(c.id);
+        pago.appendChild(o);
+        if (!sugerida && c.empresa && areaNome && ibSimples(c.empresa).indexOf(areaNome) >= 0) sugerida = c;
+        if (!sugerida && c.empresa && areaNome && areaNome.indexOf(ibSimples(c.empresa)) >= 0) sugerida = c;
+      });
+      if (sugerida) pago.value = String(sugerida.id);
+      lp.appendChild(pago);
+      cx.appendChild(lp);
+      var nota = el('p', 'ib-atual', '');
+      var explica = function () {
+        var c = contas.filter(function (cc) { return String(cc.id) === pago.value; })[0];
+        nota.textContent = !c ? 'Fica s\u00f3 a despesa; quando o movimento vier no extrato, liga-se a ela.'
+          : c.empresa ? 'Entra um movimento em \u00ab' + c.nome + '\u00bb, ligado a esta despesa, como despesa de representa\u00e7\u00e3o de ' + c.empresa + ' (paga por eles, sem d\u00edvida; fica \u00abregistada\u00bb).'
+          : 'Entra um movimento em \u00ab' + c.nome + '\u00bb, ligado a esta despesa.';
+      };
+      pago.addEventListener('change', explica);
+      explica();
+      cx.appendChild(nota);
+    }
+    var bloco = ativos.length ? swBlocoPagar({ splitwise_grupo: null }, function () { return Number(x.amount) || 0; }) : null;
+    if (bloco) {
+      cx.appendChild(el('p', null, 'Se o dinheiro for de mais do que um, marca o Splitwise e diz o grupo e a divis\u00e3o.'));
+      cx.appendChild(bloco.no);
+    }
     /* O grupo com o nome da pessoa do papel vem escolhido (o material da Sofia
        vai para o grupo da Sofia e da Maria); a caixa continua por marcar. */
     var dono = ibPessoaPorId(item.person_id);
-    var gsel = bloco.no.querySelector('select');
+    var gsel = bloco ? bloco.no.querySelector('select') : null;
     if (dono && gsel) {
       var alvo = ibSimples(dono.name);
       var g = ativos.filter(function (gg) { return ibSimples(gg.nome).indexOf(alvo) >= 0; })[0];
@@ -1767,7 +1809,8 @@ function ibAprovarDespesa(item) {
     var ok = el('button', 'btn primary', 'Aprovar e lan\u00e7ar');
     ok.type = 'button';
     ok.onclick = function () {
-      var pedido = bloco.valor();
+      var pedido = bloco ? bloco.valor() : null;
+      var corpo = pago && pago.value ? { conta_id: Number(pago.value) } : null;
       ok.disabled = true;
       dlg.close(); dlg.remove();
       ibAprovar(item.id, pedido ? function () {
@@ -1783,7 +1826,7 @@ function ibAprovarDespesa(item) {
         }).catch(function (e) {
           toast('A despesa ficou aprovada, mas o Splitwise falhou: ' + (e.message || ''));
         });
-      } : null);
+      } : null, corpo);
     };
     var fecha = el('button', 'btn', 'Cancelar');
     fecha.type = 'button';
@@ -1797,14 +1840,17 @@ function ibAprovarDespesa(item) {
   });
 }
 
-function ibAprovar(id, depois) {
-  apiGestao('/api/inbox/' + id + '/aprovar?estado=' + IB.estado, { method: 'POST' })
+function ibAprovar(id, depois, corpo) {
+  var op = { method: 'POST' };
+  if (corpo) { op.headers = { 'Content-Type': 'application/json' }; op.body = JSON.stringify(corpo); }
+  apiGestao('/api/inbox/' + id + '/aprovar?estado=' + IB.estado, op)
     .then(function (d) {
       IB.itens = d.itens || [];
       IB.porTriar = d.porTriar || 0;
       IB.porAprovar = d.porAprovar || 0;
       ibRender();
       if (typeof depois === 'function') depois();
+      else if (d.lancado && !d.lancado.ja) toast('Aprovada e lan\u00e7ada em \u00ab' + d.lancado.conta + '\u00bb' + (d.lancado.representacao ? ' como despesa de representa\u00e7\u00e3o.' : '.'));
       else toast('Aprovado. Saiu da caixa e ja esta nos Documentos.');
       if (typeof load === 'function') load();
     })
