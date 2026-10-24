@@ -921,6 +921,8 @@ require('./papelada').instalar(app);
 /* A pesquisa global: a caixa do menu e a pagina «Pesquisa». */
 require('./pesquisa').instalar(app);
 require('./relatorios').instalar(app);
+/* A revisao da semana: quando cada semana foi fechada (fase 6 do menu novo). */
+require('./revisao').instalar(app);
 
 /* Mandar os papeis de um pagamento a quem se paga, pelo Gmail. */
 require('./emails').instalar(app, {
