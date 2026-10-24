@@ -62,6 +62,7 @@ var MN_I = {
   menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
   caixa: '<path d="M4 13l2.5-7h11L20 13v6H4z"/><path d="M4 13h5l1 2h4l1-2h5"/>',
   mapa: '<rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/>',
+  financas: '<rect x="3" y="6" width="18" height="13" rx="2.5"/><path d="M3 10h18"/><path d="M7 15h3"/>',
   gente: '<circle cx="9" cy="8" r="3"/><path d="M3 20c0-3.3 2.7-5 6-5s6 1.7 6 5"/><circle cx="17.5" cy="9.5" r="2.2"/><path d="M16 15c3 0 5 1.6 5 4.5"/>'
 };
 function mnSvg(d, w){
@@ -133,12 +134,12 @@ var MN_CSS = [
   '  body.mn-on main{padding-bottom:calc(96px + env(safe-area-inset-bottom,0px))}',
   '  body.mn-on #mnBarra{display:flex;position:fixed;left:0;right:0;bottom:0;z-index:38;justify-content:space-around;align-items:center;',
   '    padding:6px 6px calc(8px + env(safe-area-inset-bottom,0px));background:var(--surface);border-top:1px solid var(--line)}',
-  '  #mnBarra button{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;min-width:56px;min-height:48px;',
+  '  #mnBarra button{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;min-width:0;flex:1 1 0;min-height:48px;',
   '    font:inherit;font-size:.6875rem;font-weight:600;color:var(--muted);background:none;border:none;position:relative}',
-  '  #mnBarra .mn-ico{display:flex;align-items:center;justify-content:center;width:52px;height:30px;border-radius:999px}',
+  '  #mnBarra .mn-ico{display:flex;align-items:center;justify-content:center;width:46px;height:30px;border-radius:999px}',
   '  #mnBarra button.is-active{color:var(--ink);font-weight:700}',
   '  #mnBarra button.is-active .mn-ico{background:var(--warn-soft);color:var(--ink)}',
-  '  #mnBarra button.mn-mais{width:56px;height:56px;min-width:56px;border-radius:18px;background:var(--accent);color:#fff;margin-top:-18px}',
+  '  #mnBarra button.mn-mais{flex:0 0 56px;width:56px;height:56px;min-width:56px;border-radius:18px;margin-left:4px;margin-right:4px;background:var(--accent);color:#fff;margin-top:-18px}',
   '  :root[data-theme="dark"] #mnBarra button.mn-mais{color:#06181A}',
   '  #mnBarra .mn-pt{position:absolute;top:4px;right:12px;min-width:16px;height:16px;padding:0 4px;border-radius:8px;background:var(--accent);color:#fff;',
   '    font-family:var(--mono);font-size:.625rem;line-height:16px;text-align:center}',
@@ -379,12 +380,13 @@ function mnBarra(){
   var barra = el('nav');
   barra.id = 'mnBarra';
   barra.setAttribute('aria-label', 'Menu');
-  /* Como no mockup: Hoje · Agenda · + · Areas · Pessoas, com icones.
+  /* Hoje · Agenda · Financas · + · Areas · Pessoas, com icones (Financas a
+     pedido do Marco, 24 out).
      «Areas» abre a pagina das areas (mapa.js), que tambem leva ao resto
      (Tarefas, Projetos, Documentos, Administracao).
      A barra fica por baixo de tudo o que abre por cima (detalhe de uma
      tarefa, janelas): z-index 38, abaixo dos 40+ das folhas e janelas. */
-  [['hoje', 'Hoje'], ['agenda', 'Agenda'], ['+', 'Captar'], ['mapa', 'Áreas'], ['gente', 'Pessoas']].forEach(function(i){
+  [['hoje', 'Hoje'], ['agenda', 'Agenda'], ['financas', 'Finanças'], ['+', 'Captar'], ['mapa', 'Áreas'], ['gente', 'Pessoas']].forEach(function(i){
     var b = el('button');
     b.type = 'button';
     b.dataset.mn = i[0];
@@ -408,7 +410,7 @@ function mnMarcarBarra(view){
   var area = (window.AE_AREAS || []).some(function(a){ return a.view === view; }) || /^(tarefas|projetos|documentos|revisao|financas|despesas)$/.test(view);
   for (var i = 0; i < bs.length; i++){
     var k = bs[i].dataset.mn;
-    bs[i].classList.toggle('is-active', k === view || (k === 'mapa' && area));
+    bs[i].classList.toggle('is-active', k === view || (k === 'mapa' && area && view !== 'financas'));
   }
 }
 
