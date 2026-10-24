@@ -417,3 +417,10 @@ body.mn-on .tm-procurar,body.mn-on #view-gente .tm-saltos{display:none}
 #tmVisor .tm-v-corpo img{max-width:100%;height:auto;display:block;margin:auto 0}
 #tmVisor .tm-v-corpo iframe{width:100%;height:100%;border:0;background:#fff}
 html.tm-visor-on,html.tm-visor-on body{overflow:hidden}
+@media (max-width:900px){
+  body.mn-on .tm-rec:not(.aberto) > :not(header){display:none}
+  body.mn-on .tm-rec > header{cursor:pointer;margin-bottom:0}
+  body.mn-on .tm-rec > header::after{content:"+";margin-left:auto;font-size:1.25rem;font-weight:600;color:var(--muted)}
+  body.mn-on .tm-rec.aberto > header{margin-bottom:12px}
+  body.mn-on .tm-rec.aberto > header::after{content:"\2212"}
+}

@@ -277,3 +277,26 @@ document.addEventListener('click', function(e){
   e.stopPropagation();
   tmVisorAbrir(href, (a.textContent || '').trim().slice(0, 80) || a.title || 'Ficheiro');
 }, true);
+
+/* Caixa de entrada: no telemovel o «Guardar qualquer coisa» vem recolhido
+   (o + da barra ja tem Fotografar e Ficheiro); toca-se no titulo para abrir. */
+function tmRecolherCaixa(){
+  if (!tmMovel()) return;
+  var f = document.getElementById('ibFicheiro');
+  var c = f && f.closest('.card');
+  if (!c || c.dataset.tmRec) return;
+  c.dataset.tmRec = '1';
+  c.classList.add('tm-rec');
+  var h = c.querySelector(':scope > header');
+  if (!h) return;
+  h.setAttribute('role', 'button');
+  h.setAttribute('tabindex', '0');
+  h.setAttribute('aria-expanded', 'false');
+  var abre = function(){ var a = c.classList.toggle('aberto'); h.setAttribute('aria-expanded', a ? 'true' : 'false'); };
+  h.addEventListener('click', abre);
+  h.addEventListener('keydown', function(e){ if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); abre(); } });
+}
+(function tmEsperarCaixa(n){
+  if (document.getElementById('ibFicheiro')) { try { tmRecolherCaixa(); } catch (e) {} return; }
+  if (n < 120) setTimeout(function(){ tmEsperarCaixa(n + 1); }, 500);
+})(0);
