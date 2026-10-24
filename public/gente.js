@@ -35,7 +35,7 @@ var GT_CSS = [
   '#view-gente .gt-t b{font-weight:500}',
   '#view-gente .gt-t small{color:var(--muted);font-size:.75rem}',
   '#view-gente .gt-sem{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}',
-  '#view-gente .gt-sem span{font-size:.6875rem;padding:2px 8px;border-radius:999px;background:var(--line-soft);color:var(--ink-2)}',
+  '#view-gente .gt-sem span{font-size:.6875rem;padding:2px 8px;border-radius:999px;background:var(--line-soft);color:var(--ink-2);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
   '#view-gente .gt-sem span.hoje{background:var(--accent-soft);color:var(--accent-ink)}',
   '#view-gente .gt-tag{font-size:.6875rem;font-weight:500;padding:2px 8px;border-radius:6px;background:var(--accent-soft);color:var(--accent-ink);margin-left:auto;align-self:flex-start;white-space:nowrap}',
   '#view-gente .gt-cuid{border:1px solid var(--line);border-radius:12px;background:var(--surface);overflow:hidden}',
