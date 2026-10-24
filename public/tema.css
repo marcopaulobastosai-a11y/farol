@@ -116,8 +116,6 @@ body.mn-on .rail .nav button.ae-nsub.is-active{background:var(--navy-3);color:#f
 body.mn-on .rail .nav button.ae-nsub::before{background:#2E3B58}
 body.mn-on .rail .nav .ae-nseta{color:#8E99B3}
 body.mn-on .rail .nav .ae-nseta:hover{background:var(--navy-2);color:#fff}
-body.mn-on .rail .mn-prog::before{background:#2E3B58}
-body.mn-on .rail .mn-toggle{color:#8E99B3;border-color:#2E3B58}
 body.mn-on .rail .mn-recolher{border-color:#2E3B58;color:#C9D0E0}
 body.mn-on .rail .rail-foot{border-top-color:#2E3B58}
 body.mn-on .rail .rail-foot b{color:#fff}

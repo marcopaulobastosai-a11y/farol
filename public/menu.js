@@ -69,8 +69,6 @@ function mnSvg(d, w){
 
 var MN_CSS = [
   /* o interruptor existe sempre (so para o administrador) */
-  '#nav .mn-toggle{order:99;margin-top:10px;font-size:.75rem;color:var(--muted);border:1px dashed var(--line);justify-content:center}',
-  '#nav .mn-toggle:hover{color:var(--accent-ink);border-color:var(--accent)}',
   /* tudo o resto so com o menu novo ligado */
   'body.mn-on #nav .nav-label{display:none}',
   'body.mn-on #nav .mn-fora{display:none!important}',
@@ -80,13 +78,6 @@ var MN_CSS = [
   'body.mn-on #nav .mn-topo{display:flex;order:0;margin-bottom:8px}',
   'body.mn-on #nav .ps-caixa{order:1}',
   '#nav button.mn-captar{justify-content:center;gap:6px;min-height:40px;font-weight:500}',
-  '#nav .mn-progs{display:none}',
-  'body.mn-on #nav .mn-progs{display:flex;flex-direction:column;gap:1px;order:31}',
-  '#nav button.mn-prog{font-size:.8125rem;padding:6px 8px 6px 34px;position:relative}',
-  '#nav button.mn-prog::before{content:"";position:absolute;left:15px;top:50%;width:9px;height:1px;background:var(--line)}',
-  '#nav button.mn-prog .mn-pn{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
-  '#nav button.mn-prog .badge{margin-left:auto}',
-  '#nav .mn-vazio{font-size:.75rem;color:var(--muted);padding:4px 8px 4px 34px;margin:0}',
   '#nav .mn-ini{display:none}',
   '.brand .mn-recolher{display:none}',
   'body.mn-on .brand .mn-recolher{display:inline-flex;margin-left:auto;width:30px;height:30px;border-radius:7px;align-items:center;justify-content:center;color:var(--muted);border:1px solid var(--line-soft)}',
@@ -121,10 +112,8 @@ var MN_CSS = [
   '  body.mn-on.mn-mini #nav button .badge{display:none}',
   '  body.mn-on.mn-mini #nav button.mn-tem::after{content:"";position:absolute;top:7px;right:12px;width:7px;height:7px;border-radius:50%;background:var(--accent)}',
   '  body.mn-on.mn-mini #nav .mn-ini{display:inline-flex;font-size:.8125rem;font-weight:500;width:18px;justify-content:center}',
-  '  body.mn-on.mn-mini #nav .mn-label,body.mn-on.mn-mini #nav .ae-nsubs,body.mn-on.mn-mini #nav .mn-progs{display:none!important}',
   '  body.mn-on.mn-mini #nav .ps-caixa input,body.mn-on.mn-mini #nav .ps-caixa .ps-tecla{display:none}',
   '  body.mn-on.mn-mini #nav .ps-caixa{justify-content:center;cursor:pointer}',
-  '  body.mn-on.mn-mini #nav .mn-toggle{display:none}',
   '  body.mn-on.mn-mini .rail-foot{justify-content:center}',
   '  body.mn-on.mn-mini .rail-foot > div,body.mn-on.mn-mini .rail-foot .btn{display:none}',
   '}',
@@ -170,27 +159,6 @@ function mnTexto(b){
 }
 function mnOrdem(n, o){ o = String(o); if (n.style.order !== o) n.style.order = o; }
 
-/* ------------------------------ o interruptor ------------------------------ */
-function mnInterruptor(nav){
-  /* Fase 7: ja nao ha interruptor. Tira-se o botao se tiver ficado. */
-  var velho = nav.querySelector('.mn-toggle');
-  if (velho) velho.remove();
-  return;
-  var t = nav.querySelector('.mn-toggle');
-  var txt = MN.on ? 'Voltar ao menu antigo' : 'Experimentar o menu novo';
-  if (!t){
-    t = el('button', 'mn-toggle', txt);
-    t.type = 'button';
-    t.addEventListener('click', function(){
-      mnGravar('farolMenuNovo', MN.on ? '0' : '1');
-      location.reload();
-    });
-    nav.appendChild(t);
-  } else if (t.textContent !== txt){
-    t.textContent = txt;
-  }
-}
-
 /* ------------------------------ arrumar o menu ----------------------------- */
 function mnRotulos(nav){
   MN_GRUPOS.forEach(function(g){
@@ -233,43 +201,6 @@ function mnMini(sim){
   mnGravar('farolMenuMini', MN.mini ? '1' : null);
   var b = document.querySelector('.rail .mn-recolher');
   if (b) b.setAttribute('aria-label', MN.mini ? 'Abrir o menu' : 'Recolher o menu');
-}
-
-/* Programas: um por linha, com as tarefas por fazer. Leva aos Projetos com
-   o programa escolhido. */
-function mnProgramas(nav){
-  var progs = (window.G && G.projects ? G.projects : []).filter(function(p){
-    return p.tipo === 'programa' && p.status !== 'concluido' && p.status !== 'arquivado';
-  });
-  var chave = progs.map(function(p){
-    var n = typeof pjAbertasDe === 'function' ? pjAbertasDe(p) : '';
-    return p.id + ':' + p.name + ':' + n;
-  }).join('|');
-  var caixa = nav.querySelector('.mn-progs');
-  if (caixa && MN.progsChave === chave) return;
-  MN.progsChave = chave;
-  if (!caixa){ caixa = el('div', 'mn-progs'); nav.appendChild(caixa); }
-  clear(caixa);
-  if (!progs.length){
-    caixa.appendChild(el('p', 'mn-vazio', window.G && G.projects && G.projects.length ? 'Sem programas ativos' : 'A carregar…'));
-    return;
-  }
-  progs.forEach(function(p){
-    var b = el('button', 'mn-prog');
-    b.type = 'button';
-    b.title = p.name;
-    b.appendChild(el('span', 'mn-pn', p.name));
-    var n = typeof pjAbertasDe === 'function' ? pjAbertasDe(p) : 0;
-    if (n) b.appendChild(el('span', 'badge', String(n)));
-    b.addEventListener('click', function(){
-      show('projetos');
-      if (typeof pjEscolher === 'function'){
-        try { pjEscolher('programa', p.id); } catch (e) { console.error('[farol] menu: programa', e); }
-      }
-      mnGaveta(false);
-    });
-    caixa.appendChild(b);
-  });
 }
 
 /* Quantos papeis esperam na caixa: por triar mais por aprovar. */
@@ -336,7 +267,6 @@ function mnAplicar(){
   MN.pendente = false;
   var nav = document.getElementById('nav');
   if (!nav) return;
-  mnInterruptor(nav);
   if (!MN.on) return;
   mnRotulos(nav);
   mnTopo(nav);
@@ -346,7 +276,7 @@ function mnAplicar(){
   var outros = 60;
   Array.prototype.forEach.call(nav.children, function(n){
     var c = n.classList;
-    if (c.contains('mn-label') || c.contains('mn-topo') || c.contains('mn-progs') || c.contains('mn-toggle') || c.contains('nav-label')) return;
+    if (c.contains('mn-label') || c.contains('mn-topo') || c.contains('nav-label')) return;
     if (c.contains('ps-caixa')){ mnOrdem(n, 1); return; }
     if (c.contains('ae-nsubs')){
       var p = n.previousElementSibling;
