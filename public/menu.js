@@ -122,14 +122,14 @@ var MN_CSS = [
   '#mnBarra{display:none}',
   '@media (max-width:900px){',
   '  body.mn-on .rail{display:none}',
-  '  body.mn-on.mn-gaveta .rail{display:flex;position:fixed;inset:0;z-index:900;flex-direction:column;align-items:stretch;gap:16px;overflow-y:auto;height:auto;',
+  '  body.mn-on.mn-gaveta .rail{display:flex;position:fixed;inset:0;z-index:37;flex-direction:column;align-items:stretch;gap:16px;overflow-y:auto;height:auto;',
   '    padding:calc(16px + env(safe-area-inset-top,0px)) 16px calc(96px + env(safe-area-inset-bottom,0px));border:none;background:var(--ground)}',
   '  body.mn-on.mn-gaveta .rail .nav{flex-direction:column;gap:2px}',
   '  body.mn-on.mn-gaveta .rail .nav button{white-space:normal;padding:11px 8px}',
   '  body.mn-on.mn-gaveta .rail-foot{display:flex}',
   '  body.mn-on.mn-gaveta{overflow:hidden}',
   '  body.mn-on main{padding-bottom:calc(96px + env(safe-area-inset-bottom,0px))}',
-  '  body.mn-on #mnBarra{display:flex;position:fixed;left:0;right:0;bottom:0;z-index:950;justify-content:space-around;align-items:center;',
+  '  body.mn-on #mnBarra{display:flex;position:fixed;left:0;right:0;bottom:0;z-index:38;justify-content:space-around;align-items:center;',
   '    padding:6px 6px calc(8px + env(safe-area-inset-bottom,0px));background:var(--surface);border-top:1px solid var(--line)}',
   '  #mnBarra button{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;min-width:56px;min-height:48px;',
   '    font:inherit;font-size:.6875rem;font-weight:600;color:var(--muted);background:none;border:none;position:relative}',
@@ -195,7 +195,11 @@ function mnRecolher(){
   b.type = 'button';
   b.setAttribute('aria-label', 'Recolher o menu');
   b.innerHTML = mnSvg(MN_I.recolher, 16);
-  b.addEventListener('click', function(){ mnMini(!MN.mini); });
+  /* No telemovel o menu e uma gaveta: o botao fecha-a. */
+  b.addEventListener('click', function(){
+    if (document.body.classList.contains('mn-gaveta')) return mnGaveta(false);
+    mnMini(!MN.mini);
+  });
   brand.appendChild(b);
 }
 function mnMini(sim){
@@ -374,7 +378,9 @@ function mnBarra(){
   barra.id = 'mnBarra';
   barra.setAttribute('aria-label', 'Menu');
   /* Como no mockup: Hoje · Agenda · + · Areas · Pessoas. «Areas» abre a
-     gaveta com o menu inteiro (areas, Tarefas, Projetos, Administracao). */
+     gaveta com o menu inteiro (areas, Tarefas, Projetos, Administracao).
+     A barra fica por baixo de tudo o que abre por cima (detalhe de uma
+     tarefa, janelas): z-index 38, abaixo dos 40+ das folhas e janelas. */
   [['hoje', 'Hoje'], ['agenda', 'Agenda'], ['+', 'Captar'], ['menu', 'Áreas'], ['gente', 'Pessoas']].forEach(function(i){
     var b = el('button');
     b.type = 'button';

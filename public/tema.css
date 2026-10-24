@@ -147,6 +147,7 @@ body.mn-on .mo-tabs button.on{border-bottom-color:var(--ink);font-weight:700}
   :root[data-theme="dark"] body.mn-on #mnBarra button.mn-mais{background:var(--ambar);color:var(--ambar-ink)}
   body.mn-on #mnBarra .mn-pt{background:var(--ambar);color:var(--ambar-ink)}
   html body.mn-on.mn-gaveta .rail{background:var(--navy);color:#E6EAF2}
+  body.mn-on.mn-gaveta .rail .brand .mn-recolher{width:44px;height:44px}
 }
 @media (max-width:900px) and (prefers-color-scheme: dark){
   :root:not([data-theme="light"]) body.mn-on #mnBarra button.mn-mais{background:var(--ambar);color:var(--ambar-ink)}
