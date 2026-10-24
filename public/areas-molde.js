@@ -34,8 +34,9 @@ var MO_VIA = { movimento: 'marcado', despesa: 'pela despesa', projeto: 'pelo pro
 var MO_CSS = [
   '.mo-tabs{display:flex;gap:2px;overflow-x:auto;border-bottom:1px solid var(--line);margin:0 0 14px;scrollbar-width:none}',
   '.mo-tabs::-webkit-scrollbar{display:none}',
-  '.mo-tabs button{font:inherit;font-size:.875rem;white-space:nowrap;padding:0 14px;min-height:42px;background:none;border:none;border-bottom:2px solid transparent;color:var(--muted);cursor:pointer}',
-  '.mo-tabs button:hover{color:var(--ink)}',
+  '.mo-tabs button[role=tab]{font:inherit;font-size:.875rem;white-space:nowrap;padding:0 14px;min-height:42px;background:none;border:none;border-bottom:2px solid transparent;color:var(--muted);cursor:pointer}',
+  '.mo-tabs button[role=tab]:hover{color:var(--ink)}',
+  '.mo-tabs .mo-captar{margin:4px 0 6px auto;flex:none;min-height:36px;padding:0 14px;border-bottom:none;border-radius:10px}',
   '.mo-tabs button.on{color:var(--ink);font-weight:500;border-bottom-color:var(--accent)}',
   '.mo-progs{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 14px}',
   '.mo-progs .mo-l{font-family:var(--mono);font-size:.625rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-right:2px}',
@@ -101,6 +102,15 @@ function moTabs(a, ativo){
     b.addEventListener('click', function(){ moIr(a, t[0]); });
     bar.appendChild(b);
   });
+  /* + Captar aqui: a captura abre ja com esta area (ou a sub-area escolhida). */
+  var alvo = moAlvo(a);
+  if (alvo && typeof cpAbrir === 'function'){
+    var c = el('button', 'btn primary mo-captar', '+ Captar aqui');
+    c.type = 'button';
+    c.title = 'Captar alguma coisa para ' + alvo.nome;
+    c.addEventListener('click', function(){ cpAbrir({ context_id: alvo.alvoId, nome: alvo.nome }); });
+    bar.appendChild(c);
+  }
   return bar;
 }
 
@@ -175,6 +185,7 @@ function moPagMovimentos(a, card, alvo){
   var lista = c.lista || [];
   if (c.erro){ card.appendChild(el('p', 'mo-vazio', 'Não foi possível ler os movimentos.')); return; }
   card.appendChild(el('p', 'mo-sub', 'Os movimentos do banco que pertencem a esta área — marcados nela, ou ligados por uma despesa, um projeto ou a categoria. Os 300 mais recentes.'));
+  if (typeof arAviso === 'function') card.appendChild(arAviso(function(){ MO.movs = {}; if (MO.pag[a.view] === 'movimentos' && moLigado()) aeRenderArea(a); }));
   if (!lista.length){ card.appendChild(el('p', 'mo-vazio', 'Nenhum movimento ligado a esta área.')); }
   else {
     var ent = 0, sai = 0;

@@ -107,7 +107,7 @@ function acharCc(ctx, nome) {
 const dataOk = (d) => (/^\d{4}-\d{2}-\d{2}$/.test(String(d || '')) ? d : null);
 const horaOk = (h) => (/^([01]\d|2[0-3]):[0-5]\d$/.test(String(h || '')) ? h : null);
 
-function sistema(ctx) {
+function sistema(ctx, onde) {
   const hoje = hojeLisboa();
   const dow = DIAS[new Date(hoje + 'T12:00:00Z').getUTCDay()];
   return [
@@ -147,17 +147,18 @@ function sistema(ctx) {
     '',
     'Contas correntes (quem nos deve ou a quem devemos):',
     (ctx.cc.length ? ctx.cc.map((c) => '- ' + c.nome).join('\n') : '- (nenhuma)')
-  ].join('\n');
+  ].concat(onde ? ['', 'A pessoa esta a captar a partir de: ' + onde + '. Usa isto por omissao (area e/ou pessoa)',
+    'em todos os cartoes, salvo se a frase disser claramente outra coisa.'] : []).join('\n');
 }
 
-async function perguntar(texto, ctx) {
+async function perguntar(texto, ctx, onde) {
   const r = await fetch('https://generativelanguage.googleapis.com/v1beta/interactions', {
     method: 'POST',
     signal: AbortSignal.timeout(TEMPO_MAX),
     headers: { 'content-type': 'application/json', 'x-goog-api-key': CHAVE },
     body: JSON.stringify({
       model: MODELO,
-      system_instruction: sistema(ctx),
+      system_instruction: sistema(ctx, onde),
       store: false,
       input: [{ type: 'text', text: texto }],
       response_format: { type: 'text', mime_type: 'application/json', schema: ESQUEMA }
@@ -178,11 +179,14 @@ async function perguntar(texto, ctx) {
   return JSON.parse(cru);
 }
 
-async function interpretar(texto) {
+async function interpretar(texto, pista) {
   const ctx = await contexto();
+  const ondeA = pista && pista.area_id ? ctx.areas.find((a) => a.id === Number(pista.area_id)) : null;
+  const ondeP = pista && pista.pessoa_id ? ctx.pessoas.find((x) => x.id === Number(pista.pessoa_id)) : null;
+  const onde = [ondeA ? 'a area ' + ondeA.nome : '', ondeP ? 'a ficha de ' + ondeP.name : ''].filter(Boolean).join(' e ');
   let ultimo = null, bruto = null;
   for (let i = 0; i <= ESPERAS.length; i++) {
-    try { bruto = await perguntar(texto, ctx); break; }
+    try { bruto = await perguntar(texto, ctx, onde); break; }
     catch (e) {
       ultimo = e;
       const tempo = /Timeout|Abort/.test(String(e.name) + String(e.message));
@@ -221,13 +225,165 @@ async function interpretar(texto) {
   };
 }
 
+/* ------------------------------------------------------------------ *
+ * Arrumar os movimentos sem area (24 out 2026)
+ *
+ * A maior parte dos movimentos do banco nao tem area: nem marcada, nem por
+ * uma despesa, um projeto ou a categoria. Juntam-se pela entidade (ou pela
+ * descricao sem numeros) - o mesmo supermercado, a mesma renda - e o Gemini
+ * propoe uma area por grupo. A pessoa confirma em bloco no ecra; quem grava
+ * e a rota de sempre (/api/financas/movimentos/lote). Os grupos que a pessoa
+ * diz que nao tem area ficam em settings ('mov_area_dispensados') para nao
+ * voltarem.
+ * ------------------------------------------------------------------ */
+const SEM_AREA_SQL = `
+  WITH sem AS (
+    SELECT m.id, m.valor, m.data,
+           lower(trim(COALESCE(NULLIF(m.entidade,''),
+             regexp_replace(regexp_replace(COALESCE(NULLIF(m.titulo,''), m.descricao), '[0-9]+', '', 'g'), '\\s+', ' ', 'g')))) AS chave,
+           COALESCE(NULLIF(m.titulo,''), m.descricao) AS texto, m.entidade, cat.nome AS categoria, c.nome AS conta
+      FROM fin_movimentos m
+      JOIN fin_contas c ON c.id = m.conta_id
+      LEFT JOIN fin_categorias cat ON cat.id = m.categoria_id
+      LEFT JOIN expenses e ON e.id = m.expense_id
+      LEFT JOIN projects p ON p.id = m.project_id
+     WHERE m.context_id IS NULL AND m.par_id IS NULL AND m.par_grupo IS NULL
+       AND m.para_conta_id IS NULL AND c.tipo <> 'splitwise'
+       AND e.context_id IS NULL AND p.context_id IS NULL AND cat.context_id IS NULL
+  )`;
+
+async function dispensados() {
+  const r = await all("SELECT value FROM settings WHERE key = 'mov_area_dispensados'");
+  try { const v = r.length ? JSON.parse(r[0].value) : []; return Array.isArray(v) ? v : []; } catch (e) { return []; }
+}
+
+async function gruposSemArea(limite, saltar) {
+  const fora = (await dispensados()).concat((saltar || []).map(String).slice(0, 3000));
+  const rows = await all(SEM_AREA_SQL + `
+    SELECT chave, count(*)::int AS n, sum(valor)::float AS total, to_char(max(data),'YYYY-MM-DD') AS ultimo,
+           array_agg(id ORDER BY data DESC) AS ids, (array_agg(texto ORDER BY data DESC))[1] AS exemplo,
+           max(entidade) AS entidade, max(categoria) AS categoria, max(conta) AS conta
+      FROM sem WHERE chave <> '' AND NOT (chave = ANY($1::text[]))
+     GROUP BY chave ORDER BY count(*) DESC, sum(abs(valor)) DESC`, [fora]);
+  const total = rows.reduce((s2, g) => s2 + g.n, 0);
+  return { grupos: rows.slice(0, limite), restantes_grupos: rows.length, restantes_mov: total };
+}
+
+const ESQUEMA_AREAS = {
+  type: 'object',
+  properties: {
+    propostas: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          i: { type: 'integer', description: 'O numero do grupo.' },
+          area: { type: 'string', description: 'Exactamente um nome da lista de areas, ou vazio se nao der para saber.' },
+          confianca: { type: 'string', enum: ['alta', 'media', 'baixa'] }
+        },
+        required: ['i', 'area', 'confianca']
+      }
+    }
+  },
+  required: ['propostas']
+};
+
+async function chamarGemini(sist, texto, esquema) {
+  const r = await fetch('https://generativelanguage.googleapis.com/v1beta/interactions', {
+    method: 'POST',
+    signal: AbortSignal.timeout(TEMPO_MAX * 2),
+    headers: { 'content-type': 'application/json', 'x-goog-api-key': CHAVE },
+    body: JSON.stringify({
+      model: MODELO, system_instruction: sist, store: false,
+      input: [{ type: 'text', text: texto }],
+      response_format: { type: 'text', mime_type: 'application/json', schema: esquema }
+    })
+  });
+  if (!r.ok) {
+    const t = (await r.text().catch(() => '')).replace(/\s+/g, ' ').slice(0, 200);
+    const porDia = r.status === 429 && /per day|por dia/i.test(t);
+    const e = new Error(porDia ? 'O Gemini esgotou os pedidos gratuitos de hoje.' : 'O Gemini respondeu ' + r.status + '.');
+    e.transitorio = !porDia && (r.status === 429 || r.status >= 500);
+    throw e;
+  }
+  const j = await r.json();
+  let cru = '';
+  (j.steps || []).forEach((p) => (p.content || []).forEach((c) => { if (c && c.type === 'text' && c.text) cru += c.text; }));
+  if (!cru && typeof j.output_text === 'string') cru = j.output_text;
+  if (!cru) throw new Error('O Gemini não devolveu nada.');
+  return JSON.parse(cru);
+}
+
+async function proporAreas(limite, saltar) {
+  const [g, ctx] = await Promise.all([gruposSemArea(limite, saltar), contexto()]);
+  if (!g.grupos.length) return Object.assign(g, { grupos: [] });
+  const sist = [
+    'Es o assistente das financas do Farol, a app de gestao de uma casa em Portugal.',
+    'Recebes grupos de movimentos bancarios (o mesmo comerciante ou descricao) e dizes a que area da casa',
+    'pertence cada grupo, escolhendo exactamente um nome da lista. Se o grupo nao pertencer claramente a',
+    'nenhuma (transferencias, levantamentos, coisas ambiguas), deixa a area vazia - nao adivinhes.',
+    'confianca alta so quando o comerciante deixa pouca duvida (ex.: farmacia -> Saude; renda -> Casa).',
+    '',
+    'Areas (Area > Sub-area). Prefere a sub-area quando for clara; senao a area de topo:',
+    ctx.areas.map((a) => '- ' + a.nome).join('\n'),
+    '',
+    'Pessoas da casa (para perceber descricoes com nomes):',
+    ctx.pessoas.map((p) => '- ' + p.name + (p.role ? ' (' + p.role + ')' : '')).join('\n')
+  ].join('\n');
+  const texto = g.grupos.map((x, i) => [i, x.exemplo, x.entidade ? 'entidade: ' + x.entidade : '',
+    x.categoria ? 'categoria: ' + x.categoria : '', 'conta: ' + x.conta, x.n + ' movimentos',
+    'total ' + Math.round(x.total) + ' EUR'].filter(Boolean).join(' | ')).join('\n');
+  let resp = null, ultimo = null;
+  for (let i = 0; i <= ESPERAS.length; i++) {
+    try { resp = await chamarGemini(sist, texto, ESQUEMA_AREAS); break; }
+    catch (e) {
+      ultimo = e;
+      const tempo = /Timeout|Abort/.test(String(e.name) + String(e.message));
+      if (!(e.transitorio || tempo) || i === ESPERAS.length) throw e;
+      await dormir(ESPERAS[i]);
+    }
+  }
+  if (!resp) throw ultimo || new Error('Sem resposta do Gemini.');
+  const porI = {};
+  (resp.propostas || []).forEach((p) => { porI[p.i] = p; });
+  g.grupos = g.grupos.map((x, i) => {
+    const p = porI[i] || {};
+    const area = acharArea(ctx, p.area);
+    return Object.assign({}, x, { area_id: area, confianca: area ? (p.confianca || 'baixa') : null });
+  });
+  return g;
+}
+
 function instalar(app) {
+  app.get('/api/captar/movimentos-sem-area', async (_req, res) => {
+    try { const g = await gruposSemArea(0); res.json({ movimentos: g.restantes_mov, grupos: g.restantes_grupos }); }
+    catch (err) { console.error('[farol] movimentos sem area:', err.message); res.status(500).json({ error: 'Não foi possível contar os movimentos.' }); }
+  });
+
+  app.post('/api/captar/movimentos-areas', async (req, res) => {
+    if (!CHAVE) return res.status(503).json({ error: 'A leitura automática não está ligada (falta a chave do Gemini).' });
+    const limite = Math.min(Math.max(Number((req.body || {}).limite) || 40, 5), 80);
+    try { res.json(await proporAreas(limite, (req.body || {}).saltar)); }
+    catch (err) { console.error('[farol] propor areas:', err.message); res.status(502).json({ error: err.message || 'Não foi possível propor áreas.' }); }
+  });
+
+  app.post('/api/captar/movimentos-dispensar', async (req, res) => {
+    try {
+      const novas = ((req.body || {}).chaves || []).map((c) => String(c).slice(0, 200)).filter(Boolean);
+      const todas = [...new Set((await dispensados()).concat(novas))].slice(-3000);
+      await query(`INSERT INTO settings (key, value) VALUES ('mov_area_dispensados', $1)
+                   ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`, [JSON.stringify(todas)]);
+      res.json({ dispensados: todas.length });
+    } catch (err) { console.error('[farol] dispensar:', err.message); res.status(500).json({ error: 'Não foi possível guardar.' }); }
+  });
+
+
   app.post('/api/captar/interpretar', async (req, res) => {
     const texto = String((req.body && req.body.texto) || '').trim();
     if (!texto) return res.status(400).json({ error: 'Escreve ou dita o que queres captar.' });
     if (texto.length > 2000) return res.status(400).json({ error: 'Texto demasiado longo: no máximo 2000 caracteres.' });
     if (!CHAVE) return res.status(503).json({ error: 'A leitura automática não está ligada (falta a chave do Gemini).' });
-    try { res.json(await interpretar(texto)); }
+    try { res.json(await interpretar(texto, { area_id: req.body.area_id, pessoa_id: req.body.pessoa_id })); }
     catch (err) {
       console.error('[farol] captar:', err.message);
       res.status(502).json({ error: err.message || 'Não foi possível interpretar.' });

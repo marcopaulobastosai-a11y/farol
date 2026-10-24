@@ -14,7 +14,7 @@
  * Substitui o menu do + do menu.js (mnCaptar). So com o menu novo ligado.
  */
 
-var CP = { dlg: null, passo: 'texto', texto: '', resposta: null, cartoes: [], aGravar: false, eu: null, voz: null, aOuvir: false };
+var CP = { onde: null, dlg: null, passo: 'texto', texto: '', resposta: null, cartoes: [], aGravar: false, eu: null, voz: null, aOuvir: false };
 
 var CP_TIPOS = [
   ['evento', 'Evento'], ['tarefa', 'Tarefa'], ['pagamento', 'Pagamento'],
@@ -42,6 +42,10 @@ var CP_CSS = [
   '#cpDlg .cp-mao span{color:var(--muted);font-size:.8125rem;margin-right:4px}',
   '#cpDlg .cp-mao button{font-size:.8125rem;min-height:36px;padding:0 12px;border-radius:999px;border:1px solid var(--line);background:var(--surface)}',
   '#cpDlg .cp-mao button:hover{border-color:var(--accent)}',
+  '#cpDlg .cp-onde{display:inline-flex;align-self:flex-start;align-items:center;gap:8px;padding:4px 4px 4px 12px;border-radius:999px;background:var(--accent-soft);color:var(--accent-ink);font-size:.8125rem}',
+  '#cpDlg .cp-onde span{color:var(--muted)}',
+  '#cpDlg .cp-onde button{width:28px;height:28px;border-radius:50%;color:var(--muted);font-size:1rem}',
+  '#cpDlg .cp-onde button:hover{background:var(--surface);color:var(--ink)}',
   '#cpDlg .cp-frase{font-size:.875rem;color:var(--ink-2);background:var(--surface-2);border-radius:10px;padding:10px 12px}',
   '#cpDlg .cp-perg{font-size:.875rem;background:var(--warn-soft);color:var(--warn);border-radius:10px;padding:10px 12px;font-weight:500}',
   '#cpDlg .cp-card{border:1px solid var(--line);border-radius:14px;padding:14px;display:flex;flex-direction:column;gap:10px;background:var(--surface)}',
@@ -76,8 +80,10 @@ function cpEstilo(){
 }
 
 /* ------------------------------ a folha ------------------------------ */
-function cpAbrir(){
+/* opts: { context_id, pessoa_id, nome } - o sitio de onde se capta. */
+function cpAbrir(opts){
   cpEstilo();
+  CP.onde = opts && (opts.context_id || opts.pessoa_id) ? opts : null;
   if (CP.dlg && CP.dlg.open) return;
   if (!CP.dlg){
     CP.dlg = el('dialog', 'folha larga');
@@ -122,8 +128,22 @@ function cpDesenhar(){
 }
 
 /* ---- passo 1: a frase ---- */
+function cpOndeChip(c){
+  if (!CP.onde) return;
+  var o = el('div', 'cp-onde');
+  o.appendChild(el('span', null, 'Em'));
+  o.appendChild(el('b', null, CP.onde.nome || ''));
+  var x = el('button', null, '×');
+  x.type = 'button';
+  x.setAttribute('aria-label', 'Captar sem este sítio');
+  x.addEventListener('click', function(){ CP.onde = null; cpDesenhar(); });
+  o.appendChild(x);
+  c.appendChild(o);
+}
+
 function cpPassoTexto(c){
   cpCabeca(c, 'Captar');
+  cpOndeChip(c);
   var w = el('div');
   var lab = el('label', 'cp-l', 'Escreve como dirias a alguém');
   lab.htmlFor = 'cpTexto';
@@ -237,10 +257,19 @@ function cpLer(){
   CP.passo = 'a-ler'; CP.erro = null;
   cpDesenhar();
   apiGestao('/api/captar/interpretar', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ texto: txt })
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ texto: txt, area_id: CP.onde && CP.onde.context_id || null, pessoa_id: CP.onde && CP.onde.pessoa_id || null })
   }).then(function(d){
     CP.resposta = d;
-    CP.cartoes = (d.cartoes || []).map(function(x){ return Object.assign({ on: !x.sugestao }, x); });
+    CP.cartoes = (d.cartoes || []).map(function(x){
+      x = Object.assign({ on: !x.sugestao }, x);
+      /* O sitio de onde se capta vale quando o Gemini nao disse outra coisa. */
+      if (CP.onde){
+        if (CP.onde.context_id && !x.context_id && x.tipo !== 'conta_corrente') x.context_id = CP.onde.context_id;
+        if (CP.onde.pessoa_id && x.tipo !== 'conta_corrente' && (x.pessoas || []).indexOf(CP.onde.pessoa_id) < 0) x.pessoas = (x.pessoas || []).concat([CP.onde.pessoa_id]);
+      }
+      return x;
+    });
     if (!CP.cartoes.length){
       CP.passo = 'texto';
       CP.erro = d.pergunta || 'Não percebi o que é para guardar. Tenta dizer de outra maneira.';
@@ -359,6 +388,7 @@ function cpContar(){
 function cpPassoCartoes(c){
   var n = CP.cartoes.length;
   cpCabeca(c, n === 1 ? 'O Farol propõe 1 coisa' : 'O Farol propõe ' + n + ' coisas');
+  cpOndeChip(c);
   c.appendChild(el('div', 'cp-frase', '«' + CP.texto.trim() + '»'));
   if (CP.resposta && CP.resposta.pergunta) c.appendChild(el('div', 'cp-perg', CP.resposta.pergunta));
   if (CP.cartoes.some(function(x){ return x.tipo === 'conta_corrente'; }) && !CP.cc) cpLerCc();
@@ -486,7 +516,31 @@ function cpAvisoDesfazer(feitos){
 }
 
 /* ------------------------------ ligar ------------------------------ */
+/* Na ficha de uma pessoa: «+ Captar» ao lado de Editar, com ela ja escolhida. */
+function cpNaFicha(){
+  if (typeof window.fiDesenhar !== 'function' || window.fiDesenhar.cpEmbrulhado) return;
+  var antes = window.fiDesenhar;
+  var novo = function(){
+    var r = antes.apply(this, arguments);
+    try {
+      var p = window.FI && FI.dados && FI.dados.pessoa;
+      var topo = document.querySelector('#fiCorpo .fi-topo');
+      if (p && topo && !topo.querySelector('.cp-aqui')){
+        var b = el('button', 'btn primary fi-editar cp-aqui', '+ Captar');
+        b.type = 'button';
+        b.title = 'Captar alguma coisa para ' + p.name;
+        b.addEventListener('click', function(){ cpAbrir({ pessoa_id: p.id, nome: p.name }); });
+        topo.appendChild(b);
+      }
+    } catch (e) { console.error('[farol] captar na ficha', e); }
+    return r;
+  };
+  novo.cpEmbrulhado = true;
+  window.fiDesenhar = novo;
+}
+
 function cpLigar(){
+  cpNaFicha();
   /* O + do menu novo (menu.js) chama mnCaptar pelo nome: passa a abrir isto. */
   window.mnCaptar = function(){ if (typeof mnGaveta === 'function') mnGaveta(false); cpAbrir(); };
   fetch('/api/me', { credentials: 'same-origin' }).then(function(r){ return r.ok ? r.json() : null; })
