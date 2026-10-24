@@ -299,6 +299,9 @@ html body.mn-on .rail .nav .btn.btn.primary:hover{color:var(--ambar-ink)}
   body.mn-on #view-projetos .pj-grip,body.mn-on #view-projetos .pj-meta.data{display:none}
   body.mn-on #view-projetos .pj-no > .pj-barra{flex:1 1 80px}
 
+  /* detalhe de uma tarefa: o fundo nao fica atras da barrinha do iPhone */
+  body.mn-on .av-folha,body.mn-on .tf-det{padding-bottom:env(safe-area-inset-bottom,0px);box-sizing:border-box}
+
   /* Areas: os separadores deslizam; o + de baixo faz de «Captar aqui» */
   body.mn-on .mo-tabs{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}
   body.mn-on .mo-tabs::-webkit-scrollbar{display:none}
