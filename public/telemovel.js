@@ -165,3 +165,72 @@ function tmLetra(v){
   document.documentElement.style.setProperty('--tm-letra', v + '%');
 }
 tmLetra(tmLetraAtual());
+
+/* ------------------------------------------------------------------ *
+ * Ver um ficheiro sem sair do Farol (24 out 2026)
+ *
+ * Os ficheiros abriam com target=_blank. Na app instalada no iPhone isso
+ * abre o ficheiro por cima de tudo, sem barra nem botao de voltar - ficava-
+ * -se preso no documento. No telemovel (ou na app instalada) passam a
+ * abrir num visor por cima da pagina, com «Fechar» (e o gesto de voltar)
+ * que deixa tudo onde estava, e «Abrir à parte» para partilhar/guardar.
+ * ------------------------------------------------------------------ */
+function tmVisorUsar(){
+  var standalone = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone;
+  return standalone || tmMovel();
+}
+function tmVisorFechar(deHistoria){
+  var v = document.getElementById('tmVisor');
+  if (!v) return;
+  v.remove();
+  document.documentElement.classList.remove('tm-visor-on');
+  if (!deHistoria && history.state && history.state.tmVisor) history.back();
+}
+function tmVisorAbrir(url, titulo){
+  tmVisorFechar(true);
+  var v = el('div');
+  v.id = 'tmVisor';
+  v.setAttribute('role', 'dialog');
+  v.setAttribute('aria-label', titulo || 'Ficheiro');
+  var barra = el('div', 'tm-v-barra');
+  var fechar = el('button', 'tm-v-fechar');
+  fechar.type = 'button';
+  fechar.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>';
+  fechar.appendChild(el('span', null, 'Fechar'));
+  fechar.addEventListener('click', function(){ tmVisorFechar(false); });
+  barra.appendChild(fechar);
+  barra.appendChild(el('span', 'tm-v-tit', titulo || ''));
+  var fora = el('a', 'tm-v-fora', 'Abrir à parte');
+  fora.href = url; fora.target = '_blank'; fora.rel = 'noopener';
+  fora.dataset.tmFora = '1';
+  barra.appendChild(fora);
+  v.appendChild(barra);
+  var corpo = el('div', 'tm-v-corpo');
+  var img = el('img');
+  img.alt = titulo || '';
+  img.addEventListener('error', function(){
+    img.remove();
+    var f = el('iframe');
+    f.src = url;
+    f.title = titulo || 'Ficheiro';
+    corpo.appendChild(f);
+  });
+  img.src = url;
+  corpo.appendChild(img);
+  v.appendChild(corpo);
+  document.body.appendChild(v);
+  document.documentElement.classList.add('tm-visor-on');
+  try { history.pushState({ tmVisor: true }, ''); } catch (e) {}
+}
+window.addEventListener('popstate', function(){ if (document.getElementById('tmVisor')) tmVisorFechar(true); });
+document.addEventListener('keydown', function(e){ if (e.key === 'Escape' && document.getElementById('tmVisor')) tmVisorFechar(false); });
+document.addEventListener('click', function(e){
+  var a = e.target && e.target.closest ? e.target.closest('a[href]') : null;
+  if (!a || a.dataset.tmFora || e.metaKey || e.ctrlKey || e.shiftKey) return;
+  var href = a.getAttribute('href') || '';
+  if (!/^\/api\/.+\/ficheiro(\?|$)/.test(href)) return;
+  if (!tmVisorUsar()) return;
+  e.preventDefault();
+  e.stopPropagation();
+  tmVisorAbrir(href, (a.textContent || '').trim().slice(0, 80) || a.title || 'Ficheiro');
+}, true);
