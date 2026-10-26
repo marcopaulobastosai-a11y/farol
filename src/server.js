@@ -927,6 +927,9 @@ require('./relatorios').instalar(app);
 require('./revisao').instalar(app);
 /* A captura universal: o + parte uma frase em cartoes (fase 5 do menu novo). */
 require('./captar').instalar(app);
+/* Notificacoes push (26 out 2026): src/notificacoes.js. */
+const notificacoes = require('./notificacoes');
+notificacoes.instalar(app);
 
 /* Mandar os papeis de um pagamento a quem se paga, pelo Gmail. */
 require('./emails').instalar(app, {
@@ -945,6 +948,7 @@ app.get('*', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'i
     await google.arrancar();
     await financas.preparar();
     await familia.preparar().catch((err) => console.error('[farol] familia:', err.message));
+    notificacoes.arrancar();
   } catch (err) {
     console.error('[farol] arranque sem base de dados:', err.message);
   }

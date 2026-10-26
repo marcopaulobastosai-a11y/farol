@@ -158,6 +158,7 @@ function mpRender(){
     cx.appendChild(seg);
     def.appendChild(cx);
     if (typeof bqEstado === 'function') def.appendChild(mpBloqueio());
+    if (typeof tmPushEstado === 'function') def.appendChild(mpNotificacoes());
     sec.appendChild(def);
   }
 }
@@ -238,3 +239,70 @@ function mpLigar(){
   }
   if (n < 60) setTimeout(function(){ mpEsperar(n + 1); }, 250);
 })(0);
+
+
+/* Notificacoes deste aparelho (telemovel.js + src/notificacoes.js). */
+var MP_AVISOS = [['lembretes', 'Lembretes de tarefas e eventos'], ['manha', 'Resumo do dia, às 8h30'], ['revisao', 'Revisão da semana, ao domingo às 18h']];
+function mpNotificacoes(){
+  var cx = el('div', 'mp-def');
+  cx.appendChild(el('span', null, 'Notificações'));
+  var info = el('small', 'mp-info', 'A ver…');
+  cx.appendChild(info);
+  var corpo = el('div', 'mp-form');
+  cx.appendChild(corpo);
+  var erro = el('small', 'mp-erro'); erro.hidden = true;
+  cx.appendChild(erro);
+  var falha = function(e){ erro.textContent = (e && e.message) || 'Não deu.'; erro.hidden = false; };
+  tmPushEstado().then(function(st){
+    clear(corpo);
+    if (!st.suportado){
+      info.textContent = st.ios && !st.instalada
+        ? 'No iPhone, as notificações só funcionam com o Farol no ecrã principal: no Safari, Partilhar › Adicionar ao ecrã principal, e abre-o por lá.'
+        : 'Este browser não recebe notificações.';
+      return;
+    }
+    if (st.ios && !st.instalada){
+      info.textContent = 'No iPhone, as notificações só funcionam com o Farol no ecrã principal: no Safari, Partilhar › Adicionar ao ecrã principal, e abre-o por lá.';
+      return;
+    }
+    if (st.permissao === 'denied'){
+      info.textContent = 'As notificações do Farol estão bloqueadas. Liga-as em Definições do telemóvel › Notificações › Farol.';
+      return;
+    }
+    if (!st.subscrito){
+      info.textContent = 'Desligadas neste aparelho.';
+      var prefs = {};
+      MP_AVISOS.forEach(function(a){
+        var lb = el('label', 'mp-chk'); var ck = el('input'); ck.type = 'checkbox'; ck.checked = true;
+        ck.addEventListener('change', function(){ prefs[a[0]] = ck.checked; });
+        prefs[a[0]] = true;
+        lb.appendChild(ck); lb.appendChild(document.createTextNode(' ' + a[1])); corpo.appendChild(lb);
+      });
+      var ok = el('button', 'btn primary', 'Ligar as notificações'); ok.type = 'button';
+      ok.addEventListener('click', function(){
+        erro.hidden = true; ok.disabled = true; ok.textContent = 'A ligar…';
+        tmPushLigar(prefs).then(function(){ if (typeof toast === 'function') toast('Notificações ligadas neste aparelho.'); mpRender(); })
+          .catch(function(e){ ok.disabled = false; ok.textContent = 'Ligar as notificações'; falha(e); });
+      });
+      corpo.appendChild(ok);
+      return;
+    }
+    info.textContent = 'Ligadas neste aparelho. Escolhe o que queres receber.';
+    MP_AVISOS.forEach(function(a){
+      var lb = el('label', 'mp-chk'); var ck = el('input'); ck.type = 'checkbox'; ck.checked = !st.prefs || st.prefs[a[0]] !== false;
+      ck.addEventListener('change', function(){
+        var p = {}; p[a[0]] = ck.checked;
+        tmPushPrefs(st.endpoint, p).catch(function(e){ ck.checked = !ck.checked; falha(e); });
+      });
+      lb.appendChild(ck); lb.appendChild(document.createTextNode(' ' + a[1])); corpo.appendChild(lb);
+    });
+    var acoes = el('div', 'mp-acoes');
+    var te = el('button', 'btn', 'Enviar uma de teste'); te.type = 'button';
+    te.addEventListener('click', function(){ te.disabled = true; tmPushTeste(st.endpoint).then(function(){ te.disabled = false; if (typeof toast === 'function') toast('Enviada. Deve chegar daqui a uns segundos.'); }).catch(function(e){ te.disabled = false; falha(e); }); });
+    var de = el('button', 'btn', 'Desligar'); de.type = 'button';
+    de.addEventListener('click', function(){ tmPushDesligar().then(function(){ mpRender(); }).catch(falha); });
+    acoes.appendChild(te); acoes.appendChild(de);
+    corpo.appendChild(acoes);
+  });
+  return cx;
+}

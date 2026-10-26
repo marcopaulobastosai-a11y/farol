@@ -336,3 +336,94 @@ function tmPainel(p){
   TM_PAINEIS.forEach(function(sel){ var p = document.querySelector(sel); if (p) tmPainel(p); });
   if (n < 120) setTimeout(function(){ tmPaineis(n + 1); }, 1000);
 })(0);
+
+/* ------------------------------------------------------------------ *
+ * Notificacoes push (26 out 2026)
+ *
+ * O service worker (sw.js) recebe os avisos do servidor (src/
+ * notificacoes.js). Liga-se em Areas › Definicoes; no iPhone so funciona
+ * com o Farol instalado no ecra principal (iOS 16.4 ou mais recente).
+ * Tocar num aviso abre o Farol no sitio certo: ?tarefa=, ?evento=, ?ver=.
+ * ------------------------------------------------------------------ */
+var TM_PUSH = { reg: null };
+function tmPushSuportado(){ return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window; }
+function tmInstalada(){ return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone === true; }
+function tmIOS(){ return /iPhone|iPad|iPod/.test(navigator.userAgent); }
+function tmPushRegisto(){
+  if (TM_PUSH.reg) return Promise.resolve(TM_PUSH.reg);
+  return navigator.serviceWorker.register('/sw.js').then(function(r){ TM_PUSH.reg = r; return navigator.serviceWorker.ready; });
+}
+function tmB64Url(s){
+  var p = '='.repeat((4 - s.length % 4) % 4);
+  var b = atob((s + p).replace(/-/g, '+').replace(/_/g, '/'));
+  var a = new Uint8Array(b.length); for (var i = 0; i < b.length; i++) a[i] = b.charCodeAt(i); return a;
+}
+function tmPushJson(url, corpo){
+  return fetch(url, { method: corpo ? 'POST' : 'GET', credentials: 'same-origin', headers: corpo ? { 'Content-Type': 'application/json' } : {}, body: corpo ? JSON.stringify(corpo) : undefined })
+    .then(function(r){ return r.json().then(function(j){ if (!r.ok) throw new Error(j.error || 'Erro'); return j; }); });
+}
+/* Estado deste aparelho: { suportado, instalada, permissao, subscrito, prefs, servidor } */
+window.tmPushEstado = function(){
+  var base = { suportado: tmPushSuportado(), instalada: tmInstalada(), ios: tmIOS(), permissao: 'Notification' in window ? Notification.permission : 'nada' };
+  if (!base.suportado) return Promise.resolve(base);
+  return tmPushRegisto().then(function(reg){ return reg.pushManager.getSubscription(); }).then(function(sub){
+    return tmPushJson('/api/push/estado', { endpoint: sub ? sub.endpoint : '' }).then(function(e){
+      return Object.assign(base, { subscrito: !!(sub && e.subscrito), prefs: e.prefs, servidor: e.ligado, endpoint: sub ? sub.endpoint : null });
+    });
+  }).catch(function(){ return base; });
+};
+/* Ligar: tem de vir de um toque (o iPhone so pede licenca assim). */
+window.tmPushLigar = function(prefs){
+  return tmPushJson('/api/push/chave').then(function(c){
+    if (!c.ligado) throw new Error('As notificações ainda não estão ligadas no servidor.');
+    return Notification.requestPermission().then(function(p){
+      if (p !== 'granted') throw new Error(p === 'denied' ? 'As notificações estão bloqueadas para o Farol nas definições do telemóvel.' : 'Sem licença para notificações.');
+      return tmPushRegisto();
+    }).then(function(reg){
+      return reg.pushManager.getSubscription().then(function(s){
+        return s || reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: tmB64Url(c.chave) });
+      });
+    }).then(function(sub){
+      var aparelho = (tmIOS() ? 'iPhone' : /Android/.test(navigator.userAgent) ? 'Android' : 'Browser') + (tmInstalada() ? ' · app' : '');
+      return tmPushJson('/api/push/subscrever', { sub: sub.toJSON(), prefs: prefs || {}, aparelho: aparelho });
+    });
+  });
+};
+window.tmPushDesligar = function(){
+  return tmPushRegisto().then(function(reg){ return reg.pushManager.getSubscription(); }).then(function(sub){
+    if (!sub) return null;
+    var ep = sub.endpoint;
+    return sub.unsubscribe().then(function(){ return tmPushJson('/api/push/sair', { endpoint: ep }); });
+  });
+};
+window.tmPushPrefs = function(endpoint, prefs){ return tmPushJson('/api/push/prefs', { endpoint: endpoint, prefs: prefs }); };
+window.tmPushTeste = function(endpoint){ return tmPushJson('/api/push/teste', { endpoint: endpoint }); };
+
+/* Abrir o que a notificacao avisou. */
+function tmAbrirDestino(url){
+  var q;
+  try { q = new URL(url, location.origin).searchParams; } catch (e) { return; }
+  var tarefa = q.get('tarefa'), evento = q.get('evento'), ver = q.get('ver');
+  var tentar = function(n){
+    var pronto = typeof show === 'function' && window.G && G.tasks;
+    if (!pronto) { if (n < 40) setTimeout(function(){ tentar(n + 1); }, 250); return; }
+    try {
+      if (ver) show(ver);
+      if (tarefa && typeof avAbrir === 'function') {
+        var t = G.tasks.filter(function(x){ return String(x.id) === tarefa; })[0];
+        avAbrir({ origem: 'tarefa', id: Number(tarefa), quando: t ? t.due_on : null, title: t ? t.title : '', detail: '' });
+      }
+      if (evento && typeof evAbrirId === 'function') evAbrirId(Number(evento));
+    } catch (e) { console.error('[farol] abrir aviso', e); }
+  };
+  tentar(0);
+}
+if (tmPushSuportado()) {
+  navigator.serviceWorker.addEventListener('message', function(e){ if (e.data && e.data.farolAbrir) tmAbrirDestino(e.data.farolAbrir); });
+  /* Registar logo, para o sw ficar pronto (nao pede licenca nenhuma). */
+  tmPushRegisto().catch(function(){});
+}
+if (/[?&](tarefa|evento|ver)=/.test(location.search)) {
+  tmAbrirDestino(location.href);
+  try { history.replaceState(null, '', location.pathname); } catch (e) {}
+}
