@@ -1213,3 +1213,9 @@ CREATE INDEX IF NOT EXISTS event_google_gid_idx ON event_google (person_id, goog
 ALTER TABLE people ADD COLUMN IF NOT EXISTS circulo      TEXT;
 ALTER TABLE people ADD COLUMN IF NOT EXISTS cuidados     BOOLEAN;
 ALTER TABLE people ADD COLUMN IF NOT EXISTS preferencias TEXT;
+
+-- Arquivar um documento (26 out 2026): um papel substituido (a certidao
+-- permanente antiga quando chega a nova) deixa de pedir atencao e sai da lista
+-- habitual, mas nao se apaga - fica a um filtro de distancia e volta com
+-- «Reativar». NULL quer dizer ativo.
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ;
