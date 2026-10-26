@@ -276,7 +276,7 @@ function axProcura(t, box, opts){
 
   var abrir = function(){
     var q = i.value.trim().toLowerCase();
-    var todos = ((window.D && D.documents) || []).filter(function(d){ return !ligados[d.id]; });
+    var todos = ((window.D && D.documents) || []).filter(function(d){ return !ligados[d.id] && !d.arquivado_em; });
     var achados = todos.filter(function(d){
       if (!q) return true;
       var quem = typeof pessoa === 'function' ? pessoa(d.person_id) : null;
