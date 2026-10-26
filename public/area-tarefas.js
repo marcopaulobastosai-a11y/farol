@@ -1435,7 +1435,7 @@ function aeRenderArea(a){
   var pjsTodos = (G.projects || []).filter(function(p){
     return p.tipo !== 'programa' && p.status !== 'concluido' && idsTodos.indexOf(p.context_id) >= 0;
   });
-  var docsTodos = ((window.D && D.documents) || []).filter(function(d){ return idsTodos.indexOf(d.context_id) >= 0; });
+  var docsTodos = ((window.D && D.documents) || []).filter(function(d){ return idsTodos.indexOf(d.context_id) >= 0 && !d.arquivado_em; });
   /* As Financas sao a casa do dinheiro sem area: uma despesa que a caixa de
      entrada catalogou sem area nao pode ficar invisivel em lado nenhum. */
   var orfas = a.view === 'financas';
