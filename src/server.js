@@ -202,7 +202,7 @@ app.get('/api/bootstrap', async (_req, res) => {
                     to_char(d.valid_on,'YYYY-MM-DD'),
                     d.context_id
                FROM documents d
-              WHERE d.aprovado AND d.valid_on IS NOT NULL
+              WHERE d.aprovado AND d.valid_on IS NOT NULL AND d.archived_at IS NULL
                 AND d.valid_on <= CURRENT_DATE + INTERVAL '60 days'
            ) x ORDER BY quando, title`),
       all(`SELECT 'Por fazer' AS label,
@@ -249,6 +249,7 @@ app.get('/api/bootstrap', async (_req, res) => {
                   to_char(d.issued_on, 'YYYY-MM-DD') AS issued_on,
                   to_char(d.valid_on,  'YYYY-MM-DD') AS valid_on,
                   d.valid_until, (d.read_at IS NOT NULL) AS lido,
+                  to_char(d.archived_at AT TIME ZONE 'Europe/Lisbon', 'YYYY-MM-DD') AS arquivado_em,
                   (SELECT l.inbox_id FROM inbox_links l
                     WHERE l.target_type = 'documento' AND l.target_id = d.id
                     ORDER BY l.inbox_id DESC LIMIT 1) AS inbox_id,
