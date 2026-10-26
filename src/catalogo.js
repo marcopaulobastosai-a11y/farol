@@ -122,6 +122,23 @@ function instalar(app) {
     }
   });
 
+  /* Arquivar ou reativar. Arquivado nao e apagado: o papel e os ficheiros
+     ficam, so deixa de pedir atencao no Hoje e sai da lista habitual. */
+  app.patch('/api/documentos/:id/arquivar', async (req, res) => {
+    const id = Number(req.params.id);
+    const arquivar = (req.body || {}).arquivado !== false;
+    try {
+      const r = await query(
+        'UPDATE documents SET archived_at = ' + (arquivar ? 'COALESCE(archived_at, now())' : 'NULL') +
+        ' WHERE id = $1', [id]);
+      if (!r.rowCount) return res.status(404).json({ error: 'Documento nao encontrado.' });
+      res.json({ ok: true, id: id, arquivado: arquivar });
+    } catch (err) {
+      console.error('[farol] PATCH arquivar:', err.message);
+      res.status(400).json({ error: 'Nao foi possivel arquivar o documento.' });
+    }
+  });
+
   app.get('/api/despesas', async (req, res) => {
     try {
       const linhas = await all(
