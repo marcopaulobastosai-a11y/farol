@@ -221,6 +221,10 @@ function eur(n){ return num(n) + ' €'; }
    tem documentos - uma fila de chips vazios nao ajuda ninguem. */
 var DOCS_PESSOA = null;
 var DOCS_AREA = null;   /* id de area/sub-area, 'sem' para os que nao tem, null para todas */
+/* Os arquivados vivem a parte: a lista habitual so mostra os ativos, e o chip
+   «Arquivados» troca para eles. Os filtros todos continuam a valer la dentro. */
+var DOCS_ARQ = false;
+function docsVisivel(d){ return DOCS_ARQ ? Boolean(d.arquivado_em) : !d.arquivado_em; }
 /* Um filtro por coluna, mais uma procura que corre tudo. Com 135 papeis a
    lista deixou de se ler de cima a baixo: o que se quer e chegar depressa a
    um deles. Vazio quer dizer «qualquer». */
@@ -473,6 +477,17 @@ function editarDocumento(d, aviso){
     ir.addEventListener('click', function(){ dlg.close(); dlg.remove(); show('documentos'); });
     pe.appendChild(ir);
   }
+  if (d.id){
+    var arq = el('button', 'btn esq', d.arquivado_em ? 'Reativar' : 'Arquivar');
+    arq.type = 'button';
+    arq.title = d.arquivado_em ? 'Voltar a p\u00f4r este documento na lista e nos avisos'
+      : 'Tirar da lista e dos avisos, sem apagar';
+    arq.addEventListener('click', function(){
+      dlg.close(); dlg.remove();
+      arquivarDocumento(d, !d.arquivado_em);
+    });
+    pe.appendChild(arq);
+  }
   var cancelar = el('button', 'btn', aviso ? 'Fechar' : 'Cancelar');
   cancelar.type = 'button';
   cancelar.addEventListener('click', function(){ dlg.close(); dlg.remove(); });
@@ -503,6 +518,19 @@ function editarDocumento(d, aviso){
   document.body.appendChild(dlg);
   dlg.showModal();
   iNome.focus();
+}
+
+/* Arquivar e o contrario de apagar: o papel e os ficheiros ficam, so deixa de
+   pedir atencao. Por isso nao pergunta - desfaz-se com o mesmo botao. */
+function arquivarDocumento(d, arquivar){
+  apiGestao('/api/documentos/' + d.id + '/arquivar', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ arquivado: arquivar })
+  }).then(function(){
+    toast(arquivar ? 'Documento arquivado. Est\u00e1 em Documentos \u203a Arquivados.' : 'Documento reativado.');
+  }).catch(function(e){ toast(e.message || 'N\u00e3o foi poss\u00edvel arquivar o documento.'); })
+    .then(function(){ load(); });
 }
 
 function apagarDocumento(d){
@@ -558,7 +586,7 @@ function renderDocsAreas(){
   if (!cs.length) return;
 
   var conta = {}, sem = 0;
-  (D.documents || []).forEach(function(d){
+  (D.documents || []).filter(docsVisivel).forEach(function(d){
     var a = docsAreaDe(d);
     if (!a) { sem++; return; }
     conta[a.pai] = (conta[a.pai] || 0) + 1;
@@ -606,6 +634,22 @@ function renderDocsAreas(){
         b.title = pai.name + ' \u203a ' + c.name;
       });
     }
+  }
+
+  var nArq = (D.documents || []).filter(function(d){ return d.arquivado_em; }).length;
+  if (nArq || DOCS_ARQ){
+    var arq = el('button', 'chip' + (DOCS_ARQ ? '' : ' off'));
+    arq.type = 'button';
+    arq.title = DOCS_ARQ ? 'Voltar aos documentos ativos' : 'Ver os documentos arquivados';
+    arq.appendChild(document.createTextNode(DOCS_ARQ ? '\u2190 Ativos' : 'Arquivados'));
+    if (!DOCS_ARQ){
+      var sa = el('small', null, String(nArq));
+      sa.style.cssText = 'margin-left:6px;font-family:var(--mono);font-size:.68rem;color:var(--faint)';
+      arq.appendChild(sa);
+    }
+    arq.style.marginLeft = 'auto';
+    arq.addEventListener('click', function(){ DOCS_ARQ = !DOCS_ARQ; renderDocumentos(); });
+    box.appendChild(arq);
   }
 }
 
@@ -669,10 +713,10 @@ function renderDocumentos(){
   renderDocsColunas();
 
   var porLer = 0;
-  D.documents.forEach(function(d){ if (!d.lido) porLer++; });
+  D.documents.forEach(function(d){ if (!d.lido && !d.arquivado_em) porLer++; });
 
   var passa = function(d){
-    return (!DOCS_PESSOA || d.person_id === DOCS_PESSOA) && docsPassaArea(d)
+    return docsVisivel(d) && (!DOCS_PESSOA || d.person_id === DOCS_PESSOA) && docsPassaArea(d)
       && docsPassaFiltros(d);
   };
   var PT = docsPorTarefa();
@@ -726,7 +770,8 @@ function renderDocumentos(){
     }
     /* Onde vive e o que e, por baixo do nome: nao vale a pena mais duas
        colunas numa tabela que ja tem sete. */
-    var onde = [areaNome(d.context_id), d.kind].filter(Boolean).join(' · ');
+    var onde = [areaNome(d.context_id), d.kind,
+      d.arquivado_em ? 'arquivado a ' + dataCurta(d.arquivado_em) : null].filter(Boolean).join(' · ');
     if (onde){
       var sub = el('div', null, onde);
       sub.style.cssText = 'font-size:.6875rem;color:var(--muted);margin-top:2px';
@@ -806,6 +851,15 @@ function renderDocumentos(){
     be.style.marginRight = '.35rem';
     be.addEventListener('click', function(){ editarDocumento(d); });
     tdx.appendChild(be);
+    var bq = el('button', 'btn', d.arquivado_em ? 'Reativar' : 'Arquivar');
+    bq.type = 'button';
+    bq.title = d.arquivado_em ? 'Voltar a pôr este documento na lista e nos avisos'
+      : 'Tirar da lista e dos avisos, sem apagar';
+    bq.style.padding = '.18rem .5rem';
+    bq.style.fontSize = '.75rem';
+    bq.style.marginRight = '.35rem';
+    bq.addEventListener('click', function(){ arquivarDocumento(d, !d.arquivado_em); });
+    tdx.appendChild(bq);
     var bx = el('button', 'btn danger', 'Apagar');
     bx.type = 'button';
     bx.style.padding = '.18rem .5rem';
@@ -820,7 +874,7 @@ function renderDocumentos(){
     var vazio = el('tr');
     var c = el('td', 'empty', docsHaFiltro()
       ? 'Nada com estes filtros.'
-      : 'Ainda n\u00e3o h\u00e1 documentos.');
+      : (DOCS_ARQ ? 'N\u00e3o h\u00e1 documentos arquivados.' : 'Ainda n\u00e3o h\u00e1 documentos.'));
     c.colSpan = 6;
     vazio.appendChild(c);
     tb.appendChild(vazio);
@@ -831,9 +885,12 @@ function renderDocumentos(){
   var resumo = $('docsResumo');
   if (resumo){
     /* Com filtros, o que interessa e quantos ficaram a vista. */
-    resumo.textContent = docsHaFiltro()
-      ? lista.length + ' de ' + D.documents.length
-      : (porLer ? porLer + ' por ler' : (D.documents.length ? 'tudo lido' : ''));
+    var nVis = D.documents.filter(docsVisivel).length;
+    resumo.textContent = DOCS_ARQ
+      ? (docsHaFiltro() ? lista.length + ' de ' + nVis : nVis) + (nVis === 1 ? ' arquivado' : ' arquivados')
+      : docsHaFiltro()
+        ? lista.length + ' de ' + nVis
+        : (porLer ? porLer + ' por ler' : (nVis ? 'tudo lido' : ''));
   }
 }
 
