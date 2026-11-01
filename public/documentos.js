@@ -209,7 +209,7 @@ function dcNome(d){
   var n = String(d.name || '').trim();
   n = n.replace(/^\d{8}\s+/, '');
   var ref = '';
-  var m = /^((?:FT|FR|FS|NC|INV|FAT)\s?[A-Z0-9][A-Z0-9\/.\-]*(?:\s[0-9][0-9\/.\-]*)?|[A-Z0-9][A-Z0-9\/.\-]{5,})\s+(.{3,})$/i.exec(n);
+  var m = /^((?:FT|FR|FS|NC|INV|FAT|DP|DUC)\s?[A-Z0-9][A-Z0-9\/.\-]*(?:\s[0-9][0-9\/.\-]*)?|[A-Z0-9][A-Z0-9\/.\-]{5,})\s+(.{3,})$/i.exec(n);
   if (m && /\d/.test(m[1]) && /[a-zA-ZÀ-ſ]{3}/.test(m[2])) { ref = m[1]; n = m[2]; }
   return { nome: n || d.name || 'Documento', ref: ref };
 }
@@ -668,7 +668,14 @@ function dcCabecaArea(caixa){
   }
   if (c.parent_id && typeof ppCartao === 'function' && dcNorm(topo.name).indexOf('profissional') === 0) {
     var a = typeof aeAreaAtiva === 'function' ? aeAreaAtiva() : null;
-    try { var pp = ppCartao(c.id, a); if (pp) caixa.appendChild(pp); } catch (e) { console.error('[farol] papelada nos documentos', e); }
+    /* Aqui a Papelada abre fechada: e longa, e quem vem aos Documentos vem
+       pelos papeis. Abre-se com um clique, sem mexer no cartao da visao geral. */
+    var antes = window.PP && PP.aberto ? PP.aberto[c.id] : undefined;
+    try {
+      if (window.PP && PP.aberto && antes === undefined) PP.aberto[c.id] = false;
+      var pp = ppCartao(c.id, a); if (pp) caixa.appendChild(pp);
+    } catch (e) { console.error('[farol] papelada nos documentos', e); }
+    if (window.PP && PP.aberto && antes === undefined) delete PP.aberto[c.id];
   }
 }
 
