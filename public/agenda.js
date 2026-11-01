@@ -130,6 +130,9 @@ var AG_CSS = [
   '.ag-hd .dn{font-family:var(--serif);font-size:1.25rem;line-height:1}',
   '.ag-hd .h.hoje .dn{background:var(--accent);color:#fff;border-radius:50%;width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;font-size:1rem}',
   '.ag-hd .h.fds,.ag-col.fds{background-color:var(--surface-2)}',
+  /* Fins de semana e feriados no mes: um tom abaixo das outras casas. */
+  '.ag-mc.fds{background:color-mix(in srgb,var(--surface-2) 70%,var(--line))}',
+  '.ag-mini button.fds,.ag-qd button.fds{color:var(--muted)}',
   '.ag-hd .cnt{margin-left:auto;font-family:var(--mono);font-size:.625rem;color:var(--faint)}',
   '.ag-hd .gut,.ag-ad .gut{font-family:var(--mono);font-size:.5625rem;color:var(--faint);padding:6px 5px;text-align:right}',
   '.ag-ad{border-bottom:1px solid var(--line)}',
@@ -255,6 +258,22 @@ function agSemana(d){
   var y = new Date(Date.UTC(t.getUTCFullYear(), 0, 1));
   return Math.ceil(((t - y) / 864e5 + 1) / 7);
 }
+/* Dias nao uteis: sabados, domingos e os dias dos eventos marcados como
+   feriado (nao_util), incluindo os de varios dias. Faz-se uma vez por desenho
+   a partir de todos os eventos - os filtros da Agenda nao tiram um feriado. */
+var AG_NU = null;
+function agNaoUteis(){
+  if (AG_NU) return AG_NU;
+  AG_NU = {};
+  ((window.D && D.events) || []).forEach(function(e){
+    if (!e.nao_util || !e.day) return;
+    var fim = e.ends_on && e.ends_on > e.day ? e.ends_on : e.day;
+    for (var d = agDia(e.day), n = 0; agKey(d) <= fim && n < 31; d = agMais(d, 1), n++) AG_NU[agKey(d)] = e.title || 'Feriado';
+  });
+  return AG_NU;
+}
+function agFds(d){ return d.getDay() % 6 === 0 || Boolean(agNaoUteis()[agKey(d)]); }
+
 function agHoje(){ var d = new Date(); return new Date(d.getFullYear(), d.getMonth(), d.getDate()); }
 function agEsc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){ return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
 function agDataTxt(d){ return AG_DW[d.getDay()] + ', ' + d.getDate() + ' de ' + MESES[d.getMonth()]; }
@@ -470,7 +489,7 @@ function agMontar(){
 function agRender(){
   if (!window.D || !D.events) return;
   if (!agMontar()) return;
-  AG_CACHE = null;
+  AG_CACHE = null; AG_NU = null;
   var r = agRotulo();
   $('agRot').textContent = r.t; $('agWk').textContent = r.wk; $('agWk').hidden = !r.wk;
   $('agVistas').innerHTML = AG_VISTAS.map(function(v){
@@ -556,7 +575,7 @@ function agGrelha(){
   var h = '<div class="ag-x"><div class="ag-tg" style="--n:' + n + ';--minw:' + minw + ';--H:' + H + 'px">';
   h += '<div class="ag-r ag-hd"><div class="gut"></div>' + cols.map(function(c){
     var cnt = agNoDia(c.k).filter(c.f).filter(function(x){ return x.tipo !== 'ocupado'; }).length;
-    var fds = !c.pessoa && c.d.getDay() % 6 === 0;
+    var fds = !c.pessoa && agFds(c.d);
     return '<div class="h' + (c.k === hojeK && !c.pessoa ? ' hoje' : '') + (fds ? ' fds' : '') + '" data-ir="' + c.k + '">' + c.cab + '<span class="cnt">' + (cnt || '') + '</span></div>';
   }).join('') + '</div>';
   h += '<div class="ag-r ag-ad"><div class="gut">dia todo</div>' + cols.map(function(c){
@@ -566,7 +585,7 @@ function agGrelha(){
   for (var i = 0; i < 24; i++) h += '<div>' + (i ? agPad(i) + ':00' : '') + '</div>';
   h += '</div>';
   cols.forEach(function(c){
-    var fds = !c.pessoa && c.d.getDay() % 6 === 0;
+    var fds = !c.pessoa && agFds(c.d);
     h += '<div class="ag-col' + (fds ? ' fds' : '') + '" data-col="' + c.k + '"' + (c.pessoa ? ' data-pessoa="' + c.pessoa + '"' : '') + '>';
     agArrumar(agBlocosDoDia(agNoDia(c.k).filter(c.f), c.k)).forEach(function(o){
       var x = o.x, topo = o.a / 60 * H, alt = Math.max(17, (o.b - o.a) / 60 * H - 2), w = 100 / o.n, curto = alt < 32;
@@ -590,7 +609,7 @@ function agMes(){
     var d = agMais(ini, i), k = agKey(d);
     var xs = agNoDia(k).filter(function(x){ return x.tipo !== 'ocupado'; });
     var mostra = xs.slice(0, 3), mais = xs.length - mostra.length;
-    h += '<div class="ag-mc' + (d.getMonth() !== c.getMonth() ? ' fora' : '') + (k === hojeK ? ' hoje' : '') + (k === selK ? ' sel' : '') +
+    h += '<div class="ag-mc' + (d.getMonth() !== c.getMonth() ? ' fora' : '') + (agFds(d) ? ' fds' : '') + (k === hojeK ? ' hoje' : '') + (k === selK ? ' sel' : '') +
       '" data-dia="' + k + '" data-largar="' + k + '"><div class="n"><b>' + d.getDate() + '</b><span>' + (d.getDate() === 1 ? AG_MS[d.getMonth()] : '') + '</span></div>' +
       mostra.map(function(x){ return agChip(x, true); }).join('') +
       (mais > 0 ? '<button type="button" class="mais" data-ir="' + k + '">+' + mais + ' mais</button>' : '') + '</div>';
@@ -606,7 +625,7 @@ function agMiniMes(y, m, denso){
   for (var dd = 1; dd <= dias; dd++){
     var k = y + '-' + agPad(m + 1) + '-' + agPad(dd);
     var xs = agNoDia(k).filter(function(x){ return x.tipo !== 'ocupado'; });
-    var cls = (k === hojeK ? 'hoje' : '') + (k === selK ? ' sel' : '');
+    var cls = (k === hojeK ? 'hoje' : '') + (k === selK ? ' sel' : '') + (agFds(agDia(k)) ? ' fds' : '');
     var tit = agEsc(xs.map(function(x){ return x.t; }).join(' · '));
     if (denso){
       var n = xs.length;
