@@ -1357,6 +1357,24 @@ function tfRenderDetalhe(base){
     det.appendChild(sj);
   }
 
+  /* Uma tarefa com nome de pagamento que ficou como Tarefa (veio assim do
+     TickTick) nao tem valor, beneficiario nem email a quem se paga. Avisa-se
+     e corrige-se com um clique (1 nov). */
+  if (!fechada && tfTipo(t) === 'tarefa' && /^\s*(pagamento|pagar)\b/i.test(t.title || '')){
+    var av = el('div', 'tf-sec');
+    av.style.cssText = 'display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--warn-soft);border-radius:8px;padding:10px 12px;font-size:.8125rem';
+    var avT = el('span', null, 'Isto parece um pagamento mas está como Tarefa: não tem valor, beneficiário nem email a quem se paga.');
+    avT.style.flex = '1 1 220px';
+    var avB = el('button', 'btn small primary', 'Passar a pagamento');
+    avB.type = 'button';
+    avB.addEventListener('click', function(){
+      avB.disabled = true;
+      tfGravar(t.id, { tipo: 'pagamento' }, 'Passou a pagamento.').catch(function(){ avB.disabled = false; });
+    });
+    av.appendChild(avT); av.appendChild(avB);
+    det.appendChild(av);
+  }
+
   // campos
   var sc = el('div', 'tf-sec');
   sc.appendChild(el('div', 'tf-lbl', 'Detalhes'));
