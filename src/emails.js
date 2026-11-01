@@ -242,6 +242,19 @@ async function destinatarioDe(t) {
       return { d, como: 'termos' };
     }
   }
+  /* Sem termos que batam, o beneficiario: um pagamento a «Ricardo Costa» vai
+     para o destinatario Ricardo Costa. Conta o nome da pessoa (o que esta
+     entre parenteses e a empresa, e varias pessoas partilham-na) e tem de
+     ter pelo menos duas palavras, todas no beneficiario (1 nov). */
+  if (t.tipo === 'pagamento' && t.payee) {
+    const ben = semAcentos(t.payee);
+    const noBen = (w) => new RegExp('(^|[^a-z0-9])' + w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '([^a-z0-9]|$)').test(ben);
+    const achados = lista.filter((d) => {
+      const ws = semAcentos(String(d.nome || '').replace(/\(.*?\)/g, ' ')).split(/[^a-z0-9]+/).filter((w) => w.length >= 2);
+      return ws.length >= 2 && ws.every(noBen);
+    });
+    if (achados.length === 1) return { d: achados[0], como: 'beneficiario' };
+  }
   return null;
 }
 
