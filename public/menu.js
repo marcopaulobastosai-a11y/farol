@@ -33,8 +33,10 @@ function mnGravar(k, v){
 /* A ordem de cada ecra no menu novo. Os que nao estao aqui vao para o fim
    da Administracao, para nada desaparecer sem querer. */
 var MN_ORDEM = {
-  hoje: 10, agenda: 11, tarefas: 12,
-  familia: 21, casa: 22, patrimonio: 23, financas: 24, profissional: 25, saude: 26, viagens: 27,
+  /* 1 nov: as Financas sobem ao Painel - sao o dinheiro de todas as areas,
+     nao uma delas. */
+  hoje: 10, agenda: 11, tarefas: 12, financas: 13,
+  familia: 21, casa: 22, patrimonio: 23, profissional: 25, saude: 26, viagens: 27,
   gente: 41, projetos: 42, documentos: 43, revisao: 44,
   acessos: 51, areas: 52, pessoas: 53, destinatarios: 54, splitwise: 55, eventos: 56, despesas: 57
 };
