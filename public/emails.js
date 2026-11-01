@@ -357,7 +357,9 @@ function emDesenharBloco(id){
     /* Escolher o destinatario deste pagamento (ou deixar pelos termos). */
     var sD = el('select');
     sD.setAttribute('aria-label', 'Destinatário');
-    var oA = new Option(d.destinatario && d.destinatario.como === 'termos' ? 'Pelos termos: ' + d.destinatario.nome : 'Pelos termos (nenhum encontrado)', '');
+    var oA = new Option(d.destinatario && d.destinatario.como === 'termos' ? 'Pelos termos: ' + d.destinatario.nome
+      : d.destinatario && d.destinatario.como === 'beneficiario' ? 'Pelo beneficiário: ' + d.destinatario.nome
+      : 'Pelos termos (nenhum encontrado)', '');
     sD.appendChild(oA);
     EM.dest.filter(function(x){ return x.ativo; }).forEach(function(x){
       var o = new Option(x.nome + ' · ' + x.email, String(x.id));
