@@ -66,7 +66,35 @@ var MO_CSS = [
   '.mo-notas button{font:inherit;text-align:left;padding:12px 14px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink);cursor:pointer}',
   '.mo-notas button:hover{border-color:var(--accent)}',
   '.mo-notas small{display:block;color:var(--muted);font-size:.75rem;margin-top:4px;white-space:pre-line;max-height:3.2em;overflow:hidden}',
-  '.mo-vazio{color:var(--muted);font-size:.875rem;margin:4px 0}'
+  '.mo-vazio{color:var(--muted);font-size:.875rem;margin:4px 0}',
+  /* 1 nov: programas, filtros e numeros numa so linha */
+  '.mo-linha{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:0 0 14px}',
+  '.mo-linha > .mo-progs{margin:0;flex:none;gap:6px}',
+  '.mo-linha > .mo-progs .mo-l{display:none}',
+  '.mo-linha > .mo-progs button{min-height:32px;padding:0 10px}',
+  '.mo-linha > .ae-filtros{margin:0;padding:6px 8px;flex:none}',
+  '.mo-linha > .ae-kpis{flex:1 1 360px;flex-wrap:nowrap;gap:6px;margin:0;min-width:0}',
+  '.mo-linha .ae-kpi{flex:1 1 0;min-width:0;padding:5px 9px;gap:0;overflow:hidden}',
+  '.mo-linha .ae-kpi b{font-size:.95rem;white-space:nowrap}',
+  '.mo-linha .ae-kpi span{font-size:.68rem;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+  '.mo-linha .ae-kpi .ae-spark,.mo-linha .ae-kpi b i{display:none}',
+  '.mo-linha .ae-limpar{font-size:.7rem}',
+  '@media (max-width:900px){.mo-linha > .ae-kpis{flex-wrap:wrap}.mo-linha .ae-kpi{flex-basis:30%}}',
+  /* 1 nov: os dados da empresa, por cima da papelada */
+  '.mo-dir{display:flex;flex-direction:column;gap:14px}',
+  '.mo-dir > .card{margin:0}',
+  '.mo-emp .mo-emp-b{padding:0 16px 14px}',
+  '.mo-emp h4{font-family:var(--mono);font-size:.625rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:500;margin:12px 0 4px}',
+  '.mo-emp h4:first-child{margin-top:2px}',
+  '.mo-emp-l{display:grid;grid-template-columns:minmax(80px,34%) minmax(0,1fr);gap:8px;align-items:start;padding:5px 0;border-top:1px solid var(--line-soft)}',
+  '.mo-emp-l > span{font-size:.75rem;color:var(--muted);padding-top:1px}',
+  '.mo-emp-l > button{font:inherit;font-size:.8125rem;color:var(--ink);text-align:left;background:none;border:0;padding:0;cursor:copy;white-space:pre-line;overflow-wrap:anywhere}',
+  '.mo-emp-l > button:hover{color:var(--accent-ink)}',
+  '.mo-emp-l > button.vz{color:var(--muted);font-style:italic;cursor:default}',
+  '.mo-emp .mo-emp-ed{margin-left:auto}',
+  '.mo-emp-dlg{width:min(620px,94vw)}',
+  '.mo-emp-dlg textarea{width:100%;min-height:52vh;font-family:var(--mono);font-size:.8rem;line-height:1.5;box-sizing:border-box}',
+  '.mo-emp-dlg p{color:var(--muted);font-size:.78rem;margin:0 0 8px}'
 ].join('\n');
 
 function moEstilo(){
@@ -313,6 +341,174 @@ function moPagina(a, box, k){
   else if (k === 'notas') moPagNotas(a, card, alvo);
 }
 
+/* ---------------------- o titulo da pagina (1 nov) ----------------------
+   Com uma so sub-area escolhida no «Onde», o titulo diz qual e (Cupula
+   Arejada) e o subtitulo lembra a area. Sem escolha volta o da area. */
+MO.ult = {};
+function moTitulo(a){
+  if (!a || !a.view) return;
+  MO.ult[a.view] = a;
+  var sec = document.getElementById('view-' + a.view);
+  if (!sec || !sec.classList.contains('is-active')) return;
+  var alvo = moAlvo(a);
+  if (!alvo) return;
+  var t = typeof TITLES !== 'undefined' ? TITLES[a.view] : null;
+  var tt = document.getElementById('pageTitle'), ts = document.getElementById('pageSub');
+  if (!tt || !ts) return;
+  if (alvo.alvoId !== alvo.area.id){
+    tt.textContent = alvo.nome;
+    ts.textContent = alvo.area.name + (t && t[1] ? ' · ' + t[1] : '');
+  } else if (t){
+    tt.textContent = t[0];
+    ts.textContent = t[1] || '';
+  }
+}
+
+/* ----------------------- os dados da empresa (1 nov) -----------------------
+   Firma, NIPC, moradas, CAE: o que se esta sempre a copiar para formularios.
+   Vivem na propria sub-area (contexts.dados); clicar num valor copia-o. */
+MO.emp = {};
+MO.empAberto = {};
+function moEmpTexto(dados){
+  return (dados || []).map(function(sec){
+    var l = sec.titulo ? ['# ' + sec.titulo] : [];
+    (sec.linhas || []).forEach(function(x){
+      var v = String(x.v || '').split('\n');
+      l.push((x.k ? x.k + ': ' : '') + v[0]);
+      v.slice(1).forEach(function(r){ l.push('  ' + r); });
+    });
+    return l.join('\n');
+  }).join('\n\n');
+}
+function moEmpLer(txt){
+  var secs = [], sec = null, ult = null;
+  String(txt || '').split(/\r?\n/).forEach(function(lin){
+    var t = lin.trim();
+    if (!t) { ult = null; return; }
+    if (/^#/.test(t)) { sec = { titulo: t.replace(/^#+\s*/, ''), linhas: [] }; secs.push(sec); ult = null; return; }
+    if (!sec) { sec = { titulo: '', linhas: [] }; secs.push(sec); }
+    var m = /^([^:]{1,60}):(.*)$/.exec(t);
+    var cont = /^\s/.test(lin) && ult;
+    if (m && !cont && !/^\/\//.test(m[2])) { ult = { k: m[1].trim(), v: m[2].trim() }; sec.linhas.push(ult); return; }
+    if (ult) { ult.v = ult.v ? ult.v + '\n' + t : t; return; }
+    ult = { k: '', v: t }; sec.linhas.push(ult);
+  });
+  return secs;
+}
+function moCopiar(txt){
+  var ok = function(){ if (typeof toast === 'function') toast('Copiado: ' + txt.split('\n')[0]); };
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(txt).then(ok, function(){});
+}
+function moCartaoDados(ctxId, nome){
+  var card = el('div', 'card ae-w mo-emp');
+  card.setAttribute('data-emp', String(ctxId));
+  function desenhar(){
+    clear(card);
+    var aberto = MO.empAberto[ctxId] !== false;
+    card.classList.toggle('ae-fechado', !aberto);
+    var dados = MO.emp[ctxId];
+    var h = el('div', 'ae-wh');
+    h.style.cursor = 'pointer';
+    var ic = el('span', 'ae-wi');
+    if (typeof aeIcone === 'function') ic.innerHTML = aeIcone('<path d="M4 21V5l8-2v18"/><path d="M12 9h8v12"/><path d="M8 8v.01M8 12v.01M8 16v.01M16 13v.01M16 17v.01"/>', 15);
+    h.appendChild(ic);
+    h.appendChild(el('span', 'ae-wt', 'Dados da empresa'));
+    var ed = el('button', 'btn small mo-emp-ed', dados && dados.length ? 'Editar' : '+ Dados');
+    ed.type = 'button';
+    ed.addEventListener('click', function(e){ e.stopPropagation(); moEmpEditar(ctxId, nome, desenhar); });
+    h.appendChild(ed);
+    h.addEventListener('click', function(){ MO.empAberto[ctxId] = !aberto; desenhar(); });
+    card.appendChild(h);
+    if (!aberto) return;
+    var b = el('div', 'mo-emp-b');
+    card.appendChild(b);
+    if (dados === undefined) { b.appendChild(el('p', 'mo-vazio', 'A ler…')); return; }
+    if (!dados.length) { b.appendChild(el('p', 'mo-vazio', 'Ainda sem dados. Firma, NIPC, moradas, CAE… ficam aqui à mão.')); return; }
+    dados.forEach(function(sec){
+      if (sec.titulo) b.appendChild(el('h4', null, sec.titulo));
+      (sec.linhas || []).forEach(function(x){
+        var r = el('div', 'mo-emp-l');
+        r.appendChild(el('span', null, x.k || ''));
+        var v = el('button', x.v ? '' : 'vz', x.v || '—');
+        v.type = 'button';
+        if (x.v) { v.title = 'Copiar'; v.addEventListener('click', function(){ moCopiar(x.v); }); }
+        r.appendChild(v);
+        b.appendChild(r);
+      });
+    });
+  }
+  desenhar();
+  if (MO.emp[ctxId] === undefined && typeof apiGestao === 'function'){
+    apiGestao('/api/contextos/' + ctxId + '/dados').then(function(r){
+      MO.emp[ctxId] = r.dados || [];
+      desenhar();
+    }).catch(function(e){ console.error('[farol] dados da empresa', e); });
+  }
+  return card;
+}
+function moEmpEditar(ctxId, nome, depois){
+  var dlg = el('dialog', 'ar-dlg folha mo-emp-dlg');
+  var f = el('form');
+  f.method = 'dialog';
+  f.appendChild(el('h3', null, 'Dados · ' + nome));
+  f.appendChild(el('p', null, 'Uma linha por dado, «Etiqueta: valor». «# Título» começa uma secção. Uma linha começada por espaço continua o valor de cima (moradas).'));
+  var ta = el('textarea');
+  ta.value = moEmpTexto(MO.emp[ctxId]) || '# Identificação\nFirma: \nNIPC: \n\n# Contactos\nEmail: \nTelemóvel: \n\n# Sede\nMorada: ';
+  f.appendChild(ta);
+  var bar = el('div', 'ar-acoes');
+  bar.style.cssText = 'display:flex;gap:8px;justify-content:flex-end;margin-top:10px';
+  var can = el('button', 'btn', 'Cancelar'); can.type = 'button';
+  can.addEventListener('click', function(){ dlg.close(); });
+  var ok = el('button', 'btn primary', 'Gravar'); ok.type = 'button';
+  ok.addEventListener('click', function(){
+    ok.disabled = true;
+    apiGestao('/api/contextos/' + ctxId + '/dados', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dados: moEmpLer(ta.value) })
+    }).then(function(r){
+      MO.emp[ctxId] = r.dados || [];
+      dlg.close();
+      if (typeof toast === 'function') toast('Dados gravados.');
+      depois();
+    }).catch(function(e){ ok.disabled = false; if (typeof toast === 'function') toast(e.message || 'Não foi possível gravar.'); });
+  });
+  bar.appendChild(can); bar.appendChild(ok);
+  f.appendChild(bar);
+  dlg.appendChild(f);
+  dlg.addEventListener('close', function(){ if (dlg.parentNode) dlg.parentNode.removeChild(dlg); });
+  document.body.appendChild(dlg);
+  dlg.showModal();
+  ta.focus();
+}
+
+/* Programas, filtros e numeros numa linha; na coluna da direita de uma
+   empresa, os dados dela por cima da papelada. */
+function moArrumar(a, box, alvo){
+  var barra = null, kp = null;
+  for (var i = 0; i < box.children.length; i++){
+    var c = box.children[i];
+    if (!barra && c.classList.contains('ae-filtros')) barra = c;
+    if (!kp && c.classList.contains('ae-kpis')) kp = c;
+  }
+  var fx = alvo ? moFaixaProgramas(alvo.ids) : null;
+  if (barra && kp && a.view !== 'familia'){
+    var linha = el('div', 'mo-linha');
+    box.insertBefore(linha, barra);
+    if (fx) linha.appendChild(fx);
+    linha.appendChild(barra);
+    linha.appendChild(kp);
+    [].forEach.call(kp.querySelectorAll('.ae-kpi'), function(k){ if (!k.title) k.title = k.textContent.replace('\u2192', '').trim(); });
+  } else if (fx) box.insertBefore(fx, box.children[1] || null);
+  var dir = box.querySelector('.ae-pp > .ae-pp-dir');
+  if (dir && alvo && alvo.alvoId !== alvo.area.id && a.view === 'profissional'){
+    var col = el('div', 'ae-pp-dir mo-dir');
+    dir.parentNode.insertBefore(col, dir);
+    dir.classList.remove('ae-pp-dir');
+    col.appendChild(moCartaoDados(alvo.alvoId, alvo.nome));
+    col.appendChild(dir);
+  }
+}
+
 /* --------------------------- o embrulho --------------------------- */
 function moEmbrulhar(){
   if (typeof window.aeRenderArea !== 'function' || window.aeRenderArea.moEmbrulhado) return false;
@@ -323,7 +519,7 @@ function moEmbrulhar(){
     var k = MO.pag[a.view];
     var box = typeof aeCaixa === 'function' ? aeCaixa(a) : null;
     if (k && MO_PROPRIAS[k] && box && aeArea(a)){
-      try { moPagina(a, box, k); } catch (e) { console.error('[farol] molde ' + a.view, e); }
+      try { moPagina(a, box, k); moTitulo(a); } catch (e) { console.error('[farol] molde ' + a.view, e); }
       return;
     }
     var r = antes.apply(this, arguments);
@@ -331,12 +527,9 @@ function moEmbrulhar(){
       if (box && aeArea(a)){
         var ativo = AE.pagina[a.view] || 'geral';
         box.insertBefore(moTabs(a, ativo), box.firstChild);
-        if (ativo === 'geral'){
-          var alvo = moAlvo(a);
-          var fx = alvo ? moFaixaProgramas(alvo.ids) : null;
-          if (fx) box.insertBefore(fx, box.children[1] || null);
-        }
+        if (ativo === 'geral') moArrumar(a, box, moAlvo(a));
       }
+      moTitulo(a);
     } catch (e) { console.error('[farol] molde ' + a.view, e); }
     return r;
   };
@@ -363,6 +556,8 @@ if (window.MutationObserver){
 document.addEventListener('click', function(e){
   var b = e.target.closest && e.target.closest('#nav button[data-view]');
   if (b && MO.pag[b.dataset.view]) MO.pag[b.dataset.view] = null;
+  /* O show() repoe o titulo da area; volta-se a por o da sub-area. */
+  if (b && MO.ult[b.dataset.view]) setTimeout(function(){ try { moTitulo(MO.ult[b.dataset.view]); } catch (er) {} }, 0);
 }, true);
 
 (function moEsperar(n){
