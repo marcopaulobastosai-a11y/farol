@@ -420,8 +420,11 @@ function evJanela(ev, opts){
   var iFim = el('input'); iFim.type = 'time'; iFim.style.display = 'none'; iFim.style.marginTop = '6px';
   var wDur = evjCampo(g1, 'Duração', sDur);
   wDur.appendChild(iFim);
+  /* O ultimo dia vale tambem para um evento com horas: um fim de semana fora
+     comeca na sexta as 13:00 e acaba no domingo as 14:00 (1 nov). */
   var iAte = el('input'); iAte.type = 'date'; iAte.value = e.ends_on || '';
-  var wAte = evjCampo(g1, 'Até (opcional)', iAte);
+  var wAte = evjCampo(g1, 'Termina no dia (opcional)', iAte);
+  var lDur = wDur.firstChild;
   sQ.appendChild(g1);
   var dQ = el('div', 'evj-dica');
   sQ.appendChild(dQ);
@@ -437,8 +440,21 @@ function evJanela(ev, opts){
   }
 
   /* A duracao em minutos, a partir do que esta escolhido. */
+  function variosDias(){
+    return !cDia.checked && iAte.value && iD.value && iAte.value > iD.value;
+  }
+  function diasEntre(){
+    return Math.round((parseDay(iAte.value) - parseDay(iD.value)) / 86400000);
+  }
   function duracao(){
     if (cDia.checked) return null;
+    /* De um dia a outro: conta do inicio no primeiro dia ao fim no ultimo. */
+    if (variosDias()){
+      var a0 = evjMin(iH.value), b0 = evjMin(iFim.value);
+      if (a0 === null || b0 === null) return null;
+      var d0 = diasEntre() * 1440 + b0 - a0;
+      return d0 > 0 ? d0 : null;
+    }
     if (sDur.value === 'outra'){
       var a = evjMin(iH.value), b = evjMin(iFim.value);
       if (a === null || b === null) return null;
@@ -595,14 +611,33 @@ function evJanela(ev, opts){
   /* ---- o que muda com o que se escolhe ---- */
   function acertar(){
     var inteiro = cDia.checked;
+    var varios = variosDias();
     wH.style.display = inteiro ? 'none' : '';
     wDur.style.display = inteiro ? 'none' : '';
-    wAte.style.display = inteiro ? '' : 'none';
-    iFim.style.display = !inteiro && sDur.value === 'outra' ? '' : 'none';
-    g1.className = inteiro ? 'evj-g' : 'evj-g3';
+    /* Varios dias com horas: a duracao da lista deixa de fazer sentido, o que
+       se escreve e a hora a que acaba no ultimo dia. */
+    sDur.style.display = varios ? 'none' : '';
+    lDur.textContent = varios ? 'Termina às' : 'Duração';
+    /* Le-se como uma frase: comeca no dia tal as tantas, termina no dia tal as tantas. */
+    if (varios && wAte.nextSibling !== wDur) g1.insertBefore(wAte, wDur);
+    if (!varios && wDur.nextSibling !== wAte) g1.insertBefore(wAte, wDur.nextSibling);
+    iFim.style.marginTop = varios ? '0' : '6px';
+    iFim.style.display = !inteiro && (varios || sDur.value === 'outra') ? '' : 'none';
+    /* Com varios dias sao quatro campos: dois por linha, comeco em cima e fim em baixo. */
+    g1.className = inteiro || varios ? 'evj-g' : 'evj-g3';
 
     var txt = '';
-    if (!inteiro){
+    if (varios){
+      var dv = duracao(), nd = diasEntre() + 1;
+      if (evjMin(iH.value) === null) txt = 'Falta a hora de início.';
+      else if (evjMin(iFim.value) === null) txt = 'Falta a hora a que termina no último dia.';
+      else if (!dv) txt = 'Termina antes de começar.';
+      else {
+        var pd = parseDay(iD.value), ud = parseDay(iAte.value);
+        var cur = function(x){ return x.getDate() + ' ' + MESES[x.getMonth()].slice(0, 3).toLowerCase(); };
+        txt = 'Das ' + iH.value + ' de ' + cur(pd) + ' às ' + iFim.value + ' de ' + cur(ud) + ' · ' + nd + ' dias.';
+      }
+    } else if (!inteiro){
       var d = duracao(), a = evjMin(iH.value);
       if (a !== null && d) txt = 'Das ' + iH.value + ' às ' + evjHora(a + d) + (a + d >= 1440 ? ' do dia seguinte' : '') + ' · ' + evjDurTxt(d) + '.';
       else if (a === null && sDur.value) txt = 'Falta a hora de início.';
@@ -631,6 +666,14 @@ function evJanela(ev, opts){
   sDur.addEventListener('change', function(){
     if (sDur.value === 'outra' && !iFim.value && iH.value) iFim.value = evjHora(evjMin(iH.value) + 60);
   });
+  iAte.addEventListener('change', function(){
+    if (variosDias() && !iFim.value && iH.value){
+      /* A mesma hora de fim que ja se tinha escolhido, agora no ultimo dia. */
+      var dd = sDur.value && sDur.value !== 'outra' ? Number(sDur.value) : 60;
+      iFim.value = evjHora(evjMin(iH.value) + dd);
+      acertar();
+    }
+  });
   acertar();
 
   /* ---- gravar ---- */
@@ -640,8 +683,9 @@ function evJanela(ev, opts){
     if (!titulo){ erro.textContent = 'Falta dizer o que é.'; return iT.focus(); }
     if (!iD.value){ erro.textContent = 'Falta o dia.'; return iD.focus(); }
     var inteiro = cDia.checked;
-    if (!inteiro && sDur.value === 'outra' && !duracao()){ erro.textContent = 'Falta a hora de início ou a de fim.'; return; }
-    if (inteiro && iAte.value && iAte.value < iD.value){ erro.textContent = 'O último dia é antes do primeiro.'; return iAte.focus(); }
+    if (!inteiro && (sDur.value === 'outra' || variosDias()) && !duracao()){ erro.textContent = 'Falta a hora de início ou a de fim (ou termina antes de começar).'; return; }
+    if (iAte.value && iAte.value < iD.value){ erro.textContent = 'O último dia é antes do primeiro.'; return iAte.focus(); }
+    if (variosDias() && duracao() > 60 * 24 * 14){ erro.textContent = 'Um evento com horas pode durar até duas semanas. Para mais, marca-o como dia inteiro.'; return; }
     var corpo = {
       title: titulo,
       /* Numa copia de um evento que se repete, o dia que nao se mexeu e o
@@ -649,7 +693,7 @@ function evJanela(ev, opts){
       day: e.dia_base && iD.value === e.day ? e.dia_base : iD.value,
       at: inteiro ? null : (iH.value || null),
       duration_min: inteiro || !iH.value ? null : duracao(),
-      ends_on: inteiro ? (e.dia_base && iAte.value === (e.ends_on || '') ? (e.fim_base || null) : (iAte.value || null)) : null,
+      ends_on: (inteiro || variosDias()) ? (e.dia_base && iAte.value === (e.ends_on || '') ? (e.fim_base || null) : (iAte.value || null)) : null,
       location: iL.value.trim() || null,
       context_id: sC.value ? Number(sC.value) : null,
       person_ids: Object.keys(quem).filter(function(k){ return quem[k]; }).map(Number),
