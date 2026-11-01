@@ -340,6 +340,11 @@ function agOrigem(x){
 }
 function agQuando(x){
   if (!x.s) return x.fim ? 'dia inteiro' : 'dia todo';
+  /* Com horas e varios dias (um fim de semana fora): de quando a quando. */
+  if (x.fim && x.dur){
+    var f = agDia(x.fim), ma = agMin(x.s) + Number(x.dur);
+    return x.s + ' → ' + f.getDate() + ' ' + AG_MS[f.getMonth()] + ' ' + agHora(((ma % 1440) + 1440) % 1440);
+  }
   if (!x.dur) return x.s;
   return x.s + '–' + agHora(agMin(x.s) + Number(x.dur));
 }
@@ -522,7 +527,7 @@ function agGrelha(){
     return '<div class="h' + (c.k === hojeK && !c.pessoa ? ' hoje' : '') + (fds ? ' fds' : '') + '" data-ir="' + c.k + '">' + c.cab + '<span class="cnt">' + (cnt || '') + '</span></div>';
   }).join('') + '</div>';
   h += '<div class="ag-r ag-ad"><div class="gut">dia todo</div>' + cols.map(function(c){
-    return '<div class="c" data-largar="' + c.k + '">' + agNoDia(c.k).filter(c.f).filter(function(x){ return !x.s; }).map(function(x){ return agChip(x); }).join('') + '</div>';
+    return '<div class="c" data-largar="' + c.k + '">' + agNoDia(c.k).filter(c.f).filter(function(x){ return !x.s || x.fim; }).map(function(x){ return agChip(x); }).join('') + '</div>';
   }).join('') + '</div>';
   h += '<div class="ag-sc"><div class="ag-r"><div class="ag-hrs">';
   for (var i = 0; i < 24; i++) h += '<div>' + (i ? agPad(i) + ':00' : '') + '</div>';
@@ -530,7 +535,7 @@ function agGrelha(){
   cols.forEach(function(c){
     var fds = !c.pessoa && c.d.getDay() % 6 === 0;
     h += '<div class="ag-col' + (fds ? ' fds' : '') + '" data-col="' + c.k + '"' + (c.pessoa ? ' data-pessoa="' + c.pessoa + '"' : '') + '>';
-    agArrumar(agNoDia(c.k).filter(c.f).filter(function(x){ return x.s && x.d === c.k; })).forEach(function(o){
+    agArrumar(agNoDia(c.k).filter(c.f).filter(function(x){ return x.s && !x.fim && x.d === c.k; })).forEach(function(o){
       var x = o.x, topo = o.a / 60 * H, alt = Math.max(17, (o.b - o.a) / 60 * H - 2), w = 100 / o.n, curto = alt < 32;
       var nomes = x.p.map(function(id){ var p = agPessoa(id); return p ? p.name : ''; }).filter(Boolean).join(', ');
       h += '<button type="button" class="ag-ev ag-bl k-' + x.tipo + (curto ? ' curto' : '') + (AG.item === x.key ? ' sel' : '') + (x.feito ? ' feito' : '') + (x.prov ? ' prov' : '') +
