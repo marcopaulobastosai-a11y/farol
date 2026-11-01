@@ -1225,3 +1225,8 @@ ALTER TABLE documents ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ;
 -- totais), e e isso que o contabilista quer ler. Por destinatario, porque a
 -- outros a nota da tarefa nao interessa - ou e so para nos.
 ALTER TABLE destinatarios ADD COLUMN IF NOT EXISTS incluir_descricao BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- Dias nao uteis (1 nov 2026): um feriado e um evento que a Agenda pinta de
+-- cinzento, como os sabados e domingos. Marca-se no proprio evento; os que
+-- se repetem todos os anos levam a marca para cada ano.
+ALTER TABLE events ADD COLUMN IF NOT EXISTS nao_util BOOLEAN NOT NULL DEFAULT FALSE;
