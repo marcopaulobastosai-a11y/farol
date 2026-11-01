@@ -82,7 +82,7 @@ var MO_CSS = [
   '@media (max-width:900px){.mo-linha > .ae-kpis{flex-wrap:wrap}.mo-linha .ae-kpi{flex-basis:30%}}',
   /* 1 nov: os dados da empresa, por cima da papelada */
   '.mo-dir{display:flex;flex-direction:column;gap:14px}',
-  '.mo-dir > .card{margin:0}',
+  '.mo-dir > .card{margin:0;flex:none}',
   '.mo-emp .mo-emp-b{padding:0 16px 14px}',
   '.mo-emp h4{font-family:var(--mono);font-size:.625rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:500;margin:12px 0 4px}',
   '.mo-emp h4:first-child{margin-top:2px}',
