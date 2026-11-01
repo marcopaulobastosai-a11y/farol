@@ -295,6 +295,26 @@ const ASSUNTO_BASE = '{titulo} — {total}';
 const TEXTO_TAREFA = 'Olá {nome},\n\nSegue {titulo}.\n\n{lista dos anexos}\n\nObrigado,\nMarco';
 const ASSUNTO_TAREFA = '{titulo}';
 
+/* A descricao da tarefa como vai no email: sem as linhas «[anexo: ...]» que
+   a importacao do TickTick deixou nas notas (o anexo vai a parte, como
+   anexo), sem espacos a mais. */
+function descricaoDe(notas) {
+  return String(notas || '').split('\n')
+    .filter((l) => !/^\s*\[anexo:[^\]]*\]\s*$/i.test(l))
+    .join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+/* Com «Pôr a descricao no email» ligado e um texto que nao a chama com
+   {descricao}, a descricao entra a seguir ao paragrafo principal - o
+   «Segue ...» - e antes da lista dos anexos e da despedida. */
+function comDescricao(corpo, descricao) {
+  if (!descricao) return corpo;
+  const blocos = String(corpo || '').split(/\n{2,}/);
+  if (blocos.length >= 3) blocos.splice(2, 0, descricao);
+  else blocos.push(descricao);
+  return blocos.join('\n\n');
+}
+
 function preencher(modelo, v) {
   return String(modelo || '').replace(/\{([^{}]{1,40})\}/g, (m, k) => {
     const c = semAcentos(k).trim();
@@ -361,8 +381,12 @@ async function preparar(taskId, porGravar) {
     'lista das faturas': lista,
     'lista dos anexos': listaAnexos,
     referencia: t.payment_ref || '',
-    pessoa: t.pessoas || ''
+    pessoa: t.pessoas || '',
+    descricao: descricaoDe(t.notes)
   };
+  const modeloTexto = (d && d.texto) || (ehPagamento ? TEXTO_BASE : TEXTO_TAREFA);
+  let corpo = preencher(modeloTexto, v);
+  if (d && d.incluir_descricao && !/\{\s*descri[cç][aã]o\s*\}/i.test(modeloTexto)) corpo = comDescricao(corpo, v.descricao);
   await mudarDeSitio();
   const caixa = d ? await caixaPorId(d.caixa_id) : null;
   return {
@@ -376,7 +400,7 @@ async function preparar(taskId, porGravar) {
     cc: d ? (d.cc || '') : '',
     tipo: t.tipo,
     assunto: preencher((d && d.assunto) || (ehPagamento ? ASSUNTO_BASE : ASSUNTO_TAREFA), v),
-    corpo: preencher((d && d.texto) || (ehPagamento ? TEXTO_BASE : TEXTO_TAREFA), v),
+    corpo,
     anexos
   };
 }
@@ -586,12 +610,12 @@ function instalar(app, { ehAdmin }) {
   });
 
   /* Destinatarios */
-  const CAMPOS = ['nome', 'email', 'cc', 'termos', 'quando', 'assunto', 'texto', 'anexar_faturas', 'anexar_comprovativo', 'ativo', 'caixa_id'];
+  const CAMPOS = ['nome', 'email', 'cc', 'termos', 'quando', 'assunto', 'texto', 'anexar_faturas', 'anexar_comprovativo', 'incluir_descricao', 'ativo', 'caixa_id'];
   function valores(b) {
     const out = {};
     CAMPOS.forEach((c) => { if (b[c] !== undefined) out[c] = b[c]; });
     if (out.quando !== undefined && QUANDO.indexOf(out.quando) < 0) out.quando = 'manual';
-    ['anexar_faturas', 'anexar_comprovativo', 'ativo'].forEach((c) => { if (out[c] !== undefined) out[c] = Boolean(out[c]); });
+    ['anexar_faturas', 'anexar_comprovativo', 'incluir_descricao', 'ativo'].forEach((c) => { if (out[c] !== undefined) out[c] = Boolean(out[c]); });
     ['nome', 'email', 'cc', 'termos', 'assunto', 'texto'].forEach((c) => { if (out[c] !== undefined) out[c] = limpar(typeof out[c] === 'string' ? out[c].trim() : out[c]); });
     if (out.email !== undefined && (!out.email || enderecos(out.email).some((e) => !valido(e)))) throw new Error('Email inválido.');
     if (out.cc && enderecos(out.cc).some((e) => !valido(e))) throw new Error('Email em Cc inválido.');
