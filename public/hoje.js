@@ -51,6 +51,10 @@ var HJ_CSS =
   '#attnList .hj-sem{flex:none;width:17px}' +
   '#attnList .when{display:flex;align-items:center;gap:8px}' +
   '#attnList .hj-data{font-size:.75rem;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}' +
+  /* Em execucao / a espera, ao lado do titulo (1 nov 2026). */
+  '#attnList .hj-est{display:inline-flex;align-items:center;gap:5px;flex:none;margin:0 6px 0 2px;padding:1px 8px;border-radius:99px;font-family:var(--mono);font-size:.625rem;letter-spacing:.04em;text-transform:uppercase;font-weight:500;vertical-align:2px;white-space:nowrap;background:var(--accent-soft);color:var(--accent-ink)}' +
+  '#attnList .hj-est::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}' +
+  '#attnList .hj-est.espera{background:var(--warn-soft);color:var(--warn)}' +
   '#attnList article.hj-feito{opacity:.45}' +
   '#attnList article.hj-feito h4{text-decoration:line-through}' +
   /* A Agenda da semana */
@@ -240,6 +244,14 @@ function hjCartao(x) {
 
   var p = art.querySelector('.grow p');
   if (p && a.origem === 'tarefa') p.textContent = a.detail || '';
+  /* O que ja se comecou ve-se na propria linha: em execucao, ou a espera de
+     alguem. Por iniciar nao leva nada - e o normal. */
+  var h4 = art.querySelector('.grow h4');
+  if (h4 && t && (t.status === 'em_curso' || t.status === 'a_espera')) {
+    /* Fora do titulo, para nao ser cortada quando o titulo e comprido. */
+    h4.parentNode.insertBefore(el('span', 'hj-est' + (t.status === 'a_espera' ? ' espera' : ''),
+      t.status === 'a_espera' ? '\u00e0 espera' : 'em execu\u00e7\u00e3o'), h4.nextSibling);
+  }
   /* O lembrete de um evento: «evento · 10:00 · Hospital da Luz». */
   if (p && a.origem === 'evento') p.textContent = ['evento', a.detail].filter(Boolean).join(' \u00b7 ');
 
