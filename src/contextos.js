@@ -160,6 +160,41 @@ function instalar(app) {
     }
   });
 
+  /* Os dados de uma empresa (ou do sitio onde se trabalha): seccoes com
+     linhas etiqueta/valor. Le-se e grava-se inteiro. */
+  app.get('/api/contextos/:id/dados', async (req, res) => {
+    try {
+      const r = await all('SELECT dados FROM contexts WHERE id = $1', [Number(req.params.id)]);
+      if (!r.length) return res.status(404).json({ error: 'Area nao encontrada.' });
+      res.json({ dados: r[0].dados || [] });
+    } catch (err) {
+      console.error('[farol] GET dados da area:', err.message);
+      res.status(500).json({ error: 'Nao foi possivel ler os dados.' });
+    }
+  });
+
+  app.put('/api/contextos/:id/dados', async (req, res) => {
+    const id = Number(req.params.id);
+    const entrada = Array.isArray((req.body || {}).dados) ? req.body.dados : null;
+    if (!entrada) return res.status(400).json({ error: 'Faltam os dados.' });
+    const texto = (v, n) => String(v == null ? '' : v).trim().slice(0, n);
+    const dados = entrada.slice(0, 40).map((sec) => ({
+      titulo: texto(sec && sec.titulo, 120),
+      linhas: (Array.isArray(sec && sec.linhas) ? sec.linhas : []).slice(0, 80)
+        .map((l) => ({ k: texto(l && l.k, 120), v: texto(l && l.v, 600) }))
+        .filter((l) => l.k || l.v)
+    })).filter((sec) => sec.titulo || sec.linhas.length);
+    try {
+      const r = await all('UPDATE contexts SET dados = $2 WHERE id = $1 RETURNING id',
+        [id, dados.length ? JSON.stringify(dados) : null]);
+      if (!r.length) return res.status(404).json({ error: 'Area nao encontrada.' });
+      res.json({ dados });
+    } catch (err) {
+      console.error('[farol] PUT dados da area:', err.message);
+      res.status(400).json({ error: 'Nao foi possivel gravar os dados.' });
+    }
+  });
+
   /* Tirar uma area do caminho so quando nao sobra nada agarrado a ela. Para
      as outras vezes existe o estado desactivada. */
   app.delete('/api/contextos/:id', async (req, res) => {
