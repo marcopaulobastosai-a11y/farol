@@ -472,7 +472,9 @@ function pjEscolhido(tipo, id){
    (prazo primeiro). Os lembretes e as notas nao sao trabalho por fazer. */
 function pjTarefasDe(id){
   return (G.tasks || []).filter(function(t){
-    return t.project_id === id && t.status !== 'concluida' && t.status !== 'cancelada';
+    /* 1 nov: as notas (logins e dados das empresas) nunca sao trabalho do
+       projeto - o comentario de cima dizia-o, o filtro nao o fazia. */
+    return t.project_id === id && t.status !== 'concluida' && t.status !== 'cancelada' && (t.tipo || 'tarefa') !== 'nota';
   });
 }
 
