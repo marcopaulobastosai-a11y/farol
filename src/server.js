@@ -134,7 +134,7 @@ app.get('/api/bootstrap', async (_req, res) => {
       all('SELECT code, name, color FROM calendars ORDER BY sort'),
       all(`SELECT e.id, to_char(e.day,'YYYY-MM-DD') AS day, e.at, e.title, e.calendar, e.detail, e.context_id,
                   e.duration_min, to_char(e.ends_on,'YYYY-MM-DD') AS ends_on, e.location,
-                  e.remind_min, e.tentative, e.repete,
+                  e.remind_min, e.tentative, e.repete, e.nao_util,
                   /* A Agenda (4 out): de onde veio, se e so «ocupado» e em
                      que calendarios Google tem copia. */
                   e.origin, e.google_pessoa, e.ocupado, e.no_google,
@@ -738,6 +738,8 @@ function extrasDoEvento(b) {
   if (b.no_google !== undefined) out.push(['no_google', Boolean(b.no_google)]);
   /* Todos os anos no mesmo dia - os aniversarios de quem nao e da casa. */
   if (b.repete !== undefined) out.push(['repete', b.repete === 'anual' ? 'anual' : null]);
+  /* Feriado: dia nao util, pintado na Agenda como o fim de semana. */
+  if (b.nao_util !== undefined) out.push(['nao_util', Boolean(b.nao_util)]);
   return { campos: out };
 }
 
@@ -770,7 +772,7 @@ async function linhaDoEvento(id) {
   return (await all(
     `SELECT e.id, to_char(e.day,'YYYY-MM-DD') AS day, e.at, e.title, e.calendar, e.detail, e.context_id,
             e.duration_min, to_char(e.ends_on,'YYYY-MM-DD') AS ends_on, e.location,
-            e.remind_min, e.tentative, e.repete,
+            e.remind_min, e.tentative, e.repete, e.nao_util,
             e.origin, e.google_pessoa, e.ocupado, e.no_google,
             ARRAY(SELECT eg.person_id FROM event_google eg
                    WHERE eg.event_id = e.id ORDER BY eg.person_id) AS no_google_de,
