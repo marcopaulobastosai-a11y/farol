@@ -340,6 +340,9 @@ function avTarefaId(id){
 }
 
 function avTarefa(a){
+  /* Vindo do Hoje, abrir e comecar: o que estava por iniciar passa a em
+     execucao (tarefas.js, tfComecar). Doutros ecras abre-se so para ver. */
+  var doHoje = (document.querySelector('.view.is-active') || {}).id === 'view-hoje';
   var t = typeof tfPorId === 'function' ? tfPorId(a.id) : null;
   if (!t) ((window.G && G.tasks) || []).forEach(function(x){ if (x.id === a.id) t = x; });
   /* Sem a lista de tarefas carregada nao ha nada honesto para mostrar aqui. */
@@ -347,7 +350,10 @@ function avTarefa(a){
 
   /* O detalhe e o das Tarefas. So se as Tarefas nao estiverem de pe e que se
      desenha aqui o formulario curto. */
-  if (avTarefaId(t.id)) return;
+  if (avTarefaId(t.id)){
+    if (doHoje && typeof tfComecar === 'function') tfComecar(t.id);
+    return;
+  }
 
   var s = avShell(t.title, 'Tarefa' + (a.detail ? ' · ' + a.detail : ''), a);
   var iTit = avCampo(s.grelha, 'Título', avTexto(t.title), true);
