@@ -26,7 +26,7 @@ var EM_QUANDO_CURTO = { manual: 'manual', rever: 'pede para rever', auto: 'envia
 /* O que se pode escrever entre chavetas no assunto e no texto. Os quatro do
    dinheiro so se preenchem num pagamento; numa tarefa ficam em branco. */
 var EM_CAMPOS = ['{nome}', '{titulo}', '{data}', '{mês}', '{prazo}', '{pessoa}',
-  '{lista dos anexos}', '{total}', '{data do pagamento}', '{meses}', '{lista das faturas}', '{referência}'];
+  '{descrição}', '{lista dos anexos}', '{total}', '{data do pagamento}', '{meses}', '{lista das faturas}', '{referência}'];
 var EM_CAMPOS_DINHEIRO = ['{total}', '{data do pagamento}', '{meses}', '{lista das faturas}', '{referência}'];
 
 var EM_CSS =
@@ -128,7 +128,7 @@ function emRender(){
     var w = el('div', 'em-linha' + (d.ativo ? '' : ' em-off'));
     var cp = el('div', 'em-corpo');
     cp.appendChild(el('div', 'em-nome', d.nome));
-    cp.appendChild(el('div', 'em-sub', [d.email, d.termos ? 'pagamentos de: ' + d.termos : null, EM_QUANDO_CURTO[d.quando] || d.quando].filter(Boolean).join(' · ')));
+    cp.appendChild(el('div', 'em-sub', [d.email, d.termos ? 'pagamentos de: ' + d.termos : null, EM_QUANDO_CURTO[d.quando] || d.quando, d.incluir_descricao ? 'leva a descrição' : null].filter(Boolean).join(' · ')));
     /* Por que caixa sai: e o que decide se o email chega a sair. */
     var cx = emCaixaTxt(d.caixa_id);
     var sai = el('div', 'em-sub' + (cx ? '' : ' em-falta'), cx ? 'sai por ' + cx : 'sem caixa escolhida — não envia');
@@ -289,6 +289,10 @@ function emJanelaDest(d){
   function caixa(rot, v){ var l = el('label'); var i = el('input'); i.type = 'checkbox'; i.checked = v; l.appendChild(i); l.appendChild(document.createTextNode(rot)); chk.appendChild(l); return i; }
   var cF = caixa('Anexar faturas', d ? d.anexar_faturas : true);
   var cC = caixa('Anexar comprovativo', d ? d.anexar_comprovativo : true);
+  /* A descricao da tarefa (as notas) no email: entra a seguir ao paragrafo
+     principal, ou onde estiver {descrição} no texto. */
+  var cD = caixa('Pôr a descrição da tarefa no email', d ? Boolean(d.incluir_descricao) : false);
+  cD.parentNode.title = 'Entra a seguir ao parágrafo principal, ou onde escreveres {descrição} no texto.';
   var cA = caixa('Ativo', d ? d.ativo : true);
   cx.appendChild(chk);
   var pe = el('div', 'em-dlga');
@@ -297,7 +301,7 @@ function emJanelaDest(d){
   var bG = el('button', 'btn primary', 'Gravar'); bG.type = 'button';
   bG.addEventListener('click', function(){
     var corpo = { nome: iNome.value.trim(), email: iEmail.value.trim(), cc: iCc.value.trim(), termos: iTermos.value.trim(),
-      quando: sQ.value, assunto: iAss.value.trim(), texto: iTxt.value, anexar_faturas: cF.checked, anexar_comprovativo: cC.checked, ativo: cA.checked,
+      quando: sQ.value, assunto: iAss.value.trim(), texto: iTxt.value, anexar_faturas: cF.checked, anexar_comprovativo: cC.checked, incluir_descricao: cD.checked, ativo: cA.checked,
       caixa_id: sCx.value ? Number(sCx.value) : null };
     if (!corpo.nome || !corpo.email){ toast('Falta o nome ou o email.'); return; }
     if (!corpo.caixa_id && !window.confirm('Sem caixa escolhida, os emails deste destinatário não saem.\n\nGravar na mesma?')) return;
