@@ -135,6 +135,14 @@ var TF_CSS = [
   ".tf-mais{margin:8px auto 0;display:block}",
   ".tf-det{position:sticky;top:140px;max-height:calc(100vh - 150px);overflow:auto}",
   ".tf-det .tf-top{display:flex;align-items:center;gap:8px;padding-bottom:10px;border-bottom:1px solid var(--line-soft);margin-bottom:10px}",
+  /* A barra do estado (1 nov 2026): por iniciar, em execucao, concluida. */
+  ".tf-estbar{display:flex;border:1px solid var(--line);border-radius:9px;overflow:hidden;margin:0 0 12px}",
+  ".tf-estbar button{flex:1;min-width:0;border:0;border-right:1px solid var(--line);background:none;padding:7px 6px;font:inherit;font-size:.78rem;color:var(--muted);cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
+  ".tf-estbar button:last-child{border-right:0}",
+  ".tf-estbar button:hover{background:var(--surface-2)}",
+  ".tf-estbar button.on{background:var(--accent-soft);color:var(--accent-ink);font-weight:600}",
+  ".tf-estbar button.on.fim{background:var(--good-soft);color:var(--good)}",
+  ".tf-estbar-nota{font-size:.72rem;color:var(--muted);margin:-8px 0 10px}",
   ".tf-det .tf-top .tf-sp{flex:1}",
   ".tf-chipbtn{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--surface);border-radius:7px;padding:4px 9px;font:inherit;font-size:.75rem;color:var(--ink-2);cursor:pointer}",
   ".tf-chipbtn:hover{border-color:var(--accent)}",
@@ -1110,6 +1118,42 @@ function tfIrPara(id){
   return true;
 }
 
+/* O estado como uma barra de tres, no topo da tarefa: por iniciar, em
+   execucao, concluida (num pagamento, «Pago»). Carregar num deles muda o
+   estado pelo mesmo caminho da etiqueta da lista - concluir um pagamento abre
+   a janela de pagar, concluir algo com email a quem se manda passa pelo email.
+   «A espera» conta como em execucao e diz-se por baixo; «nao farei» nao
+   acende nenhum. */
+function tfBarraEstado(det, t){
+  var bar = el('div', 'tf-estbar');
+  var atual = t.status === 'a_espera' ? 'em_curso' : t.status;
+  [['aberta', 'Por iniciar'], ['em_curso', 'Em execução'], ['concluida', tfNomeEstado(t, 'concluida')]].forEach(function(x){
+    var b = el('button', (x[0] === atual ? 'on' : '') + (x[0] === 'concluida' ? ' fim' : ''), x[1]);
+    b.type = 'button';
+    b.dataset.tfpop = '1';
+    b.setAttribute('aria-pressed', x[0] === atual ? 'true' : 'false');
+    b.addEventListener('click', function(ev){
+      ev.stopPropagation();
+      if (x[0] === t.status) return;
+      tfEstadoEscolhido(t, x[0], b);
+    });
+    bar.appendChild(b);
+  });
+  det.appendChild(bar);
+  if (t.status === 'a_espera') det.appendChild(el('div', 'tf-estbar-nota', 'À espera de alguém.'));
+  if (t.status === 'cancelada') det.appendChild(el('div', 'tf-estbar-nota', 'Marcada como «não farei».'));
+}
+
+/* Abrir uma tarefa a partir do Hoje e pegar nela: o que esta por iniciar
+   passa a em execucao (1 nov 2026). So para tarefas e pagamentos; um
+   lembrete ou uma nota nao tem ciclo de vida. */
+function tfComecar(id){
+  var t = tfPorId(id);
+  if (!t || t.status !== 'aberta') return;
+  if (tfTipo(t) !== 'tarefa' && tfTipo(t) !== 'pagamento') return;
+  tfGravar(id, { status: 'em_curso' }).catch(function(){});
+}
+
 function tfFecharDetalhe(){
   TF.aberta = null; TF.detalhe = null;
   var d = $('tfDet'); if (d){ d.hidden = true; clear(d); }
@@ -1192,6 +1236,7 @@ function tfRenderDetalhe(base){
   bX.addEventListener('click', tfFecharDetalhe);
   top.appendChild(bX);
   det.appendChild(top);
+  if (tfTipo(t) === 'tarefa' || tfTipo(t) === 'pagamento') tfBarraEstado(det, t);
 
   if (t.parent_id){
     var mae = tfPorId(t.parent_id);
