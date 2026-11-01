@@ -207,6 +207,17 @@ var AG_CSS = [
   '#view-agenda .ag-dir{display:flex;flex-direction:column;gap:8px;position:sticky;top:12px;max-height:calc(100vh - 24px);overflow:auto;min-width:0}',
   '#view-agenda .ag-dir .ag-sec{flex:none}',
   '#view-agenda .ag-det{display:flex;flex-direction:column;gap:13px;flex:none}',
+  '.ag-dlg{border:none;border-radius:14px;padding:0;width:min(520px,calc(100% - 2rem));max-height:88vh;background:transparent;box-shadow:0 18px 48px rgba(15,23,32,.25)}',
+  '.ag-dlg::backdrop{background:rgba(15,23,32,.38)}',
+  '.ag-dlg-c{position:relative;background:var(--surface);color:var(--ink);border-radius:14px;padding:20px 22px;max-height:88vh;overflow:auto;box-sizing:border-box}',
+  '.ag-dlg .ag-det{display:flex;flex-direction:column;gap:13px}',
+  '.ag-dlg .ag-det h3{font-family:var(--serif);font-weight:500;font-size:1.35rem;margin:0;padding-right:28px;line-height:1.25}',
+  '.ag-dlg .ag-acoes{justify-content:flex-end;align-items:center;border-top:1px solid var(--line-soft);padding-top:12px}',
+  '.ag-dlg .ag-acoes .btn{flex:none;width:auto;margin-left:0}',
+  '.ag-dlg .ag-acoes [data-fechar]{margin-right:auto}',
+  '.ag-dlg .ag-det > .ag-dh:first-child{padding-right:34px}',
+  '.ag-dlg-x{position:absolute;top:10px;right:12px;border:0;background:none;font-size:1.4rem;line-height:1;color:var(--muted);cursor:pointer;padding:4px 8px;border-radius:6px}',
+  '.ag-dlg-x:hover{background:var(--surface-2);color:var(--ink)}',
   '.ag-det h3{font-family:var(--serif);font-weight:500;font-size:1.2rem;margin:0;line-height:1.25}',
   '.ag-dh{display:flex;justify-content:space-between;align-items:baseline;gap:8px}',
   '.ag-k{font-family:var(--mono);font-size:.625rem;letter-spacing:.06em;color:var(--muted);text-transform:uppercase;white-space:nowrap}',
@@ -422,7 +433,6 @@ function agMontar(){
           '<label class="ag-row" style="margin-top:6px;border-top:1px solid var(--line-soft);padding-top:8px"><input type="checkbox" id="agPorPessoa"><span class="nm" style="white-space:normal">Dia em colunas por pessoa</span></label></div>' +
         '<div class="ag-sec"><h4>Áreas <button type="button" data-ag="areas">todas</button></h4><div id="agAreas"></div></div>' +
         '<div class="ag-sec"><h4>Mostrar</h4><div id="agTipos"></div></div>' +
-        '<div class="ag-sec"><h4>Por agendar</h4><div class="ag-bandeja" id="agBandeja"></div><p class="ag-dica">Arrasta uma tarefa para uma hora ou para um dia.</p></div>' +
       '</aside>' +
       '<div class="card ag-main">' +
         '<div class="ag-tb">' +
@@ -447,6 +457,7 @@ function agMontar(){
         '<div class="ag-sec"><div class="ag-mh"><button type="button" data-ag="mini-" aria-label="Mês anterior">‹</button><b id="agMiniT"></b><button type="button" data-ag="mini+" aria-label="Mês seguinte">›</button></div><div class="ag-mini" id="agMini"></div></div>' +
         '<div class="ag-sec"><h4>Período</h4><div class="ag-chips" id="agRapido"></div>' +
           '<div class="ag-int"><input type="date" id="agDe" aria-label="De"><input type="date" id="agAte" aria-label="Até"><button type="button" class="btn small" data-ag="intervalo">Ver o intervalo em lista</button></div></div>' +
+        '<div class="ag-sec"><h4>Por agendar</h4><div class="ag-bandeja" id="agBandeja"></div><p class="ag-dica">Arrasta uma tarefa para uma hora ou para um dia.</p></div>' +
         '<section class="card ag-det" id="agDet" aria-live="polite"></section>' +
       '</aside>' +
     '</div>';
@@ -486,7 +497,8 @@ function agChip(x, comHora){
 /* Arrumar os blocos que se sobrepoem lado a lado. */
 function agArrumar(lista){
   var xs = lista.map(function(x){
-    var a = agMin(x.s), b = a + (x.dur ? Number(x.dur) : 30);
+    /* Um evento de varios dias com horas traz o pedaco desse dia (_a, _b). */
+    var a = x._a != null ? x._a : agMin(x.s), b = x._b != null ? x._b : a + (x.dur ? Number(x.dur) : 30);
     return { x: x, a: a, b: Math.min(Math.max(b, a + 20), 1440) };
   }).sort(function(p, q){ return p.a - q.a || q.b - p.b; });
   var out = [], grupo = [], cols = [], fim = -1;
@@ -498,6 +510,27 @@ function agArrumar(lista){
     cols[i] = o.b; o.i = i; grupo.push(o); fim = Math.max(fim, o.b);
   });
   if (grupo.length) fecha();
+  return out;
+}
+
+/* Os blocos da grelha de um dia. Um evento com horas que dura varios dias
+   (sexta 14:00 a domingo 14:00) fica na faixa «dia todo» de cada dia e
+   aparece tambem na grelha: no primeiro dia da hora de inicio a meia-noite,
+   no ultimo da meia-noite a hora de fim. So o que e de dia inteiro fica so
+   na faixa de cima. */
+function agBlocosDoDia(lista, k){
+  var out = [];
+  lista.forEach(function(x){
+    if (!x.s) return;
+    if (!x.fim){ if (x.d === k) out.push(x); return; }
+    var ini = agMin(x.s);
+    if (x.d === k){
+      out.push(Object.assign({}, x, { _a: ini, _b: 1440 }));
+    } else if (x.fim === k && x.dur){
+      var fimMin = ini + Number(x.dur) - Math.round((agDia(x.fim) - agDia(x.d)) / 864e5) * 1440;
+      if (fimMin > 0) out.push(Object.assign({}, x, { _a: 0, _b: Math.min(fimMin, 1440), _tm: 'até ' + agHora(fimMin) }));
+    }
+  });
   return out;
 }
 
@@ -535,12 +568,12 @@ function agGrelha(){
   cols.forEach(function(c){
     var fds = !c.pessoa && c.d.getDay() % 6 === 0;
     h += '<div class="ag-col' + (fds ? ' fds' : '') + '" data-col="' + c.k + '"' + (c.pessoa ? ' data-pessoa="' + c.pessoa + '"' : '') + '>';
-    agArrumar(agNoDia(c.k).filter(c.f).filter(function(x){ return x.s && !x.fim && x.d === c.k; })).forEach(function(o){
+    agArrumar(agBlocosDoDia(agNoDia(c.k).filter(c.f), c.k)).forEach(function(o){
       var x = o.x, topo = o.a / 60 * H, alt = Math.max(17, (o.b - o.a) / 60 * H - 2), w = 100 / o.n, curto = alt < 32;
       var nomes = x.p.map(function(id){ var p = agPessoa(id); return p ? p.name : ''; }).filter(Boolean).join(', ');
       h += '<button type="button" class="ag-ev ag-bl k-' + x.tipo + (curto ? ' curto' : '') + (AG.item === x.key ? ' sel' : '') + (x.feito ? ' feito' : '') + (x.prov ? ' prov' : '') +
         '" data-item="' + x.key + '" style="--c:' + agEsc(agCor(x)) + ';top:' + topo + 'px;height:' + alt + 'px;left:calc(' + (o.i * w) + '% + 2px);width:calc(' + w + '% - 4px)" title="' + agEsc(x.t + ' · ' + agQuando(x)) + '">' +
-        '<span class="tt"><span class="g"></span>' + (curto ? '<span class="tm">' + x.s + '</span>' : '') + agEsc(x.t) + '</span>' +
+        '<span class="tt"><span class="g"></span>' + (curto ? '<span class="tm">' + (x._tm || x.s) + '</span>' : '') + agEsc(x.t) + '</span>' +
         '<span class="mt">' + agQuando(x) + (x.loc ? ' · ' + agEsc(x.loc) : '') + '</span>' +
         (!curto && alt > 58 && nomes && x.tipo !== 'ocupado' ? '<span class="mt">' + agEsc(nomes) + '</span>' : '') + '</button>';
     });
@@ -719,9 +752,7 @@ function agLerGoogle(){
 /* ---------------- o painel da direita ---------------- */
 function agAchar(key){ return agItens().filter(function(x){ return x.key === key; })[0] || null; }
 function agDetalhe(){
-  var box = $('agDet'), x = AG.item ? agAchar(AG.item) : null;
-  if (x) return agDetalheItem(box, x);
-  AG.item = null;
+  var box = $('agDet');
   var d = AG.sel, k = agKey(d);
   var xs = agNoDia(k), vis = xs.filter(function(y){ return y.tipo !== 'ocupado'; });
   var tarefas = vis.filter(function(y){ return y.tarefa; }), resto = vis.filter(function(y){ return !y.tarefa; });
@@ -758,8 +789,7 @@ function agDetalhe(){
 function agDetalheItem(box, x){
   var d = agDia(x.d);
   var nomes = { evento: 'Evento', ocupado: 'Ocupado', tarefa: 'Tarefa', pagamento: 'Pagamento', lembrete: 'Lembrete', aniversario: 'Aniversário' };
-  var h = '<button type="button" class="ag-voltar" data-voltar>← ' + agEsc(agDataTxt(AG.sel)) + '</button>';
-  h += '<div class="ag-dh"><span class="ag-k">' + nomes[x.tipo] + (x.prov ? ' · por confirmar' : '') + (x.tarefa && x.tarefa.repeat_rule ? ' · repete' : '') + '</span><span class="ag-sw" style="--c:' + agEsc(agCor(x)) + ';width:13px;height:13px"></span></div>';
+  var h = '<div class="ag-dh"><span class="ag-k">' + nomes[x.tipo] + (x.prov ? ' · por confirmar' : '') + (x.tarefa && x.tarefa.repeat_rule ? ' · repete' : '') + '</span><span class="ag-sw" style="--c:' + agEsc(agCor(x)) + ';width:13px;height:13px"></span></div>';
   h += '<h3>' + agEsc(x.t) + '</h3><dl class="ag-dl">';
   var quando = agDataTxt(d) + ' ' + d.getFullYear();
   if (x.fim){ var f = agDia(x.fim); quando += ' até ' + f.getDate() + ' ' + AG_MS[f.getMonth()]; }
@@ -794,8 +824,45 @@ function agDetalheItem(box, x){
     ac += '<button type="button" class="btn small primary" data-acao="feito">' + (fechada ? 'Reabrir' : x.tipo === 'pagamento' ? 'Dar por pago' : 'Concluir') + '</button>';
     ac += '<button type="button" class="btn small" data-acao="tarefa">Abrir</button>';
   }
-  if (ac) h += '<div class="ag-acoes">' + ac + '</div>';
+  h += '<div class="ag-acoes"><button type="button" class="btn small" data-fechar="1">Fechar</button>' + ac + '</div>';
   box.innerHTML = h;
+}
+
+/* O detalhe de um agendamento abre numa janela por cima da Agenda (1 nov):
+   no painel da direita passava despercebido. */
+function agJanela(x){
+  var velho = document.getElementById('agEvDlg');
+  if (velho){ try { velho.close(); } catch (e) {} velho.remove(); }
+  var dlg = el('dialog', 'ag-dlg');
+  dlg.id = 'agEvDlg';
+  var c = el('div', 'ag-dlg-c');
+  var x0 = el('button', 'ag-dlg-x', '×'); x0.type = 'button'; x0.setAttribute('aria-label', 'Fechar'); x0.dataset.fechar = '1';
+  var corpo = el('div', 'ag-det');
+  agDetalheItem(corpo, x);
+  c.appendChild(x0); c.appendChild(corpo); dlg.appendChild(c);
+  function fechar(){
+    if (!dlg.isConnected) return;
+    try { dlg.close(); } catch (e) {}
+    dlg.remove();
+    if (AG.item){ AG.item = null; agRender(); }
+  }
+  dlg.addEventListener('click', function(ev){
+    if (ev.target === dlg) return fechar();          /* clique fora */
+    var b = ev.target.closest('[data-fechar],[data-acao]');
+    if (!b) return;
+    if (b.dataset.fechar) return fechar();
+    var o = b.dataset.acao, chave = x.key;
+    fechar();
+    /* A acao corre ja com a janela fechada: a do evento e a do pagamento
+       tambem sao janelas, e nao se empilham bem. */
+    var ancora = document.querySelector('#view-agenda [data-item="' + chave + '"]');
+    AG.item = chave;
+    agAcao(o, ancora || b);
+    AG.item = null;
+  });
+  dlg.addEventListener('cancel', function(ev){ ev.preventDefault(); fechar(); });
+  document.body.appendChild(dlg);
+  dlg.showModal();
 }
 
 /* ---------------- interacao ---------------- */
@@ -826,7 +893,7 @@ function agLigar(v){
       if (!x) return;
       AG.item = x.key; AG.sel = agDia(x.d);
       agRender();
-      if (window.innerWidth <= 1400) $('agDet').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      agJanela(x);
       return;
     }
     if ((b = t.closest('[data-ir]'))) return agIrDia(b.dataset.ir);
@@ -966,7 +1033,8 @@ function agAcao(o, b){
   if (o === 'feito'){
     var t = (typeof tfPorId === 'function' && tfPorId(x.tarefa.id)) || x.tarefa;
     if (t.status === 'concluida') return typeof tfGravar === 'function' && tfGravar(t.id, { status: 'aberta' }, 'Reaberta.');
-    if (x.tipo === 'pagamento' && typeof tfPopPagar === 'function') return tfPopPagar(t, b);
+    if (x.tipo === 'pagamento' && typeof tfPopPagar === 'function' && b && b.isConnected) return tfPopPagar(t, b);
+    if (x.tipo === 'pagamento' && typeof avAbrir === 'function') return avAbrir({ origem: 'tarefa', id: t.id, title: x.t });
     if (typeof tfFechar === 'function') return tfFechar(t, 'concluida');
   }
 }
