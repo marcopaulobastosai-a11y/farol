@@ -283,12 +283,62 @@ function etiquetas(v) {
   return [...new Set(v.map((x) => String(x).trim().toLowerCase()).filter(Boolean))];
 }
 
+/* O mes de uma rotina anda com ela (1 nov 2026). «Envio do SAF-T (Out/2026)»
+   concluido a 1 nov passa a «(Nov/2026)» na proxima vez, e a descricao
+   tambem: um titulo com um mes que nao e o da vez seguinte engana. Anda-se o
+   mesmo numero de meses que o prazo andou. Mexe em: nomes dos meses por
+   extenso (com ou sem ano), abreviados com ano (Out/2026, out 26), 10/2026 e
+   2026-10. Datas completas (2026-10-01, 01/10/2026) e abreviados sem ano
+   («mar», «set» sao palavras) ficam como estao. */
+const MESES_PT = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto',
+  'setembro', 'outubro', 'novembro', 'dezembro'];
+const MESES_AB = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+function comCaixa(modelo, palavra) {
+  if (modelo === modelo.toUpperCase() && modelo !== modelo.toLowerCase()) return palavra.toUpperCase();
+  if (modelo[0] === modelo[0].toUpperCase() && modelo[0] !== modelo[0].toLowerCase()) return palavra[0].toUpperCase() + palavra.slice(1);
+  return palavra;
+}
+function mesesEntre(a, b) {
+  const [ya, ma] = a.split('-').map(Number), [yb, mb] = b.split('-').map(Number);
+  return (yb * 12 + mb) - (ya * 12 + ma);
+}
+function avancarMeses(texto, n) {
+  if (!texto || !n) return texto;
+  const anda = (mes0, ano) => {
+    const tot = (ano === null ? 0 : ano * 12) + mes0 + n;
+    return { mes: ((tot % 12) + 12) % 12, ano: ano === null ? null : Math.floor(tot / 12) };
+  };
+  const anoTxt = (orig, ano) => (orig.length === 2 ? String(ano % 100).padStart(2, '0') : String(ano));
+  const L = 'A-Za-zÀ-ÿ';
+  const extenso = new RegExp('(?<![' + L + '])(janeiro|fevereiro|mar[çc]o|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)(?![' + L + '])' +
+    '(?:(\\s+de\\s+|\\s*/\\s*|\\s+|-)(\\d{4}|\\d{2})(?![\\d/]))?', 'gi');
+  const abrev = new RegExp('(?<![' + L + '])(jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez)\\.?(\\s*/\\s*|\\s+|-)(\\d{4}|\\d{2})(?![\\d/])', 'gi');
+  let s = String(texto).replace(extenso, (m, nome, sep, ano) => {
+    const i = MESES_PT.indexOf(nome.toLowerCase().replace('marco', 'março'));
+    const r = anda(i, ano ? (ano.length === 2 ? 2000 + Number(ano) : Number(ano)) : null);
+    return comCaixa(nome, MESES_PT[r.mes]) + (ano ? sep + anoTxt(ano, r.ano) : '');
+  });
+  s = s.replace(abrev, (m, nome, sep, ano) => {
+    const r = anda(MESES_AB.indexOf(nome.toLowerCase()), ano.length === 2 ? 2000 + Number(ano) : Number(ano));
+    return comCaixa(nome, MESES_AB[r.mes]) + (m.slice(nome.length, nome.length + 1) === '.' ? '.' : '') + sep + anoTxt(ano, r.ano);
+  });
+  s = s.replace(/(?<![\d/.-])(0?[1-9]|1[0-2])\/(\d{4})(?![\d/])/g, (m, mes, ano) => {
+    const r = anda(Number(mes) - 1, Number(ano));
+    return (mes.length === 2 ? String(r.mes + 1).padStart(2, '0') : String(r.mes + 1)) + '/' + r.ano;
+  });
+  s = s.replace(/(?<![\d-])(\d{4})-(0[1-9]|1[0-2])(?![\d-])/g, (m, ano, mes) => {
+    const r = anda(Number(mes) - 1, Number(ano));
+    return r.ano + '-' + String(r.mes + 1).padStart(2, '0');
+  });
+  return s;
+}
+
 /* Concluir (ou «nao farei») uma tarefa. Se for uma rotina, fica uma copia
    fechada como historico e a rotina anda para a proxima data, com os passos
    todos por fazer outra vez. */
 async function fechar(id, estado) {
   const t = (await all(
-    `SELECT id, repeat_rule, repeat_from, to_char(repeat_until,'YYYY-MM-DD') AS repeat_until,
+    `SELECT id, title, notes, repeat_rule, repeat_from, to_char(repeat_until,'YYYY-MM-DD') AS repeat_until,
             to_char(due_on,'YYYY-MM-DD') AS due_on, to_char(starts_on,'YYYY-MM-DD') AS starts_on
        FROM tasks WHERE id = $1 AND origin = 'real'`, [id]))[0];
   if (!t) return false;
@@ -315,15 +365,15 @@ async function fechar(id, estado) {
        FROM tasks WHERE id = $1
      RETURNING id`, [id, estado]))[0];
   await query('INSERT INTO task_subjects (task_id, person_id) SELECT $2, person_id FROM task_subjects WHERE task_id = $1', [id, copia.id]);
-  /* Os papeis do pagamento ficam com a vez que foi paga, nao com a rotina: a
+  /* Os papeis ficam todos com a vez que se fechou, nao com a rotina: a
      fatura, o comprovativo e o recibo de setembro nao servem para outubro
-     (decisao do Marco, 25 set: cada pagamento tem os seus tres). O resto dos
-     anexos fica nos dois. */
+     (decisao do Marco, 25 set), e o SAF-T e o mapa de outubro tambem nao
+     servem para novembro (1 nov: ate aqui os anexos ficavam nos dois, e o
+     mes seguinte arrancava com os ficheiros do anterior). */
   await query(
     `INSERT INTO task_documents (task_id, document_id, papel, valor)
      SELECT $2, document_id, papel, valor FROM task_documents WHERE task_id = $1`, [id, copia.id]);
-  await query(
-    "DELETE FROM task_documents WHERE task_id = $1 AND papel IN ('fatura','comprovativo','recibo')", [id]);
+  await query('DELETE FROM task_documents WHERE task_id = $1', [id]);
   /* Os ficheiros da caixa que deram a fatura e o comprovativo desta vez vao
      com ela: nos Arrumados o cartao aponta para o que se pagou, nao para a
      rotina que ja anda no mes seguinte. */
@@ -338,10 +388,15 @@ async function fechar(id, estado) {
   if (t.starts_on && t.due_on) {
     novoInicio = iso(maisDias(dia(prox), Math.round((dia(t.starts_on) - dia(t.due_on)) / 86400000)));
   }
+  /* O mes no titulo e na descricao anda o mesmo que o prazo. */
+  const salto = t.due_on ? mesesEntre(t.due_on, prox) : 0;
+  const titulo = avancarMeses(t.title, salto) || t.title;
+  const notas = avancarMeses(t.notes, salto);
   await query(
     `UPDATE tasks SET due_on = $2, starts_on = COALESCE($3::date, starts_on), status = 'aberta', done = FALSE,
             completed_at = NULL, paid_on = NULL, paid_amount = NULL, payment_method = NULL,
-            expense_id = NULL, updated_at = now() WHERE id = $1`, [id, prox, novoInicio]);
+            expense_id = NULL, title = $4, notes = $5, updated_at = now() WHERE id = $1`,
+    [id, prox, novoInicio, titulo, notas]);
   /* Os papeis dos passos ficam com o mes que se fechou (a fatura de setembro
      nao e a de outubro); a rotina recomeca com os passos sem papel. */
   await query('UPDATE task_items SET done = FALSE, completed_at = NULL, document_id = NULL WHERE task_id = $1', [id]);
