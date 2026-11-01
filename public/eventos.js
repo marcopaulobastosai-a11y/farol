@@ -407,7 +407,10 @@ function evJanela(ev, opts){
   lConf.appendChild(cConf); lConf.appendChild(document.createTextNode('Ainda por confirmar'));
   var lRep = el('label', 'evj-chk'); var cRep = el('input'); cRep.type = 'checkbox';
   lRep.appendChild(cRep); lRep.appendChild(document.createTextNode('Repete todos os anos'));
-  lin0.appendChild(lDia); lin0.appendChild(lConf); lin0.appendChild(lRep);
+  /* Feriado: o dia passa a nao util e a Agenda pinta-o de cinzento. */
+  var lNU = el('label', 'evj-chk'); var cNU = el('input'); cNU.type = 'checkbox';
+  lNU.appendChild(cNU); lNU.appendChild(document.createTextNode('Feriado (dia não útil)'));
+  lin0.appendChild(lDia); lin0.appendChild(lConf); lin0.appendChild(lRep); lin0.appendChild(lNU);
   sQ.appendChild(lin0);
 
   var g1 = el('div', 'evj-g3');
@@ -433,6 +436,7 @@ function evJanela(ev, opts){
   cDia.checked = !novo && !e.at;
   cConf.checked = Boolean(e.tentative);
   cRep.checked = e.repete === 'anual';
+  cNU.checked = Boolean(e.nao_util);
   if (e.duration_min){
     var ex = EVJ_DURACOES.filter(function(o){ return o[0] === String(e.duration_min); })[0];
     if (ex) sDur.value = ex[0];
@@ -700,6 +704,7 @@ function evJanela(ev, opts){
       remind_min: sRem.value === '' ? null : Number(sRem.value),
       tentative: cConf.checked,
       repete: cRep.checked ? 'anual' : null,
+      nao_util: cNU.checked,
       no_google: cG.checked,
       detail: iN.value.trim() || null
     };
