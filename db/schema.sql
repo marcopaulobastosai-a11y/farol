@@ -1219,3 +1219,9 @@ ALTER TABLE people ADD COLUMN IF NOT EXISTS preferencias TEXT;
 -- habitual, mas nao se apaga - fica a um filtro de distancia e volta com
 -- «Reativar». NULL quer dizer ativo.
 ALTER TABLE documents ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ;
+
+-- A descricao da tarefa no email (1 nov 2026): o envio do SAF-T a
+-- contabilidade leva na descricao o resumo do ficheiro (numero de faturas,
+-- totais), e e isso que o contabilista quer ler. Por destinatario, porque a
+-- outros a nota da tarefa nao interessa - ou e so para nos.
+ALTER TABLE destinatarios ADD COLUMN IF NOT EXISTS incluir_descricao BOOLEAN NOT NULL DEFAULT FALSE;
