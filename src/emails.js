@@ -308,6 +308,20 @@ const ASSUNTO_BASE = '{titulo} — {total}';
 const TEXTO_TAREFA = 'Olá {nome},\n\nSegue {titulo}.\n\n{lista dos anexos}\n\nObrigado,\nMarco';
 const ASSUNTO_TAREFA = '{titulo}';
 
+/* A data que um papel traz no nome, quando o documento nao a tem gravada:
+   «Comprovativo Enviar Nacional 01-11-2026 21_38_41», «20261101 ...»,
+   «2026-11-01». Devolve AAAA-MM-DD ou null. */
+function dataDoNome(nome) {
+  const s = String(nome || '');
+  let m = /(?<!\d)(\d{2})[-/.](\d{2})[-/.](\d{4})(?!\d)/.exec(s);
+  if (m) return m[3] + '-' + m[2] + '-' + m[1];
+  m = /(?<!\d)(\d{4})-(\d{2})-(\d{2})(?!\d)/.exec(s);
+  if (m) return m[1] + '-' + m[2] + '-' + m[3];
+  m = /^(20\d{2})(\d{2})(\d{2})(?!\d)/.exec(s.trim());
+  if (m) return m[1] + '-' + m[2] + '-' + m[3];
+  return null;
+}
+
 /* A descricao da tarefa como vai no email: sem as linhas «[anexo: ...]» que
    a importacao do TickTick deixou nas notas (o anexo vai a parte, como
    anexo), sem espacos a mais. */
@@ -379,16 +393,30 @@ async function preparar(taskId, porGravar) {
     return true;
   }).map((p) => ({ id: p.id, nome: p.file_name || p.name, papel: p.papel, ficheiro: Boolean(p.file_path) }));
   const listaAnexos = anexos.map((f) => '- ' + f.nome).join('\n');
+  /* A data do pagamento e a do comprovativo (1 nov 2026): enquanto o
+     pagamento nao foi dado por pago, o email sai com a data que o
+     comprovativo traz - a gravada no documento, ou a do nome do ficheiro. E
+     o valor, se o comprovativo o tiver. */
+  const comp = papeis.filter((p) => p.papel === 'comprovativo')[0];
+  let pagoEm = t.paid_on;
+  if (!pagoEm && comp) {
+    const dc = comp.data || dataDoNome(comp.name) || dataDoNome(comp.file_name);
+    if (dc && /^\d{4}-\d{2}-\d{2}$/.test(dc)) pagoEm = dc;
+  }
+  let valorPago = t.paid_amount;
+  if ((valorPago === null || valorPago === undefined) && comp && comp.valor !== null && comp.valor !== undefined) {
+    valorPago = Number(comp.valor);
+  }
   /* A data de referencia desta tarefa: a que ficou paga, senao o prazo, senao
      hoje. E dela que saem o {data} e o {mes} - «o mapa do referido mes». */
-  const quando = t.paid_on || t.due_on || new Date().toISOString().slice(0, 10);
+  const quando = pagoEm || t.due_on || new Date().toISOString().slice(0, 10);
   const v = {
     nome: d ? String(d.nome).split(' ')[0] : '',
     titulo: t.title,
     data: dataLonga(quando),
     mes: MESES[Number(quando.slice(5, 7)) - 1] || '',
-    total: euros(t.paid_amount !== null ? t.paid_amount : t.amount),
-    'data do pagamento': dataLonga(t.paid_on),
+    total: euros(valorPago !== null && valorPago !== undefined ? valorPago : t.amount),
+    'data do pagamento': dataLonga(pagoEm),
     prazo: dataLonga(t.due_on),
     meses: juntar(meses.map((k) => MESES[Number(k.slice(5, 7)) - 1])),
     'lista das faturas': lista,
