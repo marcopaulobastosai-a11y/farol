@@ -1230,3 +1230,8 @@ ALTER TABLE destinatarios ADD COLUMN IF NOT EXISTS incluir_descricao BOOLEAN NOT
 -- cinzento, como os sabados e domingos. Marca-se no proprio evento; os que
 -- se repetem todos os anos levam a marca para cada ano.
 ALTER TABLE events ADD COLUMN IF NOT EXISTS nao_util BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- Dados da empresa (1 nov 2026): firma, NIPC, moradas, CAE... de uma
+-- sub-area do Profissional, para ter a mao sem abrir papeis. Uma lista de
+-- seccoes, cada uma com linhas etiqueta/valor. Escreve-se no proprio ecra.
+ALTER TABLE contexts ADD COLUMN IF NOT EXISTS dados JSONB;
