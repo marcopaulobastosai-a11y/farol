@@ -1974,7 +1974,14 @@ function fn_financas_orcamentos(corpo){
     return h('button', { type: 'button', class: FN.orcVista === o[0] ? 'on' : '', onclick: function(){ FN.orcVista = o[0]; fnRender('financas'); } }, o[1]);
   }));
   fnBarraFiltros(corpo, true, [seg, fnBtn('+ Orçamento', function(){ fnOrcJanela(); }, 'primary')]);
-  fnCarregar(corpo, fnLer('orc|' + fnQs(fnFiltro()), '/api/financas/orcamentos?' + fnQs(fnFiltro())), function(d){
+  /* O orcamento corre de 25 a 24 (o dia do ordenado): no mes de hoje, a
+     partir do dia 25 ja se mostra o ciclo seguinte. */
+  var fo = fnFiltro();
+  var hj = fnHoje();
+  if (fo.mes === hj.slice(0, 7) && Number(hj.slice(8, 10)) >= 25) fo.mes = fnSomaMes(fo.mes, 1);
+  fnCarregar(corpo, fnLer('orc|' + fnQs(fo), '/api/financas/orcamentos?' + fnQs(fo)), function(d){
+    if (d.periodo) corpo.appendChild(h('div', { class: 'fn-muted', style: 'font-size:.78rem;margin:-4px 2px 8px' },
+      'Orçamento de ' + fnMesLongo(d.mes).toLowerCase() + ': de ' + fnData(d.periodo.de) + ' a ' + fnData(d.periodo.ate) + ' (começa no dia ' + d.periodo.dia_inicio + ', o dia do ordenado)'));
     var desp = d.linhas.filter(function(l){ return l.natureza === 'despesa'; });
     var metas = d.linhas.filter(function(l){ return l.natureza !== 'despesa'; });
     var orc = desp.reduce(function(s, l){ return s + l.mensal; }, 0), gasto = desp.reduce(function(s, l){ return s + Math.max(0, l.gasto); }, 0);
