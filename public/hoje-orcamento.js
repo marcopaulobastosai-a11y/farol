@@ -63,10 +63,23 @@ function hoEur(v) {
 }
 
 /* Que parte do mes ja passou (0 a 1), contando o dia de hoje. */
-function hoRitmo() {
-  var d = new Date();
-  var dias = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
-  return { dia: d.getDate(), dias: dias, f: d.getDate() / dias };
+/* O mes do orcamento e o ciclo de 25 a 24 que o servidor manda em
+   d.periodo; sem ele, o mes do calendario. */
+function hoRitmo(d) {
+  var p = d && d.periodo;
+  if (p && p.de && p.ate) {
+    var de = new Date(p.de + 'T00:00:00'), ate = new Date(p.ate + 'T00:00:00');
+    var hoje = new Date(); hoje.setHours(0, 0, 0, 0);
+    var dias = Math.round((ate - de) / 864e5) + 1;
+    var dia = Math.min(dias, Math.max(1, Math.round((hoje - de) / 864e5) + 1));
+    return { dia: dia, dias: dias, f: dia / dias, de: p.de, ate: p.ate };
+  }
+  var n = new Date();
+  var t = new Date(n.getFullYear(), n.getMonth() + 1, 0).getDate();
+  return { dia: n.getDate(), dias: t, f: n.getDate() / t };
+}
+function hoDataCurta(iso) {
+  return Number(iso.slice(8, 10)) + ' ' + new Date(iso + 'T00:00:00').toLocaleDateString('pt-PT', { month: 'short' }).replace('.', '');
 }
 
 function hoMesNome() {
@@ -100,7 +113,7 @@ function hoBarra(pct, ritmo, cls) {
    categoria tem: uma categoria que acumula e chega ao mes com folga nao esta
    «acima do ritmo» so por ter gasto mais do que o mensal. */
 function hoClassificar(d) {
-  var r = hoRitmo();
+  var r = hoRitmo(d);
   var linhas = (d.linhas || []).filter(function (l) { return l.natureza === 'despesa'; });
   var out = { estourado: [], ritmo: [], fixos: [], ok: 0, fora: [], r: r, orc: 0, gasto: 0 };
   linhas.forEach(function (l) {
@@ -193,7 +206,7 @@ function hoDesenhar() {
     return;
   }
   var r = c.r;
-  st.textContent = hoMesNome() + ' · dia ' + r.dia + ' de ' + r.dias;
+  st.textContent = (r.de ? hoDataCurta(r.de) + ' – ' + hoDataCurta(r.ate) : hoMesNome()) + ' · dia ' + r.dia + ' de ' + r.dias;
 
   var tot = el('div', 'ho-tot');
   tot.appendChild(el('b', null, hoEur(c.gasto)));
