@@ -161,6 +161,16 @@ function fimMes(ym) {
   const [a, m] = ym.split('-').map(Number);
   return new Date(Date.UTC(a, m, 0)).toISOString().slice(0, 10);
 }
+/* O mes do orcamento comeca no dia do ordenado (decisao do Marco, 2 nov
+   2026: «o dia inicial e sempre o 25»). O ciclo «novembro» vai de 25 de
+   outubro a 24 de novembro: o que se gasta a partir do dia 25 ja conta para
+   o mes seguinte. So os orcamentos seguem o ciclo; o resto das Financas
+   continua no mes do calendario. */
+const DIA_ORC = 25;
+function cicloDe(iso) { const ym = iso.slice(0, 7); return Number(iso.slice(8, 10)) >= DIA_ORC ? somaMes(ym, 1) : ym; }
+function periodoCiclo(ym) {
+  return { de: somaMes(ym, -1) + '-' + String(DIA_ORC).padStart(2, '0'), ate: ym + '-' + String(DIA_ORC - 1).padStart(2, '0'), dia_inicio: DIA_ORC };
+}
 function mesesAte(ym, n) { const out = []; for (let i = n - 1; i >= 0; i--) out.push(somaMes(ym, -i)); return out; }
 
 /* ---------------- saldos ---------------- */
@@ -443,12 +453,14 @@ async function orcamentos(ym, f, B, msPre) {
   const os = await all(
     `SELECT o.id, o.categoria_id, o.mensal, o.acumula, to_char(o.desde,'YYYY-MM') AS desde, o.ativo
        FROM fin_orcamentos o WHERE o.ativo`);
-  const ini = somaMes(ym, -23) + '-01';
-  const ms = msPre || await movimentosEntre(ini, fimMes(ym), f, B);
+  /* 24 ciclos para tras: o mais antigo comeca no dia 25 do mes anterior. Os
+     movimentos que o resumo ja leu vao do dia 1, por isso aqui le-se sempre. */
+  const ini = periodoCiclo(somaMes(ym, -23)).de;
+  const ms = await movimentosEntre(ini, fimMes(ym), f, B);
   const gastoPor = {};
   ms.forEach((m) => {
     if (!m.categoria_id) return;
-    const k = m.categoria_id + '|' + mesDe(m.data);
+    const k = m.categoria_id + '|' + cicloDe(m.data);
     gastoPor[k] = (gastoPor[k] || 0) - m.valor;
   });
   const g = (cat, mes) => cent(gastoPor[cat + '|' + mes] || 0);
@@ -475,14 +487,14 @@ async function orcamentos(ym, f, B, msPre) {
   });
   const comOrc = {}; os.forEach((o) => { comOrc[o.categoria_id] = true; });
   const semOrc = {};
-  ms.filter((m) => mesDe(m.data) === ym && m.valor < 0 && natureza(m, B) === 'despesa' && !comOrc[m.categoria_id])
+  ms.filter((m) => cicloDe(m.data) === ym && m.valor < 0 && natureza(m, B) === 'despesa' && !comOrc[m.categoria_id])
     .forEach((m) => { const k = m.categoria_id || 0; semOrc[k] = (semOrc[k] || 0) - m.valor; });
   const sem = Object.keys(semOrc).map((k) => {
     const c = B.catPor[k];
     const media6 = c ? cent(mesesAte(somaMes(ym, -1), 6).reduce((s, x) => s + g(c.id, x), 0) / 6) : 0;
     return { categoria_id: c ? c.id : null, nome: c ? c.grupo + ' › ' + c.nome : 'Sem categoria', gasto: cent(semOrc[k]), media6 };
   }).sort((a, b) => b.gasto - a.gasto);
-  return { linhas, sem };
+  return { linhas, sem, mes: ym, periodo: periodoCiclo(ym) };
 }
 
 /* ---------------- resumo ---------------- */
@@ -1426,7 +1438,9 @@ function instalar(app) {
     try { res.json(await analise(mesQ(req.query), f(req.query))); } catch (e) { falha(res, e, 'a análise'); }
   });
   app.get('/api/financas/orcamentos', async (req, res) => {
-    try { const B = await base(); res.json(await orcamentos(mesQ(req.query), f(req.query), B)); } catch (e) { falha(res, e, 'os orçamentos'); }
+    /* Sem mes pedido, o ciclo em que hoje cai (a partir do dia 25 ja e o do mes seguinte). */
+    const ym = /^\d{4}-\d{2}$/.test(req.query.mes || '') ? req.query.mes : cicloDe(hojeIso());
+    try { const B = await base(); res.json(await orcamentos(ym, f(req.query), B)); } catch (e) { falha(res, e, 'os orçamentos'); }
   });
   app.get('/api/financas/patrimonio', async (req, res) => {
     try { res.json(await patrimonio(req.query.empresas === '1')); } catch (e) { falha(res, e, 'o património'); }
