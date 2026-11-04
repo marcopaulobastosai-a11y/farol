@@ -72,8 +72,18 @@ var GT_CSS = [
   '#view-gente .gt-q.atr{color:var(--bad)}',
   '#view-gente .gt-it .gt-tt{flex:1;min-width:0;font-size:.875rem}',
   '#view-gente .gt-it .gt-tt small{display:block;color:var(--muted);font-size:.75rem}',
-  '#view-gente .gt-resp{flex:none;font-size:.75rem;padding:3px 9px;border-radius:999px;background:var(--line-soft);color:var(--ink-2);white-space:nowrap;max-width:40%;overflow:hidden;text-overflow:ellipsis}',
+  '#view-gente .gt-resp{flex:none;font-size:.75rem;padding:3px 9px;border-radius:999px;background:var(--line-soft);color:var(--ink-2);white-space:nowrap;max-width:60%;overflow:hidden;text-overflow:ellipsis}',
   '#view-gente .gt-resp.falta{background:var(--warn-soft,#fbebd0);color:var(--warn,#7a4a06);font-weight:500}',
+  '#view-gente button.gt-resp{font:inherit;font-size:.75rem;border:1px solid transparent;cursor:pointer}',
+  '#view-gente button.gt-resp:hover{border-color:var(--accent)}',
+  '#view-gente button.gt-resp:after{content:"";display:inline-block;width:4px;height:4px;margin-left:6px;vertical-align:2px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(45deg);opacity:.7}',
+  '.gt-pop{position:fixed;z-index:1000;min-width:220px;max-width:280px;background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.14);padding:6px}',
+  '.gt-pop h5{margin:4px 8px 6px;font-size:.6875rem;font-weight:500;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}',
+  '.gt-pop button{font:inherit;font-size:.875rem;display:flex;align-items:center;gap:10px;width:100%;text-align:left;border:0;background:none;color:var(--ink);padding:8px;border-radius:8px;cursor:pointer}',
+  '.gt-pop button:hover{background:var(--surface-2)}',
+  '.gt-pop button .ck{margin-left:auto;color:var(--accent);font-weight:700}',
+  '.gt-pop .gt-av{width:24px;height:24px;font-size:.5625rem;border-radius:50%;flex:none;display:inline-flex;align-items:center;justify-content:center;color:#fff;font-family:var(--mono)}',
+  '.gt-pop p{margin:6px 8px 4px;font-size:.75rem;color:var(--muted)}',
   '#view-gente .gt-vazio{color:var(--muted);font-size:.8125rem;padding:10px 14px;margin:0;border-top:1px solid var(--line-soft)}',
   '#view-gente .gt-nota{color:var(--muted);font-size:.8125rem;margin:10px 2px 0}',
   '#view-gente .gt-mostrar{font-size:.8125rem;text-decoration:underline;color:var(--muted);margin-left:4px}',
@@ -329,27 +339,134 @@ function gtBlocoCuidados(box, cuidar, hoje){
     t.appendChild(el('span', 'gt-cv', pp.lista.length ? pp.lista.length + (pp.lista.length === 1 ? ' coisa' : ' coisas') : 'nada marcado'));
     c.appendChild(t);
     pp.lista.forEach(function(x){
-      var it = el('button', 'gt-it');
-      it.type = 'button';
+      /* A linha abre o evento ou a tarefa; o botao da direita escolhe quem
+         acompanha (evento) ou quem e responsavel (tarefa), sem abrir nada. */
+      var it = el('div', 'gt-it');
+      it.tabIndex = 0;
+      it.setAttribute('role', 'button');
       it.appendChild(el('span', 'gt-q' + (x.atraso ? ' atr' : ''), x.atraso ? 'atrasado' : gtQuando(x.dia, hoje)));
       var tt = el('span', 'gt-tt', x.titulo);
       tt.appendChild(el('small', null, x.k === 'evento' ? ('Evento' + (x.hora ? ' · ' + x.hora : '')) : ({ tarefa: 'Tarefa', pagamento: 'Pagamento', lembrete: 'Lembrete' }[x.tipo] || 'Tarefa')));
       it.appendChild(tt);
+      var bt;
       if (x.k === 'tarefa'){
         var r = x.resp != null ? gtPessoa(x.resp) : null;
-        it.appendChild(el('span', 'gt-resp' + (r ? '' : ' falta'), r ? r.name : 'Sem responsável'));
+        bt = el('button', 'gt-resp' + (r ? '' : ' falta'), r ? r.name : 'Sem responsável');
+        bt.title = 'Escolher o responsável';
+        bt.addEventListener('click', function(ev){ ev.stopPropagation(); gtEscolherResp(bt, x); });
       } else {
         var quem = (x.e.pessoas || []).filter(function(id){ return id !== pp.p.id; }).map(gtPessoa).filter(Boolean)
           .map(function(q){ return q.name.split(' ')[0]; });
-        it.appendChild(el('span', 'gt-resp' + (quem.length ? '' : ' falta'), quem.length ? quem.join(', ') : 'Ninguém a acompanhar'));
+        bt = el('button', 'gt-resp' + (quem.length ? '' : ' falta'), quem.length ? quem.join(', ') : 'Ninguém a acompanhar');
+        bt.title = 'Escolher quem acompanha';
+        if (typeof x.e.id === 'number' && x.e.origin !== 'google')
+          bt.addEventListener('click', function(ev){ ev.stopPropagation(); gtEscolherAcomp(bt, x, pp.p); });
+        else bt.addEventListener('click', function(ev){ ev.stopPropagation(); toast('Este evento vem do Google: quem vai muda-se lá.'); });
       }
+      bt.type = 'button';
+      it.appendChild(bt);
       it.addEventListener('click', function(){ gtAbrir(x); });
+      it.addEventListener('keydown', function(ev){ if (ev.target === it && (ev.key === 'Enter' || ev.key === ' ')){ ev.preventDefault(); gtAbrir(x); } });
       c.appendChild(it);
     });
     grade.appendChild(c);
   });
-  bl.appendChild(el('p', 'gt-nota', 'O responsável muda-se ao abrir a tarefa. Num evento, quem acompanha são as pessoas marcadas nele.'));
+  bl.appendChild(el('p', 'gt-nota', 'Carrega no botão da direita para escolher quem acompanha uma consulta ou quem é responsável por uma tarefa.'));
   box.appendChild(bl);
+}
+
+/* ------------------------------ quem acompanha ------------------------------ */
+/* Quem pode acompanhar ou ser responsavel: as pessoas activas que fazem
+   tarefas (os adultos da casa), menos a pessoa de quem se cuida. */
+function gtQuemPode(fora){
+  return ((window.G && G.people) || []).filter(function(p){
+    return p.active !== false && p.can_own_tasks && p.id !== fora;
+  });
+}
+
+function gtPopFechar(){
+  var v = document.getElementById('gtPop');
+  if (v) v.remove();
+  document.removeEventListener('mousedown', gtPopFora, true);
+  document.removeEventListener('keydown', gtPopEsc, true);
+}
+function gtPopFora(ev){ var v = document.getElementById('gtPop'); if (v && !v.contains(ev.target)) gtPopFechar(); }
+function gtPopEsc(ev){ if (ev.key === 'Escape') gtPopFechar(); }
+
+/* Uma lista pequena por baixo do botao. «marcados» e um objecto id -> true;
+   «escolher» recebe o id carregado. */
+function gtPop(ancora, titulo, pessoas, marcados, escolher, rodape){
+  gtPopFechar();
+  var pop = el('div', 'gt-pop');
+  pop.id = 'gtPop';
+  pop.appendChild(el('h5', null, titulo));
+  pessoas.forEach(function(p){
+    var b = el('button');
+    b.type = 'button';
+    var av = el('span', 'gt-av', p.initials || String(p.name || '?').slice(0, 2).toUpperCase());
+    av.style.background = p.color || 'var(--c1)';
+    b.appendChild(av);
+    b.appendChild(document.createTextNode(p.name));
+    if (marcados[p.id]) b.appendChild(el('span', 'ck', '✓'));
+    b.addEventListener('click', function(){ escolher(p.id); });
+    pop.appendChild(b);
+  });
+  if (!pessoas.length) pop.appendChild(el('p', null, 'Não há adultos na app para escolher.'));
+  if (rodape) pop.appendChild(rodape);
+  document.body.appendChild(pop);
+  var r = ancora.getBoundingClientRect();
+  var w = pop.offsetWidth, h = pop.offsetHeight;
+  var left = Math.min(Math.max(8, r.right - w), window.innerWidth - w - 8);
+  var top = r.bottom + 6;
+  if (top + h > window.innerHeight - 8) top = Math.max(8, r.top - h - 6);
+  pop.style.left = left + 'px';
+  pop.style.top = top + 'px';
+  setTimeout(function(){
+    document.addEventListener('mousedown', gtPopFora, true);
+    document.addEventListener('keydown', gtPopEsc, true);
+  }, 0);
+}
+
+/* Evento: quem acompanha sao as outras pessoas do evento. Carregar num nome
+   junta-o ou tira-o; a pessoa de quem se cuida fica sempre. */
+function gtEscolherAcomp(ancora, x, cuidado){
+  var atuais = (x.e.pessoas || []).slice();
+  var marc = {};
+  atuais.forEach(function(id){ marc[id] = true; });
+  gtPop(ancora, 'Quem acompanha', gtQuemPode(cuidado.id), marc, function(pid){
+    var nova = marc[pid] ? atuais.filter(function(id){ return id !== pid; }) : atuais.concat([pid]);
+    if (nova.indexOf(cuidado.id) < 0) nova.unshift(cuidado.id);
+    gtPopFechar();
+    apiGestao('/api/gestao/eventos/' + x.e.id, { method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+                                                  body: JSON.stringify({ person_ids: nova }) })
+      .then(function(r){
+        x.e.pessoas = (r && r.evento && r.evento.pessoas) || nova;
+        var g = r && r.google;
+        var nomes = nova.filter(function(id){ return id !== cuidado.id; }).map(gtPessoa).filter(Boolean).map(function(q){ return q.name; });
+        toast(nomes.length ? 'Acompanha: ' + nomes.join(', ') + '.' + (g && (g.copiados || []).length ? ' Também no Google.' : '')
+                           : 'Ninguém a acompanhar.');
+        gtRender();
+      }, function(e){ toast((e && e.message) || 'Não foi possível gravar.'); });
+  });
+}
+
+/* Tarefa: um so responsavel. Escolher o mesmo outra vez deixa-a sem ninguem. */
+function gtEscolherResp(ancora, x){
+  var marc = {};
+  if (x.resp != null) marc[x.resp] = true;
+  var pessoas = gtQuemPode(null);
+  gtPop(ancora, 'Responsável', pessoas, marc, function(pid){
+    var novo = x.resp === pid ? null : pid;
+    gtPopFechar();
+    apiGestao('/api/gestao/tarefas/' + x.t.id, { method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+                                                  body: JSON.stringify({ owner_id: novo }) })
+      .then(function(){
+        x.t.owner_id = novo;
+        var p = novo != null ? gtPessoa(novo) : null;
+        toast(p ? 'Responsável: ' + p.name + '.' : 'Ficou sem responsável.');
+        gtRender();
+      }, function(e){ toast((e && e.message) || 'Não foi possível gravar.'); });
+  });
 }
 
 function gtBlocoCirculo(box, titulo, sub, pessoas, hoje, fim){

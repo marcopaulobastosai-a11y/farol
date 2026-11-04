@@ -485,7 +485,7 @@ function evJanela(ev, opts){
   (e.pessoas || []).forEach(function(id){ quem[id] = true; });
   if (novo && opts.person_id) quem[opts.person_id] = true;
   var wP = el('div'); wP.style.marginTop = '10px';
-  wP.appendChild(el('label', null, 'Quem vai'));
+  wP.appendChild(el('label', null, 'Quem vai (e quem acompanha)'));
   var pes = el('div', 'evj-pes');
   evjPessoas().forEach(function(p){
     var b = el('button');
