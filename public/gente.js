@@ -25,40 +25,57 @@ var GT = { destinatarios: null, aLerDest: false, verEscondidos: false, dlg: null
 var GT_CSS = [
   '#nav button[data-view="gente"]{display:none}',
   'body.mn-on #nav button[data-view="gente"]{display:flex}',
-  '#view-gente .gt-bloco{margin-bottom:18px}',
-  '#view-gente .gt-h{display:flex;align-items:baseline;gap:10px;margin:0 0 10px}',
-  '#view-gente .gt-h h3{margin:0;font-size:1rem;font-weight:500}',
+  '#view-gente .gt-bloco{margin-bottom:26px}',
+  '#view-gente .gt-h{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 10px;margin:0 0 12px}',
+  '#view-gente .gt-h h3{margin:0;font-size:1.0625rem;font-weight:600}',
   '#view-gente .gt-h span{color:var(--muted);font-size:.8125rem}',
-  '#view-gente .gt-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px}',
-  '#view-gente .gt-card{font:inherit;text-align:left;display:flex;gap:12px;align-items:flex-start;padding:14px;border:1px solid var(--line);border-radius:12px;background:var(--surface);color:var(--ink);cursor:pointer;min-height:64px}',
-  '#view-gente .gt-card:hover{border-color:var(--accent)}',
-  '#view-gente .gt-av{width:40px;height:40px;border-radius:50%;flex:none;display:inline-flex;align-items:center;justify-content:center;color:#fff;font-family:var(--mono);font-size:.8125rem;overflow:hidden}',
+  /* a grelha: cada coluna tem a sua largura e nada passa para a do lado */
+  '#view-gente .gt-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,270px),1fr));gap:12px;align-items:stretch}',
+  '#view-gente .gt-cw{position:relative;display:flex;min-width:0}',
+  '#view-gente .gt-card{font:inherit;text-align:left;display:flex;gap:12px;align-items:flex-start;padding:14px 14px 12px;border:1px solid var(--line);',
+  'border-radius:12px;background:var(--surface);color:var(--ink);cursor:pointer;min-width:0;width:100%;box-sizing:border-box;transition:border-color .15s,box-shadow .15s}',
+  '#view-gente .gt-card:hover{border-color:var(--accent);box-shadow:0 2px 10px rgba(0,0,0,.05)}',
+  '#view-gente .gt-av{width:40px;height:40px;border-radius:50%;flex:none;display:inline-flex;align-items:center;justify-content:center;color:#fff;font-family:var(--mono);font-size:.75rem;letter-spacing:.02em;overflow:hidden}',
   '#view-gente .gt-av img{width:100%;height:100%;object-fit:cover}',
-  '#view-gente .gt-t{display:flex;flex-direction:column;gap:3px;min-width:0;flex:1}',
-  '#view-gente .gt-t b{font-weight:500}',
-  '#view-gente .gt-t small{color:var(--muted);font-size:.75rem}',
-  '#view-gente .gt-sem{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}',
-  '#view-gente .gt-sem span{font-size:.6875rem;padding:2px 8px;border-radius:999px;background:var(--line-soft);color:var(--ink-2);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
-  '#view-gente .gt-sem span.hoje{background:var(--accent-soft);color:var(--accent-ink)}',
-  '#view-gente .gt-tag{font-size:.6875rem;font-weight:500;padding:2px 8px;border-radius:6px;background:var(--accent-soft);color:var(--accent-ink);margin-left:auto;align-self:flex-start;white-space:nowrap}',
-  '#view-gente .gt-cuid{border:1px solid var(--line);border-radius:12px;background:var(--surface);overflow:hidden}',
-  '#view-gente .gt-cuid h4{margin:0;padding:12px 14px 6px;font-size:.875rem;font-weight:500;display:flex;align-items:center;gap:8px}',
-  '#view-gente .gt-cuid + .gt-cuid{margin-top:10px}',
+  '#view-gente .gt-t{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1 1 auto}',
+  '#view-gente .gt-t b{font-weight:600;font-size:.9375rem;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-right:30px}',
+  '#view-gente .gt-t small{color:var(--muted);font-size:.75rem;line-height:1.35;overflow:hidden;text-overflow:ellipsis}',
+  '#view-gente .gt-meta{display:flex;align-items:center;gap:6px;flex-wrap:wrap;min-width:0}',
+  '#view-gente .gt-tag{font-size:.625rem;font-weight:600;letter-spacing:.04em;text-transform:uppercase;padding:2px 7px;border-radius:5px;background:var(--accent-soft);color:var(--accent-ink);white-space:nowrap}',
+  '#view-gente .gt-num{font-size:.75rem;color:var(--ink-2);margin-top:8px;padding-top:8px;border-top:1px solid var(--line-soft)}',
+  '#view-gente .gt-num b{display:inline;font-weight:600;padding:0;font-size:.75rem}',
+  /* o que a pessoa tem esta semana: uma linha por coisa, a data numa coluna */
+  '#view-gente .gt-sem{display:flex;flex-direction:column;gap:3px;margin-top:6px;min-width:0}',
+  '#view-gente .gt-li{display:flex;gap:8px;align-items:baseline;min-width:0;font-size:.75rem;line-height:1.4}',
+  '#view-gente .gt-li .q{flex:0 0 3.4rem;font-family:var(--mono);font-size:.6875rem;color:var(--muted)}',
+  '#view-gente .gt-li.hoje .q{color:var(--accent-ink);font-weight:600}',
+  '#view-gente .gt-li .tt{flex:1 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--ink-2)}',
+  '#view-gente .gt-li.mais .tt{color:var(--muted)}',
+  '#view-gente .gt-aj{position:absolute;right:6px;top:8px;width:30px;height:30px;border-radius:8px;color:var(--muted);font-size:1.125rem;line-height:1;display:inline-flex;align-items:center;justify-content:center}',
+  '#view-gente .gt-aj:hover{background:var(--surface-2);color:var(--ink)}',
+  '#view-gente .gt-pref{font-size:.75rem;color:var(--ink-2);margin-top:6px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}',
+  /* prestadores: cartoes baixos, so nome e email */
+  '#view-gente .gt-cards.pr{grid-template-columns:repeat(auto-fill,minmax(min(100%,250px),1fr));gap:8px}',
+  '#view-gente .gt-card.pr{align-items:center;padding:10px 12px;gap:10px}',
+  '#view-gente .gt-card.pr .gt-av{width:32px;height:32px;font-size:.6875rem;background:var(--line-soft)!important;color:var(--ink-2)}',
+  '#view-gente .gt-card.pr .gt-t b{padding-right:0;font-size:.875rem}',
+  '#view-gente .gt-card.pr .gt-t small{white-space:nowrap}',
+  /* cuidados: um cartao por pessoa, lado a lado */
+  '#view-gente .gt-cuids{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,340px),1fr));gap:12px}',
+  '#view-gente .gt-cuid{border:1px solid var(--line);border-radius:12px;background:var(--surface);overflow:hidden;min-width:0}',
+  '#view-gente .gt-cuid h4{margin:0;padding:12px 14px;font-size:.875rem;font-weight:600;display:flex;align-items:center;gap:10px}',
+  '#view-gente .gt-cuid h4 .gt-av{width:28px;height:28px;font-size:.625rem}',
+  '#view-gente .gt-cuid h4 .gt-cv{margin-left:auto;font-weight:400;font-size:.75rem;color:var(--muted)}',
   '#view-gente .gt-it{font:inherit;width:100%;text-align:left;display:flex;align-items:center;gap:12px;padding:10px 14px;border:none;border-top:1px solid var(--line-soft);background:none;color:var(--ink);cursor:pointer;min-height:48px}',
   '#view-gente .gt-it:hover{background:var(--surface-2)}',
   '#view-gente .gt-q{flex:none;width:64px;font-family:var(--mono);font-size:.75rem;color:var(--muted)}',
   '#view-gente .gt-q.atr{color:var(--bad)}',
-  '#view-gente .gt-it .gt-tt{flex:1;min-width:0}',
+  '#view-gente .gt-it .gt-tt{flex:1;min-width:0;font-size:.875rem}',
   '#view-gente .gt-it .gt-tt small{display:block;color:var(--muted);font-size:.75rem}',
-  '#view-gente .gt-resp{flex:none;font-size:.75rem;padding:3px 9px;border-radius:999px;background:var(--line-soft);color:var(--ink-2);white-space:nowrap}',
+  '#view-gente .gt-resp{flex:none;font-size:.75rem;padding:3px 9px;border-radius:999px;background:var(--line-soft);color:var(--ink-2);white-space:nowrap;max-width:40%;overflow:hidden;text-overflow:ellipsis}',
   '#view-gente .gt-resp.falta{background:var(--warn-soft,#fbebd0);color:var(--warn,#7a4a06);font-weight:500}',
   '#view-gente .gt-vazio{color:var(--muted);font-size:.8125rem;padding:10px 14px;margin:0;border-top:1px solid var(--line-soft)}',
-  '#view-gente .gt-nota{color:var(--muted);font-size:.8125rem;margin:8px 2px 0}',
-  '#view-gente .gt-cw{position:relative;display:flex}',
-  '#view-gente .gt-cw .gt-card{flex:1;padding-right:44px}',
-  '#view-gente .gt-aj{position:absolute;right:6px;bottom:6px;width:32px;height:32px;border-radius:8px;color:var(--muted);font-size:1.125rem;line-height:1;display:inline-flex;align-items:center;justify-content:center}',
-  '#view-gente .gt-aj:hover{background:var(--surface-2);color:var(--ink)}',
-  '#view-gente .gt-pref{font-size:.75rem;color:var(--ink-2);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}',
+  '#view-gente .gt-nota{color:var(--muted);font-size:.8125rem;margin:10px 2px 0}',
   '#view-gente .gt-mostrar{font-size:.8125rem;text-decoration:underline;color:var(--muted);margin-left:4px}',
   '#gtDlg .gt-f{padding:22px;display:flex;flex-direction:column;gap:14px}',
   '#gtDlg .gt-f h2{margin:0;font-size:1.25rem;font-weight:700}',
@@ -177,26 +194,43 @@ function gtCartao(p, hoje, fim){
   b.appendChild(gtAvatar(p));
   var t = el('span', 'gt-t');
   t.appendChild(el('b', null, p.name));
-  t.appendChild(el('small', null, p.role || GT_TIPO[p.kind] || ''));
+  var meta = el('span', 'gt-meta');
+  meta.appendChild(el('small', null, p.role || GT_TIPO[p.kind] || ''));
+  if (gtCuidados(p)) meta.appendChild(el('span', 'gt-tag', 'Cuidados'));
+  t.appendChild(meta);
   var semana = gtCoisas(p.id, hoje, fim, false);
   var abertas = ((window.G && G.tasks) || []).filter(function(x){
     return !x.parent_id && gtAberta(x) && gtTipoT(x) !== 'nota' && x.owner_id === p.id;
   }).length;
-  var linha = [];
-  if (p.can_own_tasks) linha.push(abertas + (abertas === 1 ? ' tarefa por fazer' : ' tarefas por fazer'));
-  linha.push(semana.length ? semana.length + ' esta semana' : 'nada esta semana');
-  t.appendChild(el('small', null, linha.join(' · ')));
+  var num = el('span', 'gt-num');
+  if (p.can_own_tasks){
+    num.appendChild(el('b', null, String(abertas)));
+    num.appendChild(document.createTextNode(abertas === 1 ? ' por fazer · ' : ' por fazer · '));
+  }
+  if (semana.length){
+    num.appendChild(el('b', null, String(semana.length)));
+    num.appendChild(document.createTextNode(' esta semana'));
+  } else num.appendChild(document.createTextNode('nada esta semana'));
+  t.appendChild(num);
   if (semana.length){
     var s = el('span', 'gt-sem');
     semana.slice(0, 3).forEach(function(x){
-      s.appendChild(el('span', x.dia === hoje ? 'hoje' : '', gtQuando(x.dia, hoje) + ' · ' + x.titulo));
+      var li = el('span', 'gt-li' + (x.dia === hoje ? ' hoje' : ''));
+      li.appendChild(el('span', 'q', gtQuando(x.dia, hoje)));
+      li.appendChild(el('span', 'tt', x.titulo));
+      li.title = x.titulo;
+      s.appendChild(li);
     });
-    if (semana.length > 3) s.appendChild(el('span', null, '+' + (semana.length - 3)));
+    if (semana.length > 3){
+      var mais = el('span', 'gt-li mais');
+      mais.appendChild(el('span', 'q', ''));
+      mais.appendChild(el('span', 'tt', '+ ' + (semana.length - 3) + ' esta semana'));
+      s.appendChild(mais);
+    }
     t.appendChild(s);
   }
   if (p.preferencias) t.appendChild(el('span', 'gt-pref', '♥ ' + p.preferencias));
   b.appendChild(t);
-  if (gtCuidados(p)) b.appendChild(el('span', 'gt-tag', 'Cuidados'));
   var w = el('div', 'gt-cw');
   w.appendChild(b);
   var aj = el('button', 'gt-aj', '⋯');
@@ -282,17 +316,18 @@ function gtBlocoCuidados(box, cuidar, hoje){
   });
   h.appendChild(el('span', null, 'próximos 30 dias' + (semResp ? ' · ' + semResp + ' sem responsável' : '')));
   bl.appendChild(h);
+  var grade = el('div', 'gt-cuids');
+  bl.appendChild(grade);
   porPessoa.forEach(function(pp){
     var c = el('div', 'gt-cuid');
     var t = el('h4');
     t.appendChild(gtAvatar(pp.p));
-    t.lastChild.style.width = '26px'; t.lastChild.style.height = '26px'; t.lastChild.style.fontSize = '.625rem';
     var nome = el('span', null, pp.p.name);
     nome.dataset.ficha = pp.p.id;
     nome.style.cursor = 'pointer';
     t.appendChild(nome);
+    t.appendChild(el('span', 'gt-cv', pp.lista.length ? pp.lista.length + (pp.lista.length === 1 ? ' coisa' : ' coisas') : 'nada marcado'));
     c.appendChild(t);
-    if (!pp.lista.length) c.appendChild(el('p', 'gt-vazio', 'Nada marcado nos próximos 30 dias.'));
     pp.lista.forEach(function(x){
       var it = el('button', 'gt-it');
       it.type = 'button';
@@ -311,7 +346,7 @@ function gtBlocoCuidados(box, cuidar, hoje){
       it.addEventListener('click', function(){ gtAbrir(x); });
       c.appendChild(it);
     });
-    bl.appendChild(c);
+    grade.appendChild(c);
   });
   bl.appendChild(el('p', 'gt-nota', 'O responsável muda-se ao abrir a tarefa. Num evento, quem acompanha são as pessoas marcadas nele.'));
   box.appendChild(bl);
@@ -348,12 +383,15 @@ function gtBlocoPrestadores(box){
   bl.dataset.salto = 'Prestadores';
   h.appendChild(el('span', null, 'a quem se mandam os emails dos pagamentos'));
   bl.appendChild(h);
-  var g = el('div', 'gt-cards');
+  var g = el('div', 'gt-cards pr');
   GT.destinatarios.forEach(function(d){
-    var b = el('button', 'gt-card');
+    var b = el('button', 'gt-card pr');
     b.type = 'button';
-    var av = el('span', 'gt-av', String(d.nome || '?').slice(0, 2).toUpperCase());
-    av.style.background = 'var(--muted)';
+    b.title = [d.nome, d.email].filter(Boolean).join(' — ');
+    /* Iniciais das duas primeiras palavras, sem o que vem entre parenteses. */
+    var pal = String(d.nome || '?').replace(/\(.*?\)/g, ' ').trim().split(/\s+/);
+    var ini = (pal[0] || '?').charAt(0) + (pal.length > 1 ? pal[pal.length - 1].charAt(0) : '');
+    var av = el('span', 'gt-av', ini.toUpperCase());
     b.appendChild(av);
     var t = el('span', 'gt-t');
     t.appendChild(el('b', null, d.nome));
