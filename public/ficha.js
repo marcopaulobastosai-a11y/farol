@@ -122,7 +122,10 @@ var FI_CSS = [
   'border-right:1.5px solid var(--muted);border-bottom:1.5px solid var(--muted);transform:rotate(-45deg);transition:transform .15s}',
   '.fi-ecra .fi-comp.aberto .t:after{transform:rotate(45deg);vertical-align:4px}',
   '.fi-ecra .fi-comp.sem .t:after{display:none}',
-  '.fi-ecra .fi-comp.sem{cursor:default}'
+  '.fi-ecra .fi-comp.sem{cursor:default}',
+  '.fi-ecra .fi-comp-lista{position:relative}',
+  '.fi-ecra .fi-comp-lista.rola{max-height:34rem;overflow-y:auto;overscroll-behavior:contain;padding-right:6px;margin-right:-6px}',
+  '.fi-ecra .fi-comp-mais{margin:.5rem 2px 0}'
 ].join('');
 
 function fiEstilo() {
@@ -742,6 +745,11 @@ function fiCompromissos(pai, lista, passados) {
     return;
   }
   var ponto = '  ' + String.fromCharCode(183) + '  ';
+  /* Veem-se os proximos 10; os outros ficam na mesma lista, a rolar dentro do
+     cartao, para a coluna nao empurrar os Documentos para longe. */
+  var caixa = el('div', 'fi-comp-lista');
+  c.appendChild(caixa);
+  var linhas = [];
   lista.forEach(function (x) {
     /* Um compromisso de quem esta pessoa acompanha diz de quem e. */
     var sub = [x.de_outro && x.com ? 'de ' + x.com : null, x.detail,
@@ -761,9 +769,23 @@ function fiCompromissos(pai, lista, passados) {
     q.appendChild(el('b', null, String(Number(p[2]))));
     q.appendChild(document.createTextNode(FI_MESES[Number(p[1]) - 1] || ''));
     r.insertBefore(q, r.firstChild);
-    c.appendChild(r);
+    caixa.appendChild(r);
+    linhas.push(r);
   });
+  if (linhas.length > FI_COMP_VISIVEIS) {
+    caixa.classList.add('rola');
+    c.appendChild(el('p', 'fi-sl fi-comp-mais', 'Mais ' + (linhas.length - FI_COMP_VISIVEIS) +
+      ' a seguir ' + String.fromCharCode(8212) + ' rola a lista.'));
+    var medir = function () {
+      var alto = linhas[FI_COMP_VISIVEIS].offsetTop;
+      if (alto > 0) caixa.style.maxHeight = alto + 'px';
+    };
+    requestAnimationFrame(medir);
+    /* Se o cartao estava fechado nao havia alturas: mede-se ao abrir. */
+    c.cabecalho.addEventListener('click', function () { requestAnimationFrame(medir); });
+  }
 }
+var FI_COMP_VISIVEIS = 10;
 
 function fiProjetos(pai, projetos) {
   var c = fiCartao(pai, 'Projetos', projetos.length ? String(projetos.length) : '');
