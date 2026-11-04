@@ -9,8 +9,8 @@
  *   Cuidados   - o que vem ai para os familiares que nao fazem tarefas
  *                (os pais), e quem trata de cada coisa; o que nao tem
  *                responsavel fica a vista.
- *   Circulos   - Agregado, Familia alargada e Prestadores (os
- *                destinatarios dos emails: senhorio, contabilista...).
+ *   Circulos   - Agregado, Familia alargada e Amigos e proximos. Os
+ *                prestadores ficam em Administracao › Destinatarios.
  *   Esta semana - em cada cartao, o que a pessoa tem nos proximos 7 dias.
  *
  * Cada cartao abre a ficha (data-ficha). O ⋯ de cada cartao ajusta o
@@ -420,7 +420,8 @@ function gtRender(){
   gtBlocoCirculo(sec, 'Amigos e próximos', 'quem conta, fora da família', deC('amigos'), hoje, fim);
   var escondidas = deC('escondido');
   if (escondidas.length && GT.verEscondidos) gtBlocoCirculo(sec, 'Não mostradas', 'escondidas daqui com ⋯', escondidas, hoje, fim);
-  gtBlocoPrestadores(sec);
+  /* Os prestadores (destinatarios dos emails) nao sao pessoas da familia:
+     vivem em Administracao › Destinatarios, nao aqui (pedido do Marco, 4 nov). */
   var inativas = G.people.length - ativas.length;
   var notas = [];
   if (inativas) notas.push(inativas + (inativas === 1 ? ' pessoa desativada' : ' pessoas desativadas') + ' em Administração › Pessoas.');
