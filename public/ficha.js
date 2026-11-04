@@ -123,6 +123,11 @@ var FI_CSS = [
   '.fi-ecra .fi-comp.aberto .t:after{transform:rotate(45deg);vertical-align:4px}',
   '.fi-ecra .fi-comp.sem .t:after{display:none}',
   '.fi-ecra .fi-comp.sem{cursor:default}',
+  '.fi-ecra .fi-doc-sem{border:0;background:none;padding:0;font:inherit;color:var(--ink);text-align:left;cursor:pointer;text-decoration:underline dotted;text-underline-offset:3px}',
+  '.fi-ecra .fi-doc-sem:hover{color:var(--accent)}',
+  '.fi-ecra .fi-doc-falta{display:inline-block;margin-left:6px;font-size:.625rem;font-family:var(--mono);letter-spacing:.04em;text-transform:uppercase;color:var(--warn,#7a4a06);background:var(--warn-soft,#fbebd0);border-radius:4px;padding:1px 5px;vertical-align:1px}',
+  '.fi-ecra .fi-doc-det td{background:var(--surface-2);padding:10px 12px}',
+  '.fi-ecra .fi-doc-nota{white-space:pre-line;font-size:.8125rem;color:var(--ink);font-family:var(--mono)}',
   '.fi-ecra .fi-comp-lista{position:relative}',
   '.fi-ecra .fi-comp-lista.rola{max-height:34rem;overflow-y:auto;overscroll-behavior:contain;padding-right:6px;margin-right:-6px}',
   '.fi-ecra .fi-comp-mais{margin:.5rem 2px 0}'
@@ -415,7 +420,14 @@ function fiDocumentos(pai, docs) {
       a.target = '_blank'; a.rel = 'noopener';
       td.appendChild(a);
     } else {
-      td.appendChild(document.createTextNode(x.name));
+      /* Sem ficheiro (vieram assim do TickTick): o nome abre o que ha - a
+         nota - e as maneiras de lhe dar um ficheiro. Nunca um nome morto. */
+      var b = el('button', 'fi-doc-sem', x.name);
+      b.type = 'button';
+      b.title = 'Este documento ainda não tem ficheiro';
+      b.onclick = function () { fiDocSemFicheiro(x, tr); };
+      td.appendChild(b);
+      td.appendChild(el('span', 'fi-doc-falta', 'sem ficheiro'));
     }
     var linha = [fiArea(x), x.kind].filter(Boolean).join('  ' + String.fromCharCode(183) + '  ');
     if (linha) td.appendChild(el('span', 'fi-sl', linha));
@@ -427,6 +439,57 @@ function fiDocumentos(pai, docs) {
     tr.appendChild(tv);
     tb.appendChild(tr);
   });
+}
+
+/* A linha que abre por baixo de um documento sem ficheiro: a nota (que e
+   muitas vezes o proprio dado - um NIF, um numero) e o que se pode fazer. */
+function fiDocSemFicheiro(x, tr) {
+  var prox = tr.nextSibling;
+  if (prox && prox.classList && prox.classList.contains('fi-doc-det')) { prox.remove(); return; }
+  var det = el('tr', 'fi-doc-det');
+  var td = el('td');
+  td.colSpan = 3;
+  var nota = String(x.note || '').replace(/^\[anexo:[^\]]*\]\s*$/gm, '').trim();
+  if (nota) td.appendChild(el('div', 'fi-doc-nota', nota));
+  else td.appendChild(el('p', 'fi-vazio', 'Sem ficheiro e sem nota.'));
+  var acts = el('div', 'fi-cx-acts');
+  var an = el('button', 'btn small primary', 'Anexar ficheiro');
+  an.type = 'button';
+  an.onclick = function () { fiDocAnexar(x, an); };
+  acts.appendChild(an);
+  if (nota) {
+    var pdf = el('button', 'btn small', 'Guardar a nota como PDF');
+    pdf.type = 'button';
+    pdf.onclick = function () {
+      pdf.disabled = true;
+      apiGestao('/api/documentos/' + x.id + '/ficheiro-da-nota', { method: 'POST' })
+        .then(function () { toast('PDF guardado em «' + x.name + '».'); fiRecarregar(false); },
+              function (e) { pdf.disabled = false; toast(e.message || 'Não foi possível gerar o PDF.'); });
+    };
+    acts.appendChild(pdf);
+  }
+  td.appendChild(acts);
+  det.appendChild(td);
+  tr.parentNode.insertBefore(det, tr.nextSibling);
+}
+
+function fiDocAnexar(x, botao) {
+  var inp = document.createElement('input');
+  inp.type = 'file';
+  inp.accept = 'application/pdf,image/*,.doc,.docx,.xls,.xlsx,.txt';
+  inp.addEventListener('change', function () {
+    var f = inp.files && inp.files[0];
+    if (!f) return;
+    var fd = new FormData();
+    fd.append('ficheiro', f);
+    botao.disabled = true;
+    toast('A guardar o ficheiro…');
+    fetch('/api/documentos/' + x.id + '/ficheiro', { method: 'POST', body: fd, credentials: 'same-origin' })
+      .then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j.error || 'Falhou.'); return j; }); })
+      .then(function () { toast('Ficheiro guardado em «' + x.name + '».'); fiRecarregar(false); },
+            function (e) { botao.disabled = false; toast(e.message || 'Não foi possível guardar o ficheiro.'); });
+  });
+  inp.click();
 }
 
 /* ---------------- os dados da pessoa ---------------- */

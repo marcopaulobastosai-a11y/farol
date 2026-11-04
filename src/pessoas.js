@@ -313,7 +313,7 @@ async function ficha(id) {
       LIMIT 200`);
 
   const documentos = await uma(
-    `SELECT d.id, d.name, d.entity, d.kind, (d.read_at IS NOT NULL) AS lido,
+    `SELECT d.id, d.name, d.entity, d.kind, d.note, (d.read_at IS NOT NULL) AS lido,
             to_char(d.issued_on, 'YYYY-MM-DD') AS issued_on,
             to_char(d.valid_on,  'YYYY-MM-DD') AS valid_on,
             c.name AS area, pai.name AS area_pai,
