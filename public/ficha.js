@@ -15,7 +15,7 @@
 /* As contas de Acessos ficam a parte do resto: a janela de edicao pode ser
    aberta a partir da ficha ou da pagina de Pessoas, e o menu da conta tem
    de ter as mesmas opcoes nos dois sitios. */
-var FI = { id: null, dados: null, contas: null, montado: false };
+var FI = { id: null, dados: null, contas: null, montado: false, cofre: null, cofreDe: null, favEl: null, cofreEl: null, verFav: false, verIban: false };
 
 var FI_CSS = [
   '.fi-ecra .fi-topo{display:flex;gap:1rem;align-items:flex-start}',
@@ -83,7 +83,46 @@ var FI_CSS = [
   'border-bottom:2px solid transparent;margin-bottom:-1px;cursor:pointer;white-space:nowrap}',
   '.pe-dlgc .fi-tab:hover{color:var(--ink)}',
   '.pe-dlgc .fi-tab.on{color:var(--ink);border-bottom-color:var(--accent);font-weight:500}',
-  '.pe-dlgc .fi-painel{min-height:16rem}'
+  '.pe-dlgc .fi-painel{min-height:16rem}',
+  /* favoritos no topo da ficha */
+  '.fi-ecra .fi-fav{margin-top:1rem;padding-top:.85rem;border-top:1px solid var(--line-soft)}',
+  '.fi-ecra .fi-fav-h{display:flex;align-items:center;gap:.75rem;margin-bottom:.55rem}',
+  '.fi-ecra .fi-fav-h span{font-family:var(--mono);font-size:.6875rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);flex:1 1 auto}',
+  '.fi-ecra .fi-fav-g{display:grid;grid-template-columns:repeat(auto-fill,minmax(14rem,1fr));gap:.5rem}',
+  '.fi-ecra .fi-fv{display:flex;align-items:center;gap:.5rem;border:1px solid var(--line);border-radius:10px;padding:.5rem .65rem;min-width:0;background:var(--surface-2)}',
+  '.fi-ecra .fi-fv .grow{min-width:0;flex:1 1 auto}',
+  '.fi-ecra .fi-fv small{display:block;font-size:.6875rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+  '.fi-ecra .fi-fv b{display:block;font-weight:500;font-size:.875rem;color:var(--ink);overflow-wrap:anywhere}',
+  '.fi-ecra .fi-fv b.fi-num-id{font-family:var(--mono)}',
+  '.fi-ecra .fi-ico{flex:0 0 auto;border:0;background:none;color:var(--muted);cursor:pointer;padding:2px;line-height:0;border-radius:6px}',
+  '.fi-ecra .fi-ico:hover{color:var(--accent)}',
+  '.fi-ecra .fi-est{flex:0 0 auto;border:0;background:none;cursor:pointer;padding:0 2px;font-size:.9rem;line-height:1;color:var(--line);vertical-align:-1px;margin-left:.35rem}',
+  '.fi-ecra .fi-est:hover{color:var(--accent)}',
+  '.fi-ecra .fi-est.on{color:#D9A33B}',
+  /* contas e cartoes */
+  '.fi-ecra .fi-cx-l{display:flex;align-items:center;gap:.6rem;padding:9px 2px;border-top:1px solid var(--line-soft)}',
+  '.fi-ecra .fi-cx-l:first-of-type{border-top:0}',
+  '.fi-ecra .fi-cx-l .grow{flex:1 1 auto;min-width:0;cursor:pointer}',
+  '.fi-ecra .fi-cx-l .t{display:block;font-size:.875rem;color:var(--ink)}',
+  '.fi-ecra .fi-cx-l .s{display:block;font-size:.75rem;color:var(--muted);overflow-wrap:anywhere}',
+  '.fi-ecra .fi-cx-acts{display:flex;gap:6px;flex-wrap:wrap;margin-top:.7rem}',
+  '.fi-ecra .fi-cx-acts .btn.small,.fi-cxd .btn.small{margin-left:0}',
+  '.fi-ecra .fi-cx-av{font-size:.75rem;color:var(--muted);margin:.6rem 0 0}',
+  '.fi-cxd label{display:flex;flex-direction:column;gap:4px;font-size:.75rem;color:var(--muted)}',
+  '.fi-cxd label.fi-ck{flex-direction:row;align-items:center;gap:8px;font-size:.8125rem;color:var(--ink)}',
+  '.fi-cxd input:not([type=checkbox]),.fi-cxd select{font:inherit;font-size:.875rem;color:var(--ink);background:var(--surface-2);',
+  'border:1px solid var(--line);border-radius:8px;padding:9px 11px;width:100%;min-width:0;box-sizing:border-box}',
+  '.fi-cxd input:focus,.fi-cxd select:focus{outline:0;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}',
+  '.fi-cxd .fi-par2{display:grid;grid-template-columns:1fr 1fr;gap:10px}',
+  /* compromissos: so o titulo; o resto abre com um clique */
+  '.fi-ecra .fi-comp{cursor:pointer}',
+  '.fi-ecra .fi-comp .s{display:none}',
+  '.fi-ecra .fi-comp.aberto .s{display:block;white-space:pre-line}',
+  '.fi-ecra .fi-comp .t:after{content:"";display:inline-block;width:5px;height:5px;margin-left:7px;vertical-align:2px;',
+  'border-right:1.5px solid var(--muted);border-bottom:1.5px solid var(--muted);transform:rotate(-45deg);transition:transform .15s}',
+  '.fi-ecra .fi-comp.aberto .t:after{transform:rotate(45deg);vertical-align:4px}',
+  '.fi-ecra .fi-comp.sem .t:after{display:none}',
+  '.fi-ecra .fi-comp.sem{cursor:default}'
 ].join('');
 
 function fiEstilo() {
@@ -240,6 +279,7 @@ function fiMontar() {
 }
 
 function fiAbrir(id) {
+  FI.cofreDe = null;   /* o cofre le-se outra vez a cada entrada na ficha */
   fiMontar();
   FI.id = Number(id);
   show('pessoa');
@@ -313,7 +353,16 @@ function fiDesenhar() {
     nums.appendChild(b);
   });
   cab.appendChild(nums);
+  /* Os favoritos: o que se procura sempre (o NIF, o IBAN, o telemovel) a vista,
+     sem abrir os blocos. Enche-se outra vez quando o cofre chegar. */
+  if (FI_HUMANO[p.kind]) {
+    FI.favEl = el('div', 'fi-fav');
+    cab.appendChild(FI.favEl);
+  } else {
+    FI.favEl = null;
+  }
   corpo.appendChild(cab);
+  if (FI.cofreDe !== p.id) { FI.cofre = null; FI.cofreDe = p.id; FI.verFav = false; FI.verIban = false; }
 
   var grelha = el('div', 'grid split');
   corpo.appendChild(grelha);
@@ -326,6 +375,8 @@ function fiDesenhar() {
   esq.appendChild(el('div', 'fi-col-t', 'Quem é'));
   dir.appendChild(el('div', 'fi-col-t', 'Em curso'));
   fiDados(esq, p, d.dependentes || [], d.google || null);
+  fiFavoritos();
+  if (FI_HUMANO[p.kind]) fiCofreLer(p);
   fiCompromissos(dir, compromissos, d.compromissosPassados || 0);
   fiTarefas(dir, d.tarefas);
   fiDocumentos(dir, d.documentos);
@@ -406,6 +457,7 @@ function fiDados(pai, p, dependentes, google) {
       dl.appendChild(el('dt', null, l[0]));
       var dd = el('dd');
       if (l[1].nodeType) dd.appendChild(l[1]); else dd.appendChild(document.createTextNode(l[1]));
+      if (l[2]) dd.appendChild(fiEstrela(fiEhFav(l[2]), function () { fiFavPessoa(l[2]); }));
       dl.appendChild(dd);
     });
     c.appendChild(dl);
@@ -433,9 +485,9 @@ function fiDados(pai, p, dependentes, google) {
 
   if (humano) {
     bloco('Contactos', [
-      ['Telemóvel', p.phone ? ligacao('tel:' + String(p.phone).replace(/\s+/g, ''), p.phone) : null],
-      ['Email', p.email ? ligacao('mailto:' + p.email, p.email) : null],
-      ['Morada', p.address]
+      ['Telemóvel', p.phone ? ligacao('tel:' + String(p.phone).replace(/\s+/g, ''), p.phone) : null, 'phone'],
+      ['Email', p.email ? ligacao('mailto:' + p.email, p.email) : null, 'email'],
+      ['Morada', p.address, 'address']
     ]);
 
     var tapados = [];
@@ -446,11 +498,17 @@ function fiDados(pai, p, dependentes, google) {
       if (pz) validade.appendChild(pz);
     }
     bloco('Identificação', [
-      ['NIF', numero(p.nif, tapados)],
-      ['Utente SNS', numero(p.sns, tapados)],
-      [FI_DOCS[p.id_doc_tipo] || 'Documento', numero(p.id_doc_numero, tapados)],
+      ['NIF', numero(p.nif, tapados), 'nif'],
+      ['Utente SNS', numero(p.sns, tapados), 'sns'],
+      [FI_DOCS[p.id_doc_tipo] || 'Documento', numero(p.id_doc_numero, tapados), 'id_doc'],
       ['Válido até', validade]
     ], tapados);
+
+    /* As contas e os cartoes da pessoa: enche-se quando o cofre responder. */
+    FI.cofreEl = fiCartao(pai, 'Contas e cartões');
+    fiCofrePintar();
+  } else {
+    FI.cofreEl = null;
   }
 
   var det = p.detalhes || {};
@@ -481,7 +539,7 @@ function fiDados(pai, p, dependentes, google) {
 
   if (humano) {
     bloco('Em caso de emergência', [
-      ['Ligar a', p.emerg_nome],
+      ['Ligar a', p.emerg_nome, (p.emerg_nome || p.emerg_tel) ? 'emerg' : null],
       ['Telefone', p.emerg_tel ? ligacao('tel:' + String(p.emerg_tel).replace(/\s+/g, ''), p.emerg_tel) : null]
     ]);
     bloco('Na app', [['Conta de acesso', p.conta_email],
@@ -689,6 +747,15 @@ function fiCompromissos(pai, lista, passados) {
     var sub = [x.de_outro && x.com ? 'de ' + x.com : null, x.detail,
                !x.de_outro && x.com ? 'com ' + x.com : null].filter(Boolean).join(ponto);
     var r = row(x.title, sub, x.at ? pill(x.at) : null);
+    r.classList.add('fi-comp');
+    if (!sub) r.classList.add('sem');
+    else {
+      r.tabIndex = 0;
+      r.setAttribute('aria-expanded', 'false');
+      var abrir = function () { r.setAttribute('aria-expanded', r.classList.toggle('aberto') ? 'true' : 'false'); };
+      r.addEventListener('click', function (e) { if (!e.target.closest('a, button')) abrir(); });
+      r.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); abrir(); } });
+    }
     var p = String(x.day).split('-');
     var q = el('div', 'fi-quando');
     q.appendChild(el('b', null, String(Number(p[2]))));
@@ -782,6 +849,323 @@ function fiCaixa(pai, itens) {
     var estado = x.status === 'por_triar' ? pill('por triar', 'warn') : pill('catalogado', 'good');
     c.appendChild(row(x.title || x.file_name || 'Sem nome', fiData(x.captured_at), estado));
   });
+}
+
+/* ---------------- favoritos ---------------- */
+/* O que se marca com a estrela sobe para o topo da ficha. Os dados da pessoa
+   guardam-se em people.favoritos (uma lista de chaves); as contas e os
+   cartoes, em fam_cofre.favorito. Os numeros continuam tapados ate se pedir. */
+var FI_FAV = {
+  phone:   ['Telemóvel', function (p) { return p.phone; }, false],
+  email:   ['Email', function (p) { return p.email; }, false],
+  address: ['Morada', function (p) { return p.address; }, false],
+  nif:     ['NIF', function (p) { return p.nif; }, true],
+  sns:     ['Utente SNS', function (p) { return p.sns; }, true],
+  id_doc:  [null, function (p) { return p.id_doc_numero; }, true],
+  emerg:   ['Em caso de emergência', function (p) { return [p.emerg_nome, p.emerg_tel].filter(Boolean).join(' · '); }, false]
+};
+var FI_SUBTIPO = { debito: 'Débito', credito: 'Crédito', 'pre-pago': 'Pré-pago', ordem: 'À ordem', poupanca: 'Poupança' };
+
+function fiEhFav(k) {
+  var f = FI.dados && FI.dados.pessoa && FI.dados.pessoa.favoritos;
+  return Array.isArray(f) && f.indexOf(k) >= 0;
+}
+
+function fiEstrela(on, fn) {
+  var b = el('button', 'fi-est' + (on ? ' on' : ''), on ? String.fromCharCode(9733) : String.fromCharCode(9734));
+  b.type = 'button';
+  b.title = on ? 'Tirar dos favoritos' : 'Pôr nos favoritos (aparece no topo)';
+  b.setAttribute('aria-pressed', on ? 'true' : 'false');
+  b.onclick = function (e) { e.stopPropagation(); b.disabled = true; fn(); };
+  return b;
+}
+
+function fiCopiar(texto) {
+  var ok = function () { toast('Copiado.'); };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(texto).then(ok, function () { toast('Não foi possível copiar.'); });
+    return;
+  }
+  var t = document.createElement('textarea');
+  t.value = texto; document.body.appendChild(t); t.select();
+  try { document.execCommand('copy'); ok(); } catch (e) { toast('Não foi possível copiar.'); }
+  t.remove();
+}
+
+function fiBotaoCopiar(texto) {
+  var b = el('button', 'fi-ico');
+  b.type = 'button';
+  b.title = 'Copiar';
+  b.setAttribute('aria-label', 'Copiar');
+  b.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"' +
+    ' stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/>' +
+    '<path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>';
+  b.onclick = function (e) { e.stopPropagation(); fiCopiar(texto); };
+  return b;
+}
+
+function fiIbanBonito(ib) { return String(ib || '').replace(/(.{4})/g, '$1 ').trim(); }
+function fiIbanTapado(ib) {
+  var t = String(ib || '');
+  if (t.length < 8) return t;
+  return t.slice(0, 4) + ' ' + String.fromCharCode(8226, 8226, 8226, 8226) + ' ' + t.slice(-4);
+}
+function fiValidade(v) { return v ? 'val. ' + v.slice(5, 7) + '/' + v.slice(2, 4) : ''; }
+function fiCartaoTexto(x) {
+  return [x.entidade, FI_SUBTIPO[x.subtipo] || null,
+          x.ultimos4 ? String.fromCharCode(8226, 8226, 8226, 8226) + ' ' + x.ultimos4 : null, fiValidade(x.validade)]
+    .filter(Boolean).join(' · ');
+}
+
+function fiFavPessoa(k) {
+  var p = FI.dados.pessoa;
+  var f = Array.isArray(p.favoritos) ? p.favoritos.slice() : [];
+  var i = f.indexOf(k);
+  if (i >= 0) f.splice(i, 1); else f.push(k);
+  apiGestao('/api/pessoas/' + p.id, { method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+                                      body: JSON.stringify({ favoritos: f }) })
+    .then(function () { p.favoritos = f; fiDesenhar(); },
+          function (e) { toast(e.message || 'Não foi possível gravar.'); fiDesenhar(); });
+}
+
+function fiFavoritos() {
+  var box = FI.favEl;
+  if (!box || !FI.dados) return;
+  clear(box);
+  var p = FI.dados.pessoa;
+  var itens = [];
+  (Array.isArray(p.favoritos) ? p.favoritos : []).forEach(function (k) {
+    var f = FI_FAV[k];
+    if (!f) return;
+    var v = f[1](p);
+    if (!v) return;
+    var rotulo = f[0] || FI_DOCS[p.id_doc_tipo] || 'Documento';
+    itens.push({ rotulo: rotulo, valor: v, tapado: f[2] ? fiMascara(v) : null, copiar: v, tirar: function () { fiFavPessoa(k); } });
+  });
+  (Array.isArray(FI.cofre) ? FI.cofre : []).filter(function (x) { return x.favorito && x.tipo !== 'id'; }).forEach(function (x) {
+    if (x.tipo === 'conta') {
+      itens.push({ rotulo: [x.nome, x.entidade].filter(Boolean).join(' · '), valor: fiIbanBonito(x.iban) || '—',
+                   tapado: x.iban ? fiIbanTapado(x.iban) : null, copiar: x.iban, tirar: function () { fiFavCofre(x); } });
+    } else {
+      itens.push({ rotulo: x.nome, valor: fiCartaoTexto(x) || '—', tapado: null, copiar: null, tirar: function () { fiFavCofre(x); } });
+    }
+  });
+
+  var h = el('div', 'fi-fav-h');
+  h.appendChild(el('span', null, 'Favoritos'));
+  box.appendChild(h);
+  if (!itens.length) {
+    box.appendChild(el('p', 'fi-vazio', 'Marca com ' + String.fromCharCode(9734) +
+      ' os dados que queres ter aqui à mão — NIF, telemóvel, uma conta, um cartão.'));
+    return;
+  }
+  if (itens.some(function (x) { return x.tapado; })) {
+    var ver = el('button', 'fi-ver', FI.verFav ? 'esconder' : 'mostrar');
+    ver.type = 'button';
+    ver.onclick = function () { FI.verFav = !FI.verFav; fiFavoritos(); };
+    h.appendChild(ver);
+  }
+  var g = el('div', 'fi-fav-g');
+  itens.forEach(function (x) {
+    var c = el('div', 'fi-fv');
+    var t = el('div', 'grow');
+    t.appendChild(el('small', null, x.rotulo));
+    t.appendChild(el('b', x.tapado ? 'fi-num-id' : null, x.tapado && !FI.verFav ? x.tapado : x.valor));
+    c.appendChild(t);
+    if (x.copiar) c.appendChild(fiBotaoCopiar(x.copiar));
+    c.appendChild(fiEstrela(true, x.tirar));
+    g.appendChild(c);
+  });
+  box.appendChild(g);
+}
+
+/* ---------------- contas e cartoes ---------------- */
+/* Usa o cofre da Familia (fam_cofre): so os adultos da casa o leem. De um
+   cartao guardam-se o banco, o tipo, os ultimos 4 digitos e a validade —
+   nunca o numero completo, o CVV nem o PIN (o servidor corta). */
+function fiCofreLer(p) {
+  if (FI.cofre !== null) { fiCofrePintar(); fiFavoritos(); return; }
+  apiGestao('/api/cofre?pessoas=' + p.id).then(function (r) {
+    if (FI.cofreDe !== p.id) return;
+    FI.cofre = r.itens || [];
+    fiCofrePintar(); fiFavoritos();
+  }, function (e) {
+    if (FI.cofreDe !== p.id) return;
+    FI.cofre = /adultos/.test((e && e.message) || '') ? 'fechado' : 'erro';
+    fiCofrePintar();
+  });
+}
+
+function fiCofrePintar() {
+  var c = FI.cofreEl;
+  if (!c || !FI.dados) return;
+  var p = FI.dados.pessoa;
+  clear(c);
+  var cab = c.cabecalho;
+  var velho = cab.querySelector('.fi-ver');
+  if (velho) velho.remove();
+  if (FI.cofre === null) { fiVazio(c, 'A ler…'); return; }
+  if (FI.cofre === 'fechado') { fiVazio(c, 'Só os adultos da casa veem as contas e os cartões.'); return; }
+  if (FI.cofre === 'erro') { fiVazio(c, 'Não foi possível ler as contas e os cartões.'); return; }
+
+  var contas = FI.cofre.filter(function (x) { return x.tipo === 'conta'; });
+  var cartoes = FI.cofre.filter(function (x) { return x.tipo === 'banco'; });
+  if (contas.some(function (x) { return x.iban; })) {
+    var ver = el('button', 'fi-ver', FI.verIban ? 'esconder' : 'mostrar');
+    ver.type = 'button';
+    ver.onclick = function () { FI.verIban = !FI.verIban; fiCofrePintar(); };
+    cab.insertBefore(ver, cab.querySelector('.fi-chev'));
+  }
+
+  var linha = function (x, titulo, sub, copiar) {
+    var r = el('div', 'fi-cx-l');
+    var g = el('div', 'grow');
+    g.appendChild(el('span', 't', titulo));
+    if (sub) g.appendChild(el('span', 's', sub));
+    g.title = 'Editar';
+    g.onclick = function () { fiCofreJanela(p.id, x); };
+    r.appendChild(g);
+    if (copiar) r.appendChild(fiBotaoCopiar(copiar));
+    r.appendChild(fiEstrela(x.favorito, function () { fiFavCofre(x); }));
+    c.appendChild(r);
+  };
+
+  if (!contas.length && !cartoes.length) fiVazio(c, 'Ainda sem contas nem cartões.');
+  if (contas.length) {
+    c.appendChild(el('div', 'fi-col-t', 'Contas'));
+    contas.forEach(function (x) {
+      var sub = [x.entidade, FI_SUBTIPO[x.subtipo] || null,
+                 x.iban ? (FI.verIban ? fiIbanBonito(x.iban) : fiIbanTapado(x.iban)) : null].filter(Boolean).join(' · ');
+      linha(x, x.nome, sub, x.iban);
+    });
+  }
+  if (cartoes.length) {
+    var t = el('div', 'fi-col-t', 'Cartões');
+    if (contas.length) t.style.marginTop = '.8rem';
+    c.appendChild(t);
+    cartoes.forEach(function (x) { linha(x, x.nome, fiCartaoTexto(x), null); });
+  }
+
+  var acts = el('div', 'fi-cx-acts');
+  var nc = el('button', 'btn small', '+ Conta'); nc.type = 'button';
+  nc.onclick = function () { fiCofreJanela(p.id, { tipo: 'conta' }); };
+  var nk = el('button', 'btn small', '+ Cartão'); nk.type = 'button';
+  nk.onclick = function () { fiCofreJanela(p.id, { tipo: 'banco' }); };
+  acts.appendChild(nc); acts.appendChild(nk);
+  c.appendChild(acts);
+  c.appendChild(el('p', 'fi-cx-av', 'Dos cartões guardam-se só os últimos 4 dígitos — nunca o número completo, o CVV nem o PIN.'));
+}
+
+function fiFavCofre(x) {
+  apiGestao('/api/cofre/' + x.id, { method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ favorito: !x.favorito }) })
+    .then(function () { x.favorito = !x.favorito; }, function (e) { toast(e.message || 'Não foi possível gravar.'); })
+    .then(function () { fiCofrePintar(); fiFavoritos(); });
+}
+
+/* A janela de uma conta ou de um cartao. Tambem serve a Familia (o cofre de
+   la chama-a para as contas), por isso recebe o que fazer depois de gravar. */
+function fiCofreJanela(pid, x, depois) {
+  fiEstilo();
+  var conta = x.tipo === 'conta';
+  var velho = document.getElementById('fiCxDlg');
+  if (velho) velho.remove();
+  var dlg = el('dialog', 'folha');
+  dlg.id = 'fiCxDlg';
+  dlg.style.cssText = 'border:none;border-radius:14px;padding:0;width:min(460px,calc(100% - 2rem));background:transparent';
+  var c = el('div', 'fi-cxd');
+  c.style.cssText = 'background:var(--surface);border-radius:14px;padding:18px 20px;display:flex;flex-direction:column;gap:12px;max-height:88vh;overflow:auto';
+  c.appendChild(el('h3', null, x.id ? (conta ? 'Conta bancária' : 'Cartão') : (conta ? 'Nova conta bancária' : 'Novo cartão')));
+
+  var campo = function (rotulo, input) { var l = el('label'); l.appendChild(document.createTextNode(rotulo)); l.appendChild(input); return l; };
+  var entrada = function (tipo, valor, dica) {
+    var i = document.createElement('input'); i.type = tipo; i.value = valor || ''; if (dica) i.placeholder = dica; return i;
+  };
+  var escolha = function (ops, valor) {
+    var s = document.createElement('select');
+    ops.forEach(function (o) { s.appendChild(new Option(o[1], o[0])); });
+    s.value = valor || ops[0][0];
+    return s;
+  };
+  var nome = entrada('text', x.nome, conta ? 'ex.: Conta à ordem' : 'ex.: Classic Dual');
+  var banco = entrada('text', x.entidade, 'Banco');
+  var sub = conta ? escolha([['ordem', 'À ordem'], ['poupanca', 'Poupança']], x.subtipo)
+                  : escolha([['debito', 'Débito'], ['credito', 'Crédito'], ['pre-pago', 'Pré-pago']], x.subtipo);
+  c.appendChild(campo('Nome', nome));
+  var par = el('div', 'fi-par2');
+  par.appendChild(campo('Banco', banco));
+  par.appendChild(campo('Tipo', sub));
+  c.appendChild(par);
+
+  var iban = null, u4 = null, val = null;
+  if (conta) {
+    iban = entrada('text', fiIbanBonito(x.iban), 'PT50 0000 0000 0000 0000 0000 0');
+    iban.autocomplete = 'off'; iban.spellcheck = false;
+    c.appendChild(campo('IBAN', iban));
+  } else {
+    var par2 = el('div', 'fi-par2');
+    u4 = entrada('text', x.ultimos4, '0000'); u4.maxLength = 4; u4.inputMode = 'numeric'; u4.autocomplete = 'off';
+    val = entrada('month', x.validade ? x.validade.slice(0, 7) : '');
+    par2.appendChild(campo('Últimos 4 dígitos', u4));
+    par2.appendChild(campo('Validade', val));
+    c.appendChild(par2);
+  }
+  var nota = entrada('text', x.nota, conta ? 'ex.: titulares, para que serve' : 'ex.: associado à conta à ordem');
+  c.appendChild(campo('Nota', nota));
+  var fl = el('label', 'fi-ck');
+  var fav = document.createElement('input'); fav.type = 'checkbox'; fav.checked = Boolean(x.favorito);
+  fl.appendChild(fav); fl.appendChild(document.createTextNode('Mostrar nos favoritos, no topo da ficha'));
+  c.appendChild(fl);
+
+  var fechar = function () { dlg.close(); dlg.remove(); };
+  var acabou = function () {
+    fechar();
+    if (typeof depois === 'function') { depois(); return; }
+    FI.cofre = null;
+    if (FI.dados) fiCofreLer(FI.dados.pessoa);
+  };
+  var fim = el('div'); fim.style.cssText = 'display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-top:4px';
+  if (x.id) {
+    var apagar = el('button', 'btn small', 'Apagar'); apagar.type = 'button';
+    apagar.style.marginRight = 'auto';
+    var certo = false;
+    apagar.onclick = function () {
+      if (!certo) { certo = true; apagar.textContent = 'Carrega outra vez para apagar'; return; }
+      apagar.disabled = true;
+      apiGestao('/api/cofre/' + x.id, { method: 'DELETE' }).then(acabou, function (e) { apagar.disabled = false; toast(e.message || 'Não foi possível apagar.'); });
+    };
+    fim.appendChild(apagar);
+  }
+  var cancelar = el('button', 'btn small', 'Cancelar'); cancelar.type = 'button'; cancelar.onclick = fechar;
+  var gravar = el('button', 'btn small primary', 'Guardar'); gravar.type = 'button';
+  gravar.onclick = function () {
+    if (!nome.value.trim()) { toast('Falta o nome.'); nome.focus(); return; }
+    var corpo = { person_id: pid, tipo: conta ? 'conta' : 'banco', nome: nome.value, entidade: banco.value,
+                  subtipo: sub.value, nota: nota.value, favorito: fav.checked };
+    if (conta) corpo.iban = iban.value;
+    else {
+      var d = u4.value.replace(/\D/g, '');
+      if (u4.value.trim() && d.length !== 4) { toast('Só os últimos 4 dígitos.'); u4.focus(); return; }
+      corpo.ultimos4 = d;
+      /* Um cartao vale ate ao ultimo dia do mes que traz escrito. */
+      if (val.value) {
+        var a = val.value.split('-').map(Number);
+        var ult = new Date(a[0], a[1], 0).getDate();
+        corpo.validade = val.value + '-' + String(ult).padStart(2, '0');
+      } else corpo.validade = null;
+    }
+    gravar.disabled = true;
+    var o = { method: x.id ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo) };
+    apiGestao(x.id ? '/api/cofre/' + x.id : '/api/cofre', o)
+      .then(acabou, function (e) { gravar.disabled = false; toast(e.message || 'Não foi possível gravar.'); });
+  };
+  fim.appendChild(cancelar); fim.appendChild(gravar);
+  c.appendChild(fim);
+  dlg.appendChild(c);
+  dlg.addEventListener('cancel', function () { setTimeout(function () { dlg.remove(); }, 0); });
+  document.body.appendChild(dlg);
+  dlg.showModal();
+  nome.focus();
 }
 
 /* ---------------- editar ---------------- */

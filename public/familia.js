@@ -330,11 +330,18 @@ function fmCofre(pai, pid) {
 
   var itens = FM.cofre[pid];
   var bancos = itens.filter(function (x) { return x.tipo === 'banco'; });
-  var ids = itens.filter(function (x) { return x.tipo !== 'banco'; });
+  var ids = itens.filter(function (x) { return x.tipo === 'id'; });
+  var contas = itens.filter(function (x) { return x.tipo === 'conta'; });
+  /* As contas usam a janela da ficha da pessoa (ficha.js), que sabe do IBAN. */
+  var janelaConta = function (x) {
+    if (typeof fiCofreJanela !== 'function') { toast('Abre a ficha da pessoa para mexer nas contas.'); return; }
+    fiCofreJanela(pid, x, function () { apiGestao('/api/cofre?pessoas=' + pid).then(function (d) { FM.cofre[pid] = d.itens || []; fmRedesenhar(); }); });
+  };
   var acoes = el('div', 'fm-acts'); acoes.style.justifyContent = 'flex-start';
   var nb = el('button', 'btn', '+ Cartão bancário'); nb.type = 'button'; nb.onclick = function () { fmCofreJanela(pid, { tipo: 'banco' }); };
   var ni = el('button', 'btn', '+ Documento de identificação'); ni.type = 'button'; ni.onclick = function () { fmCofreJanela(pid, { tipo: 'id' }); };
-  acoes.appendChild(nb); acoes.appendChild(ni);
+  var nc = el('button', 'btn', '+ Conta bancária'); nc.type = 'button'; nc.onclick = function () { janelaConta({ tipo: 'conta' }); };
+  acoes.appendChild(nb); acoes.appendChild(nc); acoes.appendChild(ni);
   pai.appendChild(acoes);
 
   pai.appendChild(el('div', 'fi-col-t', 'Cartões bancários'));
@@ -343,13 +350,30 @@ function fmCofre(pai, pid) {
   bancos.forEach(function (x, i) {
     var c = el('button', 'fm-cartao'); c.type = 'button';
     c.style.background = FM_CORES_CARTAO[i % FM_CORES_CARTAO.length];
-    var l1 = el('span', 'l'); l1.appendChild(el('span', null, x.entidade || '')); l1.appendChild(el('span', null, x.nome));
+    var sub = { debito: 'Débito', credito: 'Crédito', 'pre-pago': 'Pré-pago' }[x.subtipo];
+    var l1 = el('span', 'l'); l1.appendChild(el('span', null, x.entidade || '')); l1.appendChild(el('span', null, x.nome + (sub ? ' · ' + sub : '')));
     var n = el('span', 'n', '•••• ' + (x.ultimos4 || '????'));
     var l2 = el('span', 'l'); l2.appendChild(el('span', null, x.nota || '')); l2.appendChild(el('span', null, x.validade ? 'val. ' + x.validade.slice(5, 7) + '/' + x.validade.slice(2, 4) : ''));
     c.appendChild(l1); c.appendChild(n); c.appendChild(l2);
     c.onclick = function () { fmCofreJanela(pid, x); };
     grade.appendChild(c);
   });
+
+  if (contas.length) {
+    pai.appendChild(el('div', 'fi-col-t', 'Contas bancárias'));
+    var lc = el('div', 'card'); lc.style.padding = '4px 16px'; pai.appendChild(lc);
+    contas.forEach(function (x) {
+      var r = el('div', 'row');
+      var g = el('div', 'grow');
+      g.appendChild(el('span', 't', x.nome));
+      var ib = x.iban ? x.iban.slice(0, 4) + ' •••• ' + x.iban.slice(-4) : null;
+      g.appendChild(el('span', 's', [x.entidade, ib, x.nota].filter(Boolean).join(' · ')));
+      r.appendChild(g);
+      var e = el('button', 'btn small', 'Editar'); e.type = 'button'; e.onclick = function () { janelaConta(x); };
+      r.appendChild(e);
+      lc.appendChild(r);
+    });
+  }
 
   pai.appendChild(el('div', 'fi-col-t', 'Cartões e documentos de identificação'));
   if (!ids.length) pai.appendChild(el('p', 'fi-vazio', 'Nenhum documento guardado.'));
@@ -372,6 +396,10 @@ function fmCofre(pai, pid) {
 
 function fmCofreJanela(pid, x) {
   var banco = x.tipo === 'banco';
+  if (banco && typeof fiCofreJanela === 'function') {
+    fiCofreJanela(pid, x, function () { apiGestao('/api/cofre?pessoas=' + pid).then(function (d) { FM.cofre[pid] = d.itens || []; fmRedesenhar(); }); });
+    return;
+  }
   var nome = fmInput('text', x.nome || '', banco ? 'ex.: Classic Dual' : 'ex.: Cartão de Cidadão');
   var ent = fmInput('text', x.entidade || '', banco ? 'Banco' : 'Entidade emissora');
   var u4 = fmInput('text', x.ultimos4 || '', '0000'); u4.maxLength = 4; u4.inputMode = 'numeric';
