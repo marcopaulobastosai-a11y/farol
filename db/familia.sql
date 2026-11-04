@@ -7,7 +7,7 @@
 CREATE TABLE IF NOT EXISTS fam_cofre (
   id          SERIAL PRIMARY KEY,
   person_id   INTEGER NOT NULL REFERENCES people(id) ON DELETE CASCADE,
-  tipo        TEXT NOT NULL DEFAULT 'id',          -- 'banco' | 'id'
+  tipo        TEXT NOT NULL DEFAULT 'id',          -- 'banco' (cartao) | 'conta' | 'id'
   nome        TEXT NOT NULL,                       -- Cartao de Cidadao, Classic Dual...
   entidade    TEXT,                                -- banco ou entidade emissora
   ultimos4    TEXT,                                -- so cartoes bancarios
@@ -18,6 +18,13 @@ CREATE TABLE IF NOT EXISTS fam_cofre (
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS fam_cofre_pessoa ON fam_cofre (person_id);
+
+-- Contas bancarias pessoais (tipo 'conta'): o banco e o IBAN, que e o que se
+-- da a quem tem de pagar. Nos cartoes, o subtipo diz se e de debito ou de
+-- credito. O favorito sobe ao topo da ficha da pessoa.
+ALTER TABLE fam_cofre ADD COLUMN IF NOT EXISTS subtipo  TEXT;   -- cartao: debito|credito|pre-pago; conta: ordem|poupanca
+ALTER TABLE fam_cofre ADD COLUMN IF NOT EXISTS iban     TEXT;   -- so contas
+ALTER TABLE fam_cofre ADD COLUMN IF NOT EXISTS favorito BOOLEAN NOT NULL DEFAULT FALSE;
 
 -- Os sonhos (e os pensamentos que ficam entre eles) da sub-area Sonhos.
 CREATE TABLE IF NOT EXISTS fam_sonhos (

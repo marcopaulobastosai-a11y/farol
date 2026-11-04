@@ -72,14 +72,22 @@ function instalar(app, { sessao, ehAdmin, authAtiva }) {
   });
 
   /* ---------------- cofre ---------------- */
-  const COFRE_SQL = `SELECT c.id, c.person_id, c.tipo, c.nome, c.entidade, c.ultimos4, c.numero,
+  const COFRE_SQL = `SELECT c.id, c.person_id, c.tipo, c.nome, c.entidade, c.ultimos4, c.numero, c.subtipo, c.iban, c.favorito,
                             to_char(c.validade, 'YYYY-MM-DD') AS validade, c.document_id, c.nota,
                             d.name AS documento, (SELECT l.inbox_id FROM inbox_links l WHERE l.target_type = 'documento' AND l.target_id = d.id ORDER BY l.inbox_id LIMIT 1) AS ficheiro
                        FROM fam_cofre c LEFT JOIN documents d ON d.id = c.document_id`;
 
+  function ibanValido(ib) {
+    if (!/^[A-Z]{2}\d{2}[A-Z0-9]{10,30}$/.test(ib)) return false;
+    const r = (ib.slice(4) + ib.slice(0, 4)).replace(/[A-Z]/g, (ch) => String(ch.charCodeAt(0) - 55));
+    let m = 0;
+    for (const d of r) m = (m * 10 + Number(d)) % 97;
+    return m === 1;
+  }
+
   function corpoCofre(b, parcial) {
     const o = {};
-    const tipo = b.tipo === 'banco' ? 'banco' : 'id';
+    const tipo = ['banco', 'conta'].indexOf(b.tipo) >= 0 ? b.tipo : 'id';
     if (!parcial || b.tipo !== undefined) o.tipo = tipo;
     if (!parcial || b.nome !== undefined) { o.nome = limpar(b.nome); if (!o.nome) throw erro(400, 'Falta o nome.'); }
     if (b.entidade !== undefined) o.entidade = limpar(b.entidade);
@@ -92,7 +100,17 @@ function instalar(app, { sessao, ehAdmin, authAtiva }) {
       o.ultimos4 = dig ? dig.slice(-4) : null;
     }
     if (b.numero !== undefined) o.numero = limpar(b.numero);
-    if ((o.tipo || b.tipo) === 'banco') o.numero = null;
+    if (b.subtipo !== undefined) o.subtipo = limpar(b.subtipo) || null;
+    if (b.favorito !== undefined) o.favorito = Boolean(b.favorito);
+    /* O IBAN vai sem espacos e em maiusculas, e tem de passar o controlo. */
+    if (b.iban !== undefined) {
+      const ib = String(b.iban || '').replace(/\s+/g, '').toUpperCase();
+      if (ib && !ibanValido(ib)) throw erro(400, 'Esse IBAN não está certo — confirma os algarismos.');
+      o.iban = ib || null;
+    }
+    const t = o.tipo || b.tipo;
+    if (t === 'banco' || t === 'conta') o.numero = null;
+    if (t === 'conta') o.ultimos4 = null;
     return o;
   }
 
@@ -114,9 +132,11 @@ function instalar(app, { sessao, ehAdmin, authAtiva }) {
       const pid = Number(b.person_id);
       if (!pid) throw erro(400, 'Falta a pessoa.');
       const o = corpoCofre(b, false);
-      const r = await all(`INSERT INTO fam_cofre (person_id, tipo, nome, entidade, ultimos4, numero, validade, document_id, nota)
-                           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
-        [pid, o.tipo, o.nome, o.entidade || null, o.ultimos4 || null, o.numero || null, o.validade || null, o.document_id || null, o.nota || null]);
+      const r = await all(`INSERT INTO fam_cofre (person_id, tipo, nome, entidade, ultimos4, numero, validade, document_id, nota,
+                                                  subtipo, iban, favorito)
+                           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id`,
+        [pid, o.tipo, o.nome, o.entidade || null, o.ultimos4 || null, o.numero || null, o.validade || null, o.document_id || null, o.nota || null,
+         o.subtipo || null, o.iban || null, Boolean(o.favorito)]);
       res.json({ id: r[0].id });
     } catch (e) { falha(res, e, 'guardar no cofre'); }
   });

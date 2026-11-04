@@ -44,7 +44,7 @@ const COLUNAS = `id, code, name, full_name, role, kind, can_own_tasks, color, in
                  nif, sns, id_doc_tipo, id_doc_numero,
                  to_char(id_doc_validade, 'YYYY-MM-DD') AS id_doc_validade,
                  emerg_nome, emerg_tel, conta_email, responsavel_id, detalhes,
-                 circulo, cuidados, preferencias`;
+                 circulo, cuidados, preferencias, favoritos`;
 
 /* ------------------------------------------------------------------ *
  * Os dados de cada pessoa
@@ -475,6 +475,12 @@ function instalar(app) {
     }
     if (c.cuidados !== undefined) por('cuidados', c.cuidados === null || c.cuidados === '' ? null : Boolean(c.cuidados));
     if (c.preferencias !== undefined) por('preferencias', (limpar(c.preferencias) || '').slice(0, 2000) || null);
+    /* Os dados que sobem ao topo da ficha: so chaves conhecidas, sem repetir. */
+    if (c.favoritos !== undefined) {
+      const ok = ['phone', 'email', 'address', 'nif', 'sns', 'id_doc', 'emerg'];
+      const fav = [...new Set((Array.isArray(c.favoritos) ? c.favoritos : []).filter((k) => ok.indexOf(k) >= 0))];
+      por('favoritos', JSON.stringify(fav));
+    }
 
     try {
       /* O tipo manda nos detalhes: vale o novo se vier no pedido. */

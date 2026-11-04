@@ -576,6 +576,9 @@ ALTER TABLE people ADD COLUMN IF NOT EXISTS emerg_tel       TEXT;
 ALTER TABLE people ADD COLUMN IF NOT EXISTS conta_email     TEXT;
 ALTER TABLE people ADD COLUMN IF NOT EXISTS responsavel_id  INTEGER REFERENCES people(id) ON DELETE SET NULL;
 ALTER TABLE people ADD COLUMN IF NOT EXISTS detalhes        JSONB NOT NULL DEFAULT '{}'::jsonb;
+-- Os dados que a pessoa quer ver no topo da ficha sem abrir os blocos
+-- (chaves: phone, email, address, nif, sns, id_doc, emerg).
+ALTER TABLE people ADD COLUMN IF NOT EXISTS favoritos       JSONB NOT NULL DEFAULT '[]'::jsonb;
 
 -- Uma conta de acesso pertence a uma pessoa so.
 CREATE UNIQUE INDEX IF NOT EXISTS people_conta_email_uidx ON people (conta_email)
