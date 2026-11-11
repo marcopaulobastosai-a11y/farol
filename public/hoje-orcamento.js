@@ -44,7 +44,9 @@ var HO_CSS =
   '#hoOrc li .ho-bar em{top:-2px;bottom:-2px}' +
   '#hoOrc .ho-ok{font-size:.75rem;color:var(--muted);margin-top:12px;display:flex;align-items:center;gap:8px}' +
   '#hoOrc .ho-ok::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--good);flex:none}' +
-  '#hoOrc .ho-vazio{font-size:.8125rem;color:var(--muted)}';
+  '#hoOrc .ho-vazio{font-size:.8125rem;color:var(--muted)}' +
+  '#hoOrc h4.fav{color:var(--ink-2)}#hoOrc h4.fav::before{content:"\u2605";color:#D99A1E;letter-spacing:0}' +
+  '#hoOrc .ho-fav{border-bottom:1px solid var(--line-soft);padding-bottom:8px;margin-bottom:2px}';
 
 function hoEstilo() {
   if (document.getElementById('hoCss')) return;
@@ -121,6 +123,8 @@ function hoClassificar(d) {
     var gasto = Math.max(0, Number(l.gasto) || 0);
     out.orc += Number(l.mensal);
     out.gasto += gasto;
+    /* Os favoritos tem bloco proprio, sempre a vista: nao se repetem abaixo. */
+    if (l.favorito) return;
     var nome = l.nome || '';
     var pct = tem > 0 ? gasto / tem * 100 : (gasto > 0 ? 999 : 0);
     var x = { l: l, nome: nome, tem: tem, gasto: gasto, pct: pct };
@@ -218,6 +222,37 @@ function hoDesenhar() {
   leg.appendChild(el('span', null, 'Disponível ' + hoEur(c.orc - c.gasto)));
   leg.appendChild(el('span', null, 'Mês a ' + Math.round(r.f * 100) + '%'));
   card.appendChild(leg);
+
+  /* Os favoritos (a estrela em Financas > Orcamentos): sempre a vista, com a
+     barra e o que resta, estejam bem ou mal. */
+  var favs = (HO.dados.linhas || []).filter(function (l) { return l.favorito; });
+  if (favs.length) {
+    var fb = el('div', 'ho-fav');
+    var ft = el('h4', 'fav');
+    ft.appendChild(el('span', null, 'Favoritos'));
+    ft.appendChild(el('span', 'n', String(favs.length)));
+    fb.appendChild(ft);
+    var ful = el('ul');
+    favs.forEach(function (l) {
+      var tem = Number(l.mensal) + (l.acumula ? Number(l.acumulado) : 0);
+      var gasto = Math.max(0, Number(l.gasto) || 0);
+      var pct = tem > 0 ? gasto / tem * 100 : (gasto > 0 ? 999 : 0);
+      var meta = l.natureza !== 'despesa';
+      var li = el('li');
+      li.appendChild(el('span', 'nm', l.nome));
+      li.appendChild(el('span', 'vl', hoEur(gasto) + ' / ' + hoEur(tem)));
+      var over = !meta && gasto > tem + 0.005;
+      li.appendChild(hoBarra(pct, meta ? null : r.f, over ? 'over' : (!meta && pct > r.f * 100 + 15 ? 'near' : '')));
+      var resta = tem - gasto;
+      li.appendChild(el('span', 'nt' + (over ? ' bad' : ''), meta
+        ? hoEur(gasto) + ' poupados de ' + hoEur(tem)
+        : (over ? hoEur(-resta) + ' acima do orçamento' : 'Restam ' + hoEur(resta) + ' · ' + Math.round(pct) + '% gasto')));
+      li.addEventListener('click', hoAbrir);
+      ful.appendChild(li);
+    });
+    fb.appendChild(ful);
+    card.appendChild(fb);
+  }
 
   hoBloco(card, 'Estourado', 'bad', c.estourado, 'estourado', r);
   hoBloco(card, 'Acima do ritmo', 'warn', c.ritmo, 'ritmo', r);
