@@ -312,6 +312,9 @@ ALTER TABLE fin_partilhas ADD COLUMN IF NOT EXISTS entradas JSONB;
 -- se foi o Farol que a criou (so essa se apaga ao desligar).
 ALTER TABLE fin_cc_mov ADD COLUMN IF NOT EXISTS sw_pagamento_id BIGINT;
 ALTER TABLE fin_cc_mov ADD COLUMN IF NOT EXISTS sw_criado BOOLEAN NOT NULL DEFAULT FALSE;
+-- Orcamentos favoritos (11 nov 2026): os marcados com a estrela aparecem
+-- sempre no cartao do Orcamento do Hoje, estejam como estiverem.
+ALTER TABLE fin_orcamentos ADD COLUMN IF NOT EXISTS favorito BOOLEAN NOT NULL DEFAULT FALSE;
 
 -- Categorias de partida, genericas, uma vez so. Depois disso a lista e do
 -- Marco: o que ele apagar nao volta.
