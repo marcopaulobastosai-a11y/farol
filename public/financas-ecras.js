@@ -1969,6 +1969,41 @@ function fnNovoMovimento(){
 }
 
 /* ======================= ORÇAMENTOS ======================= */
+/* A estrela de cada orcamento (11 nov): os favoritos aparecem sempre no
+   cartao do Orcamento do Hoje. Muda logo no ecra e grava por tras. */
+function fnOrcEstrela(l){
+  var b = h('button', { type: 'button', class: 'fn-estrela' + (l.favorito ? ' on' : ''), 'aria-pressed': l.favorito ? 'true' : 'false',
+    title: l.favorito ? 'Tirar dos favoritos do Hoje' : 'Mostrar sempre no Hoje', 'aria-label': (l.favorito ? 'Tirar ' : 'Pôr ') + l.nome + ' nos favoritos' }, l.favorito ? '\u2605' : '\u2606');
+  b.addEventListener('click', function(e){
+    e.stopPropagation();
+    var novo = !l.favorito;
+    l.favorito = novo;
+    b.textContent = novo ? '\u2605' : '\u2606';
+    b.classList.toggle('on', novo);
+    b.setAttribute('aria-pressed', novo ? 'true' : 'false');
+    b.title = novo ? 'Tirar dos favoritos do Hoje' : 'Mostrar sempre no Hoje';
+    fnApi('/api/financas/orcamentos/' + l.id, 'PATCH', { favorito: novo }).then(function(){
+      /* As outras vistas (pessoal, profissional, outro mes) leem de novo. */
+      Object.keys(FN.cache).forEach(function(k){ if (k.indexOf('orc|') === 0) delete FN.cache[k]; });
+      if (window.HO) HO.lido = 0;
+      toast(novo ? l.nome + ' aparece agora no Hoje.' : l.nome + ' saiu dos favoritos do Hoje.');
+    }, function(e){
+      l.favorito = !novo;
+      b.textContent = l.favorito ? '\u2605' : '\u2606';
+      b.classList.toggle('on', l.favorito);
+      fnErro(e);
+    });
+  });
+  return b;
+}
+(function(){
+  if (document.getElementById('fnEstrelaCss')) return;
+  var st = document.createElement('style'); st.id = 'fnEstrelaCss';
+  st.textContent = '.fn-estrela{border:0;background:none;padding:0 6px 0 0;margin:0;font-size:1rem;line-height:1;cursor:pointer;color:var(--faint);vertical-align:-1px}' +
+    '.fn-estrela:hover{color:var(--warn)}.fn-estrela.on{color:#D99A1E}' +
+    '.fn-estrela:focus-visible{outline:2px solid var(--ink);outline-offset:2px;border-radius:4px}';
+  document.head.appendChild(st);
+})();
 function fn_financas_orcamentos(corpo){
   var seg = h('div', { class: 'fn-seg', role: 'group', 'aria-label': 'Vista' }, [['mes','Mês'],['ano','Ano']].map(function(o){
     return h('button', { type: 'button', class: FN.orcVista === o[0] ? 'on' : '', onclick: function(){ FN.orcVista = o[0]; fnRender('financas'); } }, o[1]);
@@ -2008,7 +2043,7 @@ function fn_financas_orcamentos(corpo){
           var o = ano ? l.ano_orcado : l.mensal, gg = ano ? l.ano_gasto : l.gasto, pct = o ? Math.round(gg / o * 100) : 0;
           var meta = l.natureza !== 'despesa';
           tb.appendChild(h('tr', null, [
-            h('td', null, [h('b', { style: 'font-weight:500' }, l.nome)]),
+            h('td', null, [fnOrcEstrela(l), h('b', { style: 'font-weight:500' }, l.nome)]),
             h('td', null, [h('span', { class: 'fn-pill' + (meta ? ' tr' : '') }, meta ? '→ Património' : l.fixa ? 'fixa' : 'variável')]),
             h('td', { class: 'r' }, fnEur(o)), h('td', { class: 'r ' + (!meta && gg > o + 0.005 ? 'fn-bad' : '') }, fnEur(gg)),
             h('td', { style: 'min-width:120px' }, [fnBarra(pct, meta ? 'tr' : null)]),
