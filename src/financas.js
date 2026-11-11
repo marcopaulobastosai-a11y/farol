@@ -451,7 +451,7 @@ function recorrentes(ms, ymFim) {
 /* ---------------- orcamentos ---------------- */
 async function orcamentos(ym, f, B, msPre) {
   const os = await all(
-    `SELECT o.id, o.categoria_id, o.mensal, o.acumula, to_char(o.desde,'YYYY-MM') AS desde, o.ativo
+    `SELECT o.id, o.categoria_id, o.mensal, o.acumula, to_char(o.desde,'YYYY-MM') AS desde, o.ativo, o.favorito
        FROM fin_orcamentos o WHERE o.ativo`);
   /* 24 ciclos para tras: o mais antigo comeca no dia 25 do mes anterior. Os
      movimentos que o resumo ja leu vao do dia 1, por isso aqui le-se sempre. */
@@ -479,7 +479,7 @@ async function orcamentos(ym, f, B, msPre) {
     const media6 = cent(mesesAte(somaMes(ym, -1), 6).reduce((s, x) => s + g(o.categoria_id, x), 0) / 6);
     return {
       id: o.id, categoria_id: o.categoria_id, grupo: c.grupo, nome: c.nome, natureza: c.natureza, fixa: c.fixa,
-      mensal, acumula: o.acumula, gasto, acumulado: cent(acumulado), disponivel: cent(mensal + acumulado - gasto),
+      mensal, acumula: o.acumula, favorito: Boolean(o.favorito), gasto, acumulado: cent(acumulado), disponivel: cent(mensal + acumulado - gasto),
       pct: mensal ? Math.round(gasto / mensal * 100) : 0,
       ano_gasto: cent(mesesAno.reduce((s, x) => s + g(o.categoria_id, x), 0)), ano_orcado: cent(mensal * mesesAno.length),
       serie, media6
@@ -2449,7 +2449,7 @@ function instalar(app) {
     try {
       const b = req.body || {}; const sets = [], vals = [];
       if (b.mensal !== undefined) { vals.push(cent(String(b.mensal).replace(',', '.'))); sets.push('mensal = $' + vals.length); }
-      ['acumula', 'ativo'].forEach((k) => { if (b[k] !== undefined) { vals.push(Boolean(b[k])); sets.push(k + ' = $' + vals.length); } });
+      ['acumula', 'ativo', 'favorito'].forEach((k) => { if (b[k] !== undefined) { vals.push(Boolean(b[k])); sets.push(k + ' = $' + vals.length); } });
       if (b.desde) { vals.push(b.desde + (b.desde.length === 7 ? '-01' : '')); sets.push('desde = $' + vals.length); }
       if (sets.length) { vals.push(req.params.id); await query('UPDATE fin_orcamentos SET ' + sets.join(', ') + ' WHERE id = $' + vals.length, vals); }
       res.json({ ok: true });
