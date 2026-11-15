@@ -59,6 +59,7 @@ var CP_CSS = [
   '#cpDlg .cp-campos{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px}',
   '#cpDlg .cp-campos label{display:flex;flex-direction:column;gap:3px;font-size:.6875rem;color:var(--muted);font-weight:500}',
   '#cpDlg .cp-campos input,#cpDlg .cp-campos select{font:inherit;font-size:.875rem;color:var(--ink);background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:7px 8px;min-height:36px;box-sizing:border-box;width:100%}',
+  '#cpDlg .cp-campos input.cp-mal{border-color:var(--bad)}',
   '#cpDlg .cp-chips{display:flex;flex-wrap:wrap;gap:6px}',
   '#cpDlg .cp-chips button{font-size:.8125rem;min-height:32px;padding:0 10px;border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--ink-2)}',
   '#cpDlg .cp-chips button[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:#fff}',
@@ -321,6 +322,74 @@ function cpInput(tipo, valor, aoMudar, extra){
   return i;
 }
 
+/* ---- duracao e fim (15 nov 2026) ----
+ * Evento e tarefa com hora levam a duracao e o fim (dia e hora), que andam
+ * juntos: mudar um acerta o outro. Um evento de dia inteiro leva o ultimo
+ * dia; uma tarefa sem hora, so quanto tempo leva. */
+var CP_DURACOES = [['15', '15 min'], ['30', '30 min'], ['45', '45 min'], ['60', '1 h'], ['90', '1 h 30'],
+  ['120', '2 h'], ['150', '2 h 30'], ['180', '3 h'], ['240', '4 h'], ['360', '6 h'], ['480', '8 h']];
+function cpDurTxt(m){
+  var h = Math.floor(m / 60), r = m % 60;
+  return (h ? h + ' h' : '') + (h && r ? ' ' : '') + (r ? r + ' min' : '');
+}
+function cpDataMin(dia, hora){
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dia || '') || !/^\d{2}:\d{2}$/.test(hora || '')) return null;
+  return Date.UTC(+dia.slice(0, 4), +dia.slice(5, 7) - 1, +dia.slice(8, 10), +hora.slice(0, 2), +hora.slice(3, 5)) / 60000;
+}
+function cpDeMin(m){
+  var d = new Date(m * 60000), p = function(n){ return String(n).padStart(2, '0'); };
+  return { dia: d.getUTCFullYear() + '-' + p(d.getUTCMonth() + 1) + '-' + p(d.getUTCDate()), hora: p(d.getUTCHours()) + ':' + p(d.getUTCMinutes()) };
+}
+/* O fim de um cartao com hora: { dia, hora }, ou null. */
+function cpFim(x){
+  var ini = cpDataMin(x.data, x.hora);
+  return ini === null || !x.duracao_min ? null : cpDeMin(ini + Number(x.duracao_min));
+}
+function cpCamposFim(x, cs){
+  if (!x.hora){
+    if (x.tipo === 'evento'){
+      cs.appendChild(cpCampo('Último dia', cpInput('date', x.data_fim || x.data, function(v){ x.data_fim = v && v > (x.data || '') ? v : null; })));
+    } else {
+      var op = [['', '—']].concat(CP_DURACOES);
+      if (x.duracao_min && !CP_DURACOES.some(function(o){ return o[0] === String(x.duracao_min); })) op.push([String(x.duracao_min), cpDurTxt(x.duracao_min)]);
+      cs.appendChild(cpCampo('Duração', cpSelect(op, x.duracao_min || '', null, function(v){ x.duracao_min = v ? Number(v) : null; })));
+    }
+    return null;
+  }
+  var sDur = el('select');
+  var iDia = cpInput('date', '', function(){ acerta(); });
+  var iHora = cpInput('time', '', function(){ acerta(); });
+  sDur.addEventListener('change', function(){ x.duracao_min = Number(sDur.value) || x.duracao_min; mostrar(); });
+  function opcoes(){
+    clear(sDur);
+    var op = CP_DURACOES.slice();
+    if (!op.some(function(o){ return o[0] === String(x.duracao_min); })) op.push([String(x.duracao_min), cpDurTxt(x.duracao_min)]);
+    op.sort(function(a, b){ return Number(a[0]) - Number(b[0]); }).forEach(function(o){
+      var e = el('option', null, o[1]); e.value = o[0];
+      if (o[0] === String(x.duracao_min)) e.selected = true;
+      sDur.appendChild(e);
+    });
+  }
+  /* O fim escrito a mao acerta a duracao, se vier depois do inicio. */
+  function acerta(){
+    var ini = cpDataMin(x.data, x.hora), f = cpDataMin(iDia.value, iHora.value);
+    if (ini === null || f === null) return;
+    if (f > ini && f - ini <= 60 * 24 * 14){ x.duracao_min = f - ini; opcoes(); iDia.classList.remove('cp-mal'); iHora.classList.remove('cp-mal'); }
+    else { iDia.classList.add('cp-mal'); iHora.classList.add('cp-mal'); }
+  }
+  function mostrar(){
+    opcoes();
+    var f = cpFim(x);
+    iDia.value = f ? f.dia : ''; iHora.value = f ? f.hora : '';
+    iDia.classList.remove('cp-mal'); iHora.classList.remove('cp-mal');
+  }
+  cs.appendChild(cpCampo('Duração', sDur));
+  cs.appendChild(cpCampo('Termina (dia)', iDia));
+  cs.appendChild(cpCampo('Termina (hora)', iHora));
+  mostrar();
+  return { mostrar: mostrar };
+}
+
 function cpCartao(x){
   var card = el('div', 'cp-card' + (x.on ? '' : ' off'));
   var ct = el('div', 'cp-ct');
@@ -338,10 +407,19 @@ function cpCartao(x){
   card.appendChild(tit);
 
   var cs = el('div', 'cp-campos');
+  var comFim = x.tipo === 'evento' || x.tipo === 'tarefa';
+  if (comFim && x.hora && !x.duracao_min) x.duracao_min = x.tipo === 'evento' ? 60 : 30;
+  var fim = null;
   if (x.tipo !== 'nota'){
-    cs.appendChild(cpCampo(x.tipo === 'evento' ? 'Dia' : (x.tipo === 'conta_corrente' ? 'Data' : 'Prazo'), cpInput('date', x.data, function(v){ x.data = v || null; })));
-    if (x.tipo === 'evento' || x.tipo === 'tarefa' || x.tipo === 'lembrete') cs.appendChild(cpCampo('Hora', cpInput('time', x.hora, function(v){ x.hora = v || null; })));
+    cs.appendChild(cpCampo(x.tipo === 'evento' ? 'Dia' : (x.tipo === 'conta_corrente' ? 'Data' : 'Prazo'), cpInput('date', x.data, function(v){ x.data = v || null; if (fim) fim.mostrar(); })));
+    if (x.tipo === 'evento' || x.tipo === 'tarefa' || x.tipo === 'lembrete'){
+      var iHora = cpInput('time', x.hora, function(v){ x.hora = v || null; if (fim) fim.mostrar(); });
+      /* Por ou tirar a hora muda os campos do fim: desenha-se outra vez. */
+      iHora.addEventListener('change', function(){ if (comFim && !!x.hora !== !!fim) cpDesenhar(); });
+      cs.appendChild(cpCampo('Hora', iHora));
+    }
   }
+  if (comFim) fim = cpCamposFim(x, cs);
   if (x.tipo === 'pagamento' || x.tipo === 'conta_corrente'){
     cs.appendChild(cpCampo('Valor (€)', cpInput('number', x.valor, function(v){ x.valor = v === '' ? null : Number(v); }, { step: '0.01', min: '0', inputmode: 'decimal' })));
   }
@@ -433,9 +511,12 @@ function cpGravarUm(x){
   if (!titulo) return Promise.reject(new Error('Há um cartão sem título.'));
   if (x.tipo === 'evento'){
     if (!x.data) return Promise.reject(new Error('O evento «' + titulo + '» precisa de um dia.'));
+    var fim = cpFim(x);
     return cpJson('/api/gestao/eventos', {
       title: titulo, day: x.data, at: x.hora || '', context_id: x.context_id || null,
-      person_ids: x.pessoas || [], detail: x.notas || ''
+      person_ids: x.pessoas || [], detail: x.notas || '',
+      duration_min: x.hora ? (x.duracao_min || null) : null,
+      ends_on: x.hora ? (fim && fim.dia > x.data ? fim.dia : null) : (x.data_fim && x.data_fim > x.data ? x.data_fim : null)
     }).then(function(r){ return { k: 'evento', id: r.id }; });
   }
   if (x.tipo === 'conta_corrente'){
@@ -455,7 +536,8 @@ function cpGravarUm(x){
     tipo: x.tipo, title: titulo, due_on: x.data || null, due_time: x.hora || null,
     amount: x.tipo === 'pagamento' ? Number(x.valor) : null, payee: x.tipo === 'pagamento' ? (x.entidade || null) : null,
     context_id: x.context_id || null, owner_id: dono || null, subjects: x.pessoas || [],
-    notes: x.notas || null, repeat_every: x.repete || null
+    notes: x.notas || null, repeat_every: x.repete || null,
+    duration_min: x.tipo === 'tarefa' ? (x.duracao_min || null) : null
   }).then(function(r){ return { k: 'tarefa', id: r.id }; });
 }
 

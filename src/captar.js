@@ -45,6 +45,8 @@ const ESQUEMA = {
           titulo: s('Curto, como se escreveria numa lista. Sem a data nem o valor.'),
           data: s('AAAA-MM-DD, ou vazio.'),
           hora: s('HH:MM, ou vazio.'),
+          duracao_min: { type: 'integer', description: 'Evento e tarefa: quanto dura, em minutos. Se a frase nao disser, a duracao normal para aquilo. 0 num evento de dia inteiro.' },
+          data_fim: s('Evento de varios dias (viagem, ferias): o ultimo dia, AAAA-MM-DD. Senao vazio.'),
           valor: { type: 'number', description: 'Em euros, positivo. 0 se nao houver.' },
           entidade: s('A quem se paga ou onde e (dentista, EDP, escola). Pode ficar vazio.'),
           area: s('Exactamente um nome da lista de areas, ou vazio.'),
@@ -105,6 +107,14 @@ function acharCc(ctx, nome) {
   return c ? c.id : null;
 }
 const dataOk = (d) => (/^\d{4}-\d{2}-\d{2}$/.test(String(d || '')) ? d : null);
+/* A duracao de um evento ou tarefa, em minutos. Com hora e sem duracao, a
+   de omissao da Agenda: 60 num evento, 30 numa tarefa. */
+function duracaoOk(tipo, hora, v) {
+  if (tipo !== 'evento' && tipo !== 'tarefa') return null;
+  const n = Math.round(Number(v));
+  if (Number.isFinite(n) && n > 0 && n <= 60 * 24 * 14) return n;
+  return horaOk(hora) ? (tipo === 'evento' ? 60 : 30) : null;
+}
 const horaOk = (h) => (/^([01]\d|2[0-3]):[0-5]\d$/.test(String(h || '')) ? h : null);
 
 function sistema(ctx, onde) {
@@ -136,6 +146,10 @@ function sistema(ctx, onde) {
     '- area, pessoas, responsavel e conta_corrente so podem usar nomes das listas abaixo. Se nao houver um que',
     '  sirva, deixa vazio - nao inventes.',
     '- Nunca inventes valores, datas ou horas que a frase nao diga.',
+    '- duracao_min: em todo o evento e toda a tarefa com hora. Se a frase disser («1h», «ate as 13h»), usa isso;',
+    '  senao, a duracao normal (consulta medica 60, analises 30, reuniao 60, jantar 120, corte de cabelo 45).',
+    '  Uma tarefa de apoio (boleia, acompanhar) vai da saida de casa ate ao regresso: comeca antes do evento',
+    '  e dura o tempo do caminho de ida, do evento e do caminho de volta.',
     '- pergunta: so quando faltar algo sem o qual o cartao nao serve (ex.: um pagamento sem valor nenhum).',
     '',
     'Areas (Area > Sub-area):',
@@ -205,6 +219,8 @@ async function interpretar(texto, pista) {
         titulo: String(c.titulo).trim().slice(0, 200),
         data: dataOk(c.data),
         hora: horaOk(c.hora),
+        duracao_min: duracaoOk(c.tipo, c.hora, c.duracao_min),
+        data_fim: c.tipo === 'evento' && dataOk(c.data_fim) && dataOk(c.data) && c.data_fim > c.data ? c.data_fim : null,
         valor: Number(c.valor) > 0 ? Math.round(Number(c.valor) * 100) / 100 : null,
         entidade: String(c.entidade || '').trim().slice(0, 120) || null,
         context_id: acharArea(ctx, c.area),
