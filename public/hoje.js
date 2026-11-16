@@ -50,6 +50,13 @@ var HJ_CSS =
   '#attnList .hj-box .tf-box{margin-top:0}' +
   '#attnList .hj-sem{flex:none;width:17px}' +
   '#attnList .when{display:flex;align-items:center;gap:8px}' +
+  '.hj-pv{position:fixed;z-index:1200;width:min(380px,calc(100vw - 24px));background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:12px;box-shadow:0 12px 32px rgba(0,0,0,.18);padding:12px 14px;pointer-events:none;font-size:.8125rem}' +
+  '.hj-pv-tipo{font-family:var(--mono);font-size:.625rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-bottom:4px}' +
+  '.hj-pv-tit{font-size:.9375rem;font-weight:600;line-height:1.35;margin-bottom:8px;white-space:normal}' +
+  '.hj-pv-dl{display:grid;grid-template-columns:auto 1fr;gap:3px 12px;margin:0}' +
+  '.hj-pv-dl dt{color:var(--muted)}' +
+  '.hj-pv-dl dd{margin:0;font-weight:500;font-variant-numeric:tabular-nums}' +
+  '.hj-pv-notas{margin:8px 0 0;padding-top:8px;border-top:1px solid var(--line-soft);color:var(--ink-2);white-space:pre-wrap;line-height:1.45}' +
   '#attnList .hj-data{font-size:.75rem;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}' +
   /* Em execucao / a espera, ao lado do titulo (1 nov 2026). */
   '#attnList .hj-est{display:inline-flex;align-items:center;gap:5px;flex:none;margin:0 6px 0 2px;padding:1px 8px;border-radius:99px;font-family:var(--mono);font-size:.625rem;letter-spacing:.04em;text-transform:uppercase;font-weight:500;vertical-align:2px;white-space:nowrap;background:var(--accent-soft);color:var(--accent-ink)}' +
@@ -236,6 +243,77 @@ function hjDataCurta(iso) {
   return txt;
 }
 
+/* «17:00» ou «17:00–18:00»; numa duracao que passa a meia-noite, o fim leva
+   o dia («23:30–00:30 (dia seg.)»). */
+function hjHoras(t) {
+  if (!t || !/^\d{2}:\d{2}/.test(t.due_time || '')) return '';
+  var ini = Number(t.due_time.slice(0, 2)) * 60 + Number(t.due_time.slice(3, 5));
+  var h = t.due_time.slice(0, 5);
+  if (!t.duration_min) return h;
+  var f = ini + Number(t.duration_min), d = Math.floor(f / 1440);
+  f = f % 1440;
+  return h + '–' + String(Math.floor(f / 60)).padStart(2, '0') + ':' + String(f % 60).padStart(2, '0') +
+    (d === 1 ? ' (dia seg.)' : d > 1 ? ' (+' + d + ' dias)' : '');
+}
+function hjDurTxt(m) {
+  var h = Math.floor(m / 60), r = m % 60;
+  return (h ? h + ' h' : '') + (h && r ? ' ' : '') + (r ? r + ' min' : '');
+}
+
+/* 16 nov: ao passar o rato, um cartao maior com o titulo inteiro, a data e
+   a hora bem visiveis e a descricao. So com rato (no telemovel nao ha
+   «passar por cima»); abre ao fim de um instante, para nao piscar. */
+var HJ_PV = { el: null, tempo: null };
+function hjFecharDetalhe() {
+  clearTimeout(HJ_PV.tempo);
+  if (HJ_PV.el) { HJ_PV.el.remove(); HJ_PV.el = null; }
+}
+function hjDetalheAoPassar(art, a, t, tipo, quando) {
+  if (!window.matchMedia || !window.matchMedia('(hover: hover)').matches) return;
+  art.addEventListener('mouseenter', function () {
+    clearTimeout(HJ_PV.tempo);
+    HJ_PV.tempo = setTimeout(function () { hjMostrarDetalhe(art, a, t, tipo, quando); }, 350);
+  });
+  art.addEventListener('mouseleave', hjFecharDetalhe);
+  art.addEventListener('click', hjFecharDetalhe);
+}
+function hjMostrarDetalhe(art, a, t, tipo, quando) {
+  hjFecharDetalhe();
+  if (!document.body.contains(art)) return;
+  var c = el('div', 'hj-pv');
+  var cab = el('div', 'hj-pv-tipo', (HJ_NOMES[tipo] || '') + (a.detail && a.origem === 'tarefa' ? ' · ' + a.detail : ''));
+  c.appendChild(cab);
+  c.appendChild(el('div', 'hj-pv-tit', (t && t.title) || a.title));
+  var linhas = [];
+  var u = urgencia(diasAte(a.quando), a.origem).texto;
+  linhas.push(['Quando', (hjDataCurta(a.quando) || '') + (hjHoras(t) ? ' · ' + hjHoras(t) : '') + (u ? '  (' + u + ')' : '')]);
+  if (t && t.duration_min) linhas.push(['Duração', hjDurTxt(Number(t.duration_min))]);
+  if (t && t.owner_id != null) {
+    var dono = ((window.G && G.people) || []).filter(function (p) { return p.id === t.owner_id; })[0];
+    if (dono) linhas.push(['Quem faz', dono.name]);
+  }
+  if (t && t.location) linhas.push(['Onde', t.location]);
+  if (t && t.amount) linhas.push(['Valor', Number(t.amount).toLocaleString('pt-PT', { style: 'currency', currency: 'EUR' })]);
+  if (a.origem !== 'tarefa' && a.detail) linhas.push(['', a.detail]);
+  var dl = el('dl', 'hj-pv-dl');
+  linhas.forEach(function (l) {
+    if (!l[1]) return;
+    dl.appendChild(el('dt', null, l[0]));
+    dl.appendChild(el('dd', null, l[1]));
+  });
+  c.appendChild(dl);
+  var notas = t && String(t.notes || '').trim();
+  if (notas) c.appendChild(el('p', 'hj-pv-notas', notas.length > 600 ? notas.slice(0, 600) + '…' : notas));
+  document.body.appendChild(c);
+  var r = art.getBoundingClientRect(), w = c.offsetWidth, h = c.offsetHeight;
+  var x = Math.min(Math.max(12, r.left + 40), window.innerWidth - w - 12);
+  var y = r.bottom + 6;
+  if (y + h > window.innerHeight - 12) y = Math.max(12, r.top - h - 6);
+  c.style.left = x + 'px'; c.style.top = y + 'px';
+  HJ_PV.el = c;
+}
+window.addEventListener('scroll', hjFecharDetalhe, true);
+
 function hjCartao(x) {
   var a = x.a;
   var art = attnCard(x);
@@ -258,8 +336,12 @@ function hjCartao(x) {
   /* 23 out: a data por extenso ao lado do «em 2 dias», para nao ser preciso
      fazer contas («dom, 25 out»). */
   var qd = hjDataCurta(a.quando);
+  /* 16 nov: e a hora, com o fim quando a tarefa tem duracao («17:00–18:00»). */
+  var hr = hjHoras(t);
+  if (hr) qd += ' \u00b7 ' + hr;
   var wh = art.querySelector('.when');
   if (qd && wh) wh.insertBefore(el('span', 'hj-data', qd), wh.firstChild);
+  hjDetalheAoPassar(art, a, t, tipo, qd);
 
   var ico = el('span', 'hj-ico ' + HJ_CLS[tipo]);
   ico.innerHTML = hjSvg(HJ_I[tipo], 14);
