@@ -57,6 +57,10 @@ var HJ_CSS =
   '.hj-pv-dl dt{color:var(--muted)}' +
   '.hj-pv-dl dd{margin:0;font-weight:500;font-variant-numeric:tabular-nums}' +
   '.hj-pv-notas{margin:8px 0 0;padding-top:8px;border-top:1px solid var(--line-soft);color:var(--ink-2);white-space:pre-wrap;line-height:1.45}' +
+  '#attnList .hj-q{font-size:.8125rem;color:var(--ink-2);font-variant-numeric:tabular-nums;white-space:nowrap;min-width:64px;text-align:right}' +
+  '#attnList .hj-q.bad{color:var(--bad);font-weight:500}' +
+  '#attnList .hj-q.hoje{color:var(--accent-ink);font-weight:600}' +
+  '#attnList .hj-q.longe{color:var(--muted)}' +
   '#attnList .hj-data{font-size:.75rem;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}' +
   /* Em execucao / a espera, ao lado do titulo (1 nov 2026). */
   '#attnList .hj-est{display:inline-flex;align-items:center;gap:5px;flex:none;margin:0 6px 0 2px;padding:1px 8px;border-radius:99px;font-family:var(--mono);font-size:.625rem;letter-spacing:.04em;text-transform:uppercase;font-weight:500;vertical-align:2px;white-space:nowrap;background:var(--accent-soft);color:var(--accent-ink)}' +
@@ -260,6 +264,27 @@ function hjDurTxt(m) {
   return (h ? h + ' h' : '') + (h && r ? ' ' : '') + (r ? r + ' min' : '');
 }
 
+/* A etiqueta da direita, conforme o grupo:
+     Em atraso    «Ontem» / «Há 8 dias»                (vermelho)
+     Hoje         «17:00–18:00», ou «Hoje» sem hora    (cor de destaque)
+     Amanhã       «09:00–09:25», ou «Amanhã»
+     Esta semana  «Qua 17:00», ou «Qua»
+     Próx. semana «Em 9 dias» (com a hora, se tiver)
+     Mais tarde   «4 dez» / «4 dez 2027» */
+var HJ_DSL = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+function hjQuando(a, t, n) {
+  if (n === null || n === undefined) return { txt: 'Sem data', cls: '' };
+  var hi = t && /^\d{2}:\d{2}/.test(t.due_time || '') ? t.due_time.slice(0, 5) : '';
+  var d = parseDay(a.quando);
+  var k = hjPeriodos()(a.quando).k;
+  if (n < 0) return { txt: n === -1 ? 'Ontem' : 'Há ' + (-n) + ' dias', cls: 'bad' };
+  if (k === 'hoje') return { txt: hjHoras(t) || 'Hoje', cls: 'hoje' };
+  if (k === 'amanha') return { txt: hjHoras(t) || 'Amanhã', cls: '' };
+  if (k === 'semana') return { txt: HJ_DSL[d.getDay()] + (hi ? ' ' + hi : ''), cls: '' };
+  if (k === 'proxima') return { txt: 'Em ' + n + ' dias' + (hi ? ' · ' + hi : ''), cls: '' };
+  return { txt: d.getDate() + ' ' + HJ_MS[d.getMonth()] + (d.getFullYear() !== new Date().getFullYear() ? ' ' + d.getFullYear() : ''), cls: 'longe' };
+}
+
 /* 16 nov: ao passar o rato, um cartao maior com o titulo inteiro, a data e
    a hora bem visiveis e a descricao. So com rato (no telemovel nao ha
    «passar por cima»); abre ao fim de um instante, para nao piscar. */
@@ -268,16 +293,16 @@ function hjFecharDetalhe() {
   clearTimeout(HJ_PV.tempo);
   if (HJ_PV.el) { HJ_PV.el.remove(); HJ_PV.el = null; }
 }
-function hjDetalheAoPassar(art, a, t, tipo, quando) {
+function hjDetalheAoPassar(art, a, t, tipo) {
   if (!window.matchMedia || !window.matchMedia('(hover: hover)').matches) return;
   art.addEventListener('mouseenter', function () {
     clearTimeout(HJ_PV.tempo);
-    HJ_PV.tempo = setTimeout(function () { hjMostrarDetalhe(art, a, t, tipo, quando); }, 350);
+    HJ_PV.tempo = setTimeout(function () { hjMostrarDetalhe(art, a, t, tipo); }, 350);
   });
   art.addEventListener('mouseleave', hjFecharDetalhe);
   art.addEventListener('click', hjFecharDetalhe);
 }
-function hjMostrarDetalhe(art, a, t, tipo, quando) {
+function hjMostrarDetalhe(art, a, t, tipo) {
   hjFecharDetalhe();
   if (!document.body.contains(art)) return;
   var c = el('div', 'hj-pv');
@@ -335,13 +360,18 @@ function hjCartao(x) {
 
   /* 23 out: a data por extenso ao lado do «em 2 dias», para nao ser preciso
      fazer contas («dom, 25 out»). */
-  var qd = hjDataCurta(a.quando);
-  /* 16 nov: e a hora, com o fim quando a tarefa tem duracao («17:00–18:00»). */
-  var hr = hjHoras(t);
-  if (hr) qd += ' \u00b7 ' + hr;
+  /* 16 nov (a maneira do TickTick / To Do): uma etiqueta so a direita, que
+     diz o que o grupo ainda nao disse. A data completa fica no cartao que
+     abre ao passar o rato e no title. */
+  var q = hjQuando(a, t, x.dias);
   var wh = art.querySelector('.when');
-  if (qd && wh) wh.insertBefore(el('span', 'hj-data', qd), wh.firstChild);
-  hjDetalheAoPassar(art, a, t, tipo, qd);
+  if (wh){
+    clear(wh);
+    var sp = el('span', 'hj-q' + (q.cls ? ' ' + q.cls : ''), q.txt);
+    sp.title = hjDataCurta(a.quando) + (hjHoras(t) ? ' \u00b7 ' + hjHoras(t) : '');
+    wh.appendChild(sp);
+  }
+  hjDetalheAoPassar(art, a, t, tipo);
 
   var ico = el('span', 'hj-ico ' + HJ_CLS[tipo]);
   ico.innerHTML = hjSvg(HJ_I[tipo], 14);
