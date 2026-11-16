@@ -1531,11 +1531,13 @@ function tfRenderDetalhe(base){
   }
   campo('Local', wLoc);
 
-  if (t.duration_min || t.due_time){
+  if (tfTipo(t) !== 'nota' && tfTipo(t) !== 'lembrete'){
     var sDu = el('select');
-    (typeof EVJ_DURACOES !== 'undefined' ? EVJ_DURACOES : [['', '—']])
-      .filter(function(o){ return o[0] !== 'outra'; })
-      .forEach(function(o){ sDu.appendChild(new Option(o[1], o[0])); });
+    var opsDu = (typeof EVJ_DURACOES !== 'undefined' ? EVJ_DURACOES : [['', '—']]).filter(function(o){ return o[0] !== 'outra'; });
+    if (t.duration_min && !opsDu.some(function(o){ return o[0] === String(t.duration_min); }))
+      opsDu = opsDu.concat([[String(t.duration_min), typeof evjDurTxt === 'function' ? evjDurTxt(t.duration_min) : t.duration_min + ' min']])
+        .sort(function(a, b){ return Number(a[0] || 0) - Number(b[0] || 0); });
+    opsDu.forEach(function(o){ sDu.appendChild(new Option(o[1], o[0])); });
     sDu.value = t.duration_min ? String(t.duration_min) : '';
     sDu.addEventListener('change', function(){ tfGravar(t.id, { duration_min: sDu.value ? Number(sDu.value) : null }); });
     campo('Duração', sDu);
@@ -1783,6 +1785,7 @@ function tfPopData(t, ancora){
     var b = el('button', null, o[0]); b.type = 'button';
     b.addEventListener('click', function(){
       if (o[1] === null){ iD.value = ''; iH.value = ''; } else iD.value = tfISO(tfMais(tfHoje(), o[1]));
+      iD.dispatchEvent(new Event('change'));
     });
     rap.appendChild(b);
   });
@@ -1794,6 +1797,58 @@ function tfPopData(t, ancora){
   var iH = el('input'); iH.type = 'time'; iH.value = st.due_time; iH.style.maxWidth = '110px';
   l1.appendChild(iD); l1.appendChild(iH);
   p.appendChild(l1);
+
+  /* Duracao e fim (16 nov 2026): andam juntos - mudar um acerta o outro.
+     O fim so faz sentido com hora; sem hora fica so quanto tempo leva. */
+  var semDur = tfTipo(t) === 'nota' || tfTipo(t) === 'lembrete';
+  var durMin = t.duration_min || null;
+  var sDur, iFD, iFH, lFim;
+  if (!semDur){
+    p.appendChild(el('label', null, 'Duração'));
+    sDur = el('select');
+    p.appendChild(sDur);
+    lFim = el('div');
+    lFim.appendChild(el('label', null, 'Termina'));
+    var l2 = el('div', 'tf-linha');
+    iFD = el('input'); iFD.type = 'date';
+    iFH = el('input'); iFH.type = 'time'; iFH.style.maxWidth = '110px';
+    l2.appendChild(iFD); l2.appendChild(iFH);
+    lFim.appendChild(l2);
+    p.appendChild(lFim);
+    var minDe = function(d, h){
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(d || '') || !/^\d{2}:\d{2}$/.test(h || '')) return null;
+      return Date.UTC(+d.slice(0, 4), +d.slice(5, 7) - 1, +d.slice(8, 10), +h.slice(0, 2), +h.slice(3, 5)) / 60000;
+    };
+    var durOps = function(){
+      clear(sDur);
+      var ops = (typeof EVJ_DURACOES !== 'undefined' ? EVJ_DURACOES : [['', '—']]).filter(function(o){ return o[0] !== 'outra'; });
+      if (durMin && !ops.some(function(o){ return o[0] === String(durMin); }))
+        ops = ops.concat([[String(durMin), typeof evjDurTxt === 'function' ? evjDurTxt(durMin) : durMin + ' min']])
+          .sort(function(a, b){ return Number(a[0] || 0) - Number(b[0] || 0); });
+      ops.forEach(function(o){ sDur.appendChild(new Option(o[1], o[0])); });
+      sDur.value = durMin ? String(durMin) : '';
+    };
+    var mostrarFim = function(){
+      durOps();
+      var ini = minDe(iD.value, iH.value);
+      lFim.style.display = ini === null ? 'none' : '';
+      iFD.style.borderColor = iFH.style.borderColor = '';
+      if (ini === null) return;
+      if (!durMin){ iFD.value = iD.value; iFH.value = ''; return; }
+      var f = new Date((ini + durMin) * 60000);
+      iFD.value = f.toISOString().slice(0, 10); iFH.value = f.toISOString().slice(11, 16);
+    };
+    var acertaDur = function(){
+      var ini = minDe(iD.value, iH.value), fim = minDe(iFD.value, iFH.value);
+      if (ini === null || fim === null) return;
+      if (fim > ini && fim - ini <= 60 * 24 * 14){ durMin = fim - ini; durOps(); iFD.style.borderColor = iFH.style.borderColor = ''; }
+      else iFD.style.borderColor = iFH.style.borderColor = 'var(--bad)';
+    };
+    sDur.addEventListener('change', function(){ durMin = sDur.value ? Number(sDur.value) : null; mostrarFim(); });
+    iFD.addEventListener('change', acertaDur); iFH.addEventListener('change', acertaDur);
+    iD.addEventListener('change', mostrarFim); iH.addEventListener('change', mostrarFim);
+    mostrarFim();
+  }
 
   p.appendChild(el('label', null, 'Começa (opcional)'));
   var iI = el('input'); iI.type = 'date'; iI.value = st.starts_on;
@@ -1900,7 +1955,8 @@ function tfPopData(t, ancora){
     tfGravar(t.id, {
       due_on: iD.value || null, due_time: iD.value ? (iH.value || null) : null, starts_on: iI.value || null,
       repeat_rule: regra, repeat_from: sFrom ? sFrom.value : 'prazo', repeat_until: regra && iAte ? (iAte.value || null) : null,
-      reminders: iD.value ? st.reminders.map(function(m){ return { min: m }; }) : []
+      reminders: iD.value ? st.reminders.map(function(m){ return { min: m }; }) : [],
+      duration_min: semDur ? (t.duration_min || null) : durMin
     });
   });
   ac.appendChild(bC); ac.appendChild(bOk);
