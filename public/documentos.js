@@ -679,6 +679,199 @@ function dcCabecaArea(caixa){
   }
 }
 
+/* -------------------- o dossie da contabilidade (18 nov 2026) --------------------
+   Os papeis da empresa entram sozinhos «por imprimir»; daqui passam a
+   impressos e a entregues. Escolhem-se varios e imprimem-se num so PDF. */
+var DC_CT = { f: 'imprimir', sel: {} };
+var DC_CT_EST = [
+  ['imprimir', 'Por imprimir'],
+  ['impresso', 'Impressos, por entregar'],
+  ['entregue', 'Entregues'],
+  ['fora', 'Fora do dossiê']
+];
+var DC_CT_CSS = [
+  '.dc-ct{display:flex;flex-direction:column;gap:12px}',
+  '.dc-ct-f{display:flex;flex-wrap:wrap;gap:8px}',
+  '.dc-ct-f button{display:flex;align-items:baseline;gap:8px;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:8px 12px;font:inherit;font-size:.8rem;color:var(--ink);cursor:pointer}',
+  '.dc-ct-f button b{font-family:var(--mono);font-size:1rem;font-weight:500}',
+  '.dc-ct-f button.on{border-color:var(--ink);box-shadow:inset 0 0 0 1px var(--ink)}',
+  '.dc-ct-bar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;font-size:.8rem;color:var(--muted)}',
+  '.dc-ct-bar .esp{flex:1}',
+  '.dc-ct table{width:100%;border-collapse:collapse;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;font-size:.82rem}',
+  '.dc-ct th{font-family:var(--mono);font-size:.625rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:500;text-align:left;padding:8px 10px;border-bottom:1px solid var(--line)}',
+  '.dc-ct td{padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:middle}',
+  '.dc-ct tr:last-child td{border-bottom:0}',
+  '.dc-ct tr.sel td{background:color-mix(in srgb, var(--ink) 6%, transparent)}',
+  '.dc-ct td.dt{font-family:var(--mono);font-size:.75rem;white-space:nowrap;color:var(--muted)}',
+  '.dc-ct td.nm a{color:var(--ink);text-decoration:none}',
+  '.dc-ct td.nm a:hover{text-decoration:underline}',
+  '.dc-ct td.nm small{display:block;color:var(--muted);font-size:.72rem}',
+  '.dc-ct td.ac{white-space:nowrap;text-align:right}',
+  '.dc-ct td.ac button{margin-left:4px}',
+  '.dc-ct-est{display:inline-block;padding:2px 8px;border-radius:999px;font-size:.7rem;font-weight:600;white-space:nowrap}',
+  '.dc-ct-est.imprimir{background:color-mix(in srgb, var(--warn, #c77700) 16%, transparent);color:var(--warn, #c77700)}',
+  '.dc-ct-est.impresso{background:color-mix(in srgb, #2a6fdb 16%, transparent);color:#2a6fdb}',
+  '.dc-ct-est.entregue{background:color-mix(in srgb, var(--ok, #2e8b57) 16%, transparent);color:var(--ok, #2e8b57)}',
+  '.dc-ct h4{margin:6px 0 0;font-size:.78rem;font-weight:600;color:var(--muted)}',
+  '@media (max-width:720px){.dc-ct td.tp,.dc-ct th.tp,.dc-ct td.en,.dc-ct th.en{display:none}}'
+].join('');
+
+function dcCtEstilo(){
+  if (document.getElementById('dcCtCss')) return;
+  var st = document.createElement('style'); st.id = 'dcCtCss'; st.textContent = DC_CT_CSS;
+  document.head.appendChild(st);
+}
+/* As areas do dossie sao as que ja tem papeis nele. */
+function dcCtAreas(base){
+  var a = {};
+  (D.documents || []).forEach(function(d){ if (d.contab_estado && d.context_id) a[d.context_id] = true; });
+  return a;
+}
+function dcCtTem(){ return (D.documents || []).some(function(d){ return !!d.contab_estado; }); }
+function dcCtDe(base, f){
+  if (f === 'fora') { var ar = dcCtAreas(base); return base.filter(function(d){ return !d.contab_estado && ar[d.context_id]; }); }
+  return base.filter(function(d){ return d.contab_estado === f; });
+}
+function dcCtMudar(lista, estado, msg){
+  return apiGestao('/api/documentos-contabilidade', {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids: lista, estado: estado })
+  }).then(function(j){
+    lista.forEach(function(id){
+      var d = (D.documents || []).filter(function(x){ return x.id === id; })[0];
+      if (!d) return;
+      d.contab_estado = estado;
+      d.contab_impresso_em = (estado === 'impresso' || estado === 'entregue') ? (d.contab_impresso_em || j.data) : null;
+      d.contab_entregue_em = estado === 'entregue' ? (d.contab_entregue_em || j.data) : null;
+    });
+    DC_CT.sel = {};
+    if (msg) toast(msg);
+    dcRender();
+  }).catch(function(e){ toast(e.message || 'Não foi possível mudar o estado.'); });
+}
+function dcCtImprimir(lista){
+  window.open('/api/documentos-contabilidade/imprimir?ids=' + lista.join(','), '_blank', 'noopener');
+}
+
+function dcCt(base){
+  dcCtEstilo();
+  var w = el('div', 'dc-ct');
+  var q = dcNorm(DC.q);
+  if (q) base = base.filter(function(d){ return (typeof docsTextoDe === 'function' ? docsTextoDe(d) : dcNorm(d.name)).indexOf(q) >= 0; });
+
+  var fs = el('div', 'dc-ct-f');
+  DC_CT_EST.forEach(function(e){
+    var n = dcCtDe(base, e[0]).length;
+    if (e[0] === 'fora' && !n && DC_CT.f !== 'fora') return;
+    var b = el('button', DC_CT.f === e[0] ? 'on' : ''); b.type = 'button';
+    b.appendChild(el('b', null, String(n)));
+    b.appendChild(el('span', null, e[1]));
+    b.addEventListener('click', function(){ DC_CT.f = e[0]; DC_CT.sel = {}; dcRender(); });
+    fs.appendChild(b);
+  });
+  w.appendChild(fs);
+
+  var lista = dcCtDe(base, DC_CT.f).sort(function(a, b){
+    if (DC_CT.f === 'entregue') {
+      var x = a.contab_entregue_em || '', y = b.contab_entregue_em || '';
+      if (x !== y) return x < y ? 1 : -1;
+    }
+    var p = dcData(a), r = dcData(b);
+    if (p !== r) return p < r ? -1 : 1;
+    return String(a.name).localeCompare(String(b.name), 'pt');
+  });
+  Object.keys(DC_CT.sel).forEach(function(k){ if (!lista.some(function(d){ return String(d.id) === k; })) delete DC_CT.sel[k]; });
+  var esc = lista.filter(function(d){ return DC_CT.sel[d.id]; }).map(function(d){ return d.id; });
+  var alvo = esc.length ? esc : lista.map(function(d){ return d.id; });
+  var quantos = esc.length ? esc.length + ' escolhido' + (esc.length > 1 ? 's' : '') : 'todos (' + lista.length + ')';
+
+  var bar = el('div', 'dc-ct-bar');
+  bar.appendChild(el('span', null, lista.length ? (esc.length ? quantos : 'Sem escolha: os botões valem para ' + quantos) : ''));
+  bar.appendChild(el('span', 'esp'));
+  function botao(t, cls, fn){ var b = el('button', 'btn small' + (cls ? ' ' + cls : ''), t); b.type = 'button'; b.addEventListener('click', fn); bar.appendChild(b); }
+  if (lista.length && DC_CT.f !== 'fora') {
+    botao('Abrir num PDF para imprimir', '', function(){ dcCtImprimir(alvo); });
+  }
+  if (lista.length && DC_CT.f === 'imprimir') {
+    botao('Marcar impressos', 'primary', function(){ dcCtMudar(alvo, 'impresso', alvo.length + ' marcado' + (alvo.length > 1 ? 's' : '') + ' como impresso' + (alvo.length > 1 ? 's' : '') + '.'); });
+  }
+  if (lista.length && DC_CT.f === 'impresso') {
+    botao('Voltar a por imprimir', '', function(){ dcCtMudar(alvo, 'imprimir'); });
+    botao('Entregues à contabilidade', 'primary', function(){
+      if (!window.confirm('Dar ' + (alvo.length === 1 ? 'este papel' : 'estes ' + alvo.length + ' papéis') + ' como entregues à contabilidade hoje?')) return;
+      dcCtMudar(alvo, 'entregue', 'Entregues à contabilidade.');
+    });
+  }
+  if (lista.length && DC_CT.f === 'entregue' && esc.length) {
+    botao('Desfazer a entrega', '', function(){ dcCtMudar(esc, 'impresso'); });
+  }
+  if (lista.length && DC_CT.f === 'fora' && esc.length) {
+    botao('Pôr no dossiê', 'primary', function(){ dcCtMudar(esc, 'imprimir', 'Ficaram por imprimir.'); });
+  }
+  w.appendChild(bar);
+
+  if (!lista.length) {
+    w.appendChild(el('div', 'dc-vazio', DC_CT.f === 'imprimir' ? 'Nada por imprimir. Cada papel novo da empresa aparece aqui sozinho.' : 'Nada aqui.'));
+    return w;
+  }
+
+  function tabela(linhas){
+    var t = el('table');
+    var th = el('tr');
+    var cTodos = el('input'); cTodos.type = 'checkbox'; cTodos.setAttribute('aria-label', 'Escolher todos');
+    cTodos.checked = linhas.every(function(d){ return DC_CT.sel[d.id]; });
+    cTodos.addEventListener('change', function(){ linhas.forEach(function(d){ if (cTodos.checked) DC_CT.sel[d.id] = true; else delete DC_CT.sel[d.id]; }); dcRender(); });
+    var c0 = el('th'); c0.appendChild(cTodos); th.appendChild(c0);
+    [['Data', ''], ['Documento', ''], ['Tipo', 'tp'], ['Entidade', 'en'], ['Estado', ''], ['', '']].forEach(function(h){ th.appendChild(el('th', h[1] || null, h[0])); });
+    t.appendChild(th);
+    linhas.forEach(function(d){
+      var tr = el('tr', DC_CT.sel[d.id] ? 'sel' : '');
+      var cb = el('input'); cb.type = 'checkbox'; cb.checked = !!DC_CT.sel[d.id];
+      cb.setAttribute('aria-label', 'Escolher ' + (d.name || ''));
+      cb.addEventListener('change', function(){ if (cb.checked) DC_CT.sel[d.id] = true; else delete DC_CT.sel[d.id]; dcRender(); });
+      var td0 = el('td'); td0.appendChild(cb); tr.appendChild(td0);
+      tr.appendChild(el('td', 'dt', dcData(d) ? dcCurta(dcData(d)) : '—'));
+      var nm = el('td', 'nm');
+      var f = dcFicheiros(d);
+      var nn = dcNome(d);
+      if (f.length) { var a = el('a', null, nn.nome); a.href = dcUrl(f[0]); a.target = '_blank'; a.rel = 'noopener'; a.title = d.name || ''; nm.appendChild(a); }
+      else nm.appendChild(el('span', null, nn.nome));
+      var sub = [nn.ref, f.length ? '' : 'sem ficheiro'].filter(Boolean).join(' · ');
+      if (sub) nm.appendChild(el('small', null, sub));
+      tr.appendChild(nm);
+      tr.appendChild(el('td', 'tp', d.kind || dcCat(d).n));
+      tr.appendChild(el('td', 'en', d.entity || ''));
+      var est = d.contab_estado;
+      var ec = el('td');
+      if (est) {
+        var txt = est === 'imprimir' ? 'por imprimir' : est === 'impresso' ? 'impresso ' + dcCurta(d.contab_impresso_em) : 'entregue ' + dcCurta(d.contab_entregue_em);
+        ec.appendChild(el('span', 'dc-ct-est ' + est, txt));
+      } else ec.appendChild(el('span', 'dc-ct-est', 'fora'));
+      tr.appendChild(ec);
+      var ac = el('td', 'ac');
+      function mini(t2, fn, tit){ var b = el('button', 'btn small', t2); b.type = 'button'; if (tit) b.title = tit; b.addEventListener('click', fn); ac.appendChild(b); }
+      if (est === 'imprimir') mini('Impresso', function(){ dcCtMudar([d.id], 'impresso'); });
+      if (est === 'impresso') mini('Entregue', function(){ dcCtMudar([d.id], 'entregue'); });
+      if (est) mini('Tirar', function(){ dcCtMudar([d.id], null, 'Saiu do dossiê. Está em «Fora do dossiê».'); }, 'Não vai para a contabilidade');
+      else mini('Pôr no dossiê', function(){ dcCtMudar([d.id], 'imprimir'); });
+      tr.appendChild(ac);
+      t.appendChild(tr);
+    });
+    return t;
+  }
+
+  if (DC_CT.f === 'entregue') {
+    var grupos = {};
+    var ordem = [];
+    lista.forEach(function(d){ var k = d.contab_entregue_em || ''; if (!grupos[k]) { grupos[k] = []; ordem.push(k); } grupos[k].push(d); });
+    ordem.forEach(function(k){
+      w.appendChild(el('h4', null, (k ? 'Entregues a ' + dcCurta(k) : 'Entregues') + ' · ' + grupos[k].length));
+      w.appendChild(tabela(grupos[k]));
+    });
+  } else w.appendChild(tabela(lista));
+  return w;
+}
+
 function dcCaixa(){
   var sec = document.getElementById('view-documentos');
   var m = document.getElementById('aeDocsMiolo') || sec;
@@ -735,7 +928,9 @@ function dcRender(){
   tool.appendChild(sr);
   var seg = el('div', 'dc-seg'); seg.setAttribute('role', 'tablist');
   var efetiva = DC.vista === 'pastas' && (DC.cat || DC.att || DC.q) ? 'lista' : DC.vista;
-  [['pastas', 'Pastas'], ['lista', 'Lista'], ['tempo', 'Por data']].forEach(function(v){
+  var vistas = [['pastas', 'Pastas'], ['lista', 'Lista'], ['tempo', 'Por data']];
+  if (dcCtTem() || DC.vista === 'contab') vistas.push(['contab', 'Contabilidade']);
+  vistas.forEach(function(v){
     var b = el('button', efetiva === v[0] ? 'on' : '', v[1]); b.type = 'button';
     b.addEventListener('click', function(){ DC.vista = v[0]; if (v[0] === 'pastas') { DC.cat = null; DC.att = null; } dcGuardar(); dcRender(); });
     seg.appendChild(b);
@@ -747,7 +942,7 @@ function dcRender(){
     tool.appendChild(lp);
   }
   main.appendChild(tool);
-  main.appendChild(dcConteudo(lista, PT, dcRender));
+  main.appendChild(DC.vista === 'contab' ? dcCt(base) : dcConteudo(lista, PT, dcRender));
   arq.appendChild(main);
   if (DC.sel) {
     var d = base.filter(function(x){ return x.id === DC.sel; })[0];

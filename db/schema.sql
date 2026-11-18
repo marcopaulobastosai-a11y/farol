@@ -1238,3 +1238,43 @@ ALTER TABLE events ADD COLUMN IF NOT EXISTS nao_util BOOLEAN NOT NULL DEFAULT FA
 -- sub-area do Profissional, para ter a mao sem abrir papeis. Uma lista de
 -- seccoes, cada uma com linhas etiqueta/valor. Escreve-se no proprio ecra.
 ALTER TABLE contexts ADD COLUMN IF NOT EXISTS dados JSONB;
+
+-- O dossie da contabilidade (18 nov 2026): cada papel que entra numa area
+-- marcada para a contabilidade (a empresa) fica «por imprimir»; depois passa a
+-- «impresso» e a «entregue», com a data de cada passo. NULL quer dizer fora do
+-- dossie. Substitui a tarefa de entrega feita a mao, passo a passo.
+ALTER TABLE contexts  ADD COLUMN IF NOT EXISTS contabilidade      BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS contab_estado      TEXT;
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS contab_impresso_em DATE;
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS contab_entregue_em DATE;
+
+-- A empresa (a sub-area 9 do Profissional) fica marcada uma vez; desmarcar
+-- depois na base de dados nao volta a ser desfeito.
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM settings WHERE key = 'contabilidade_marcada') THEN
+    UPDATE contexts SET contabilidade = TRUE WHERE id = 9;
+    INSERT INTO settings (key, value) VALUES ('contabilidade_marcada', now()::text)
+    ON CONFLICT (key) DO NOTHING;
+  END IF;
+END $$;
+
+-- Quem poe o papel no dossie e a base de dados: ao nascer ou ao mudar de area.
+-- Se sair da area ainda por imprimir, sai tambem do dossie.
+CREATE OR REPLACE FUNCTION documento_para_contabilidade() RETURNS trigger AS $$
+BEGIN
+  IF TG_OP = 'UPDATE' AND OLD.context_id IS NOT DISTINCT FROM NEW.context_id THEN
+    RETURN NEW;
+  END IF;
+  IF NEW.context_id IS NOT NULL
+     AND EXISTS (SELECT 1 FROM contexts WHERE id = NEW.context_id AND contabilidade) THEN
+    IF NEW.contab_estado IS NULL THEN NEW.contab_estado := 'imprimir'; END IF;
+  ELSIF TG_OP = 'UPDATE' AND NEW.contab_estado = 'imprimir' THEN
+    NEW.contab_estado := NULL;
+  END IF;
+  RETURN NEW;
+END $$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS documento_para_contabilidade ON documents;
+CREATE TRIGGER documento_para_contabilidade
+  BEFORE INSERT OR UPDATE OF context_id ON documents
+  FOR EACH ROW EXECUTE FUNCTION documento_para_contabilidade();

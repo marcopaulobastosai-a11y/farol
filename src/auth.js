@@ -17,6 +17,7 @@ const crypto = require('crypto');
 const acessos = require('./acessos');
 const pessoas = require('./pessoas');
 const catalogo = require('./catalogo');
+const contabilidade = require('./contabilidade');
 const contextos = require('./contextos');
 
 const CLIENT_ID = (process.env.GOOGLE_CLIENT_ID || '').trim();
@@ -191,6 +192,9 @@ function instalar(app) {
   // Desfazer uma catalogação e ver as despesas. Mesmo sítio, pela mesma
   // razão: já passou a barreira.
   catalogo.instalar(app);
+
+  // O dossie da contabilidade: por imprimir, impresso, entregue.
+  contabilidade.instalar(app);
 
   // As áreas e sub-áreas onde tudo se arruma.
   contextos.instalar(app);

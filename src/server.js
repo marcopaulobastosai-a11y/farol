@@ -250,6 +250,9 @@ app.get('/api/bootstrap', async (_req, res) => {
                   to_char(d.valid_on,  'YYYY-MM-DD') AS valid_on,
                   d.valid_until, (d.read_at IS NOT NULL) AS lido,
                   to_char(d.archived_at AT TIME ZONE 'Europe/Lisbon', 'YYYY-MM-DD') AS arquivado_em,
+                  d.contab_estado,
+                  to_char(d.contab_impresso_em, 'YYYY-MM-DD') AS contab_impresso_em,
+                  to_char(d.contab_entregue_em, 'YYYY-MM-DD') AS contab_entregue_em,
                   (SELECT l.inbox_id FROM inbox_links l
                     WHERE l.target_type = 'documento' AND l.target_id = d.id
                     ORDER BY l.inbox_id DESC LIMIT 1) AS inbox_id,
