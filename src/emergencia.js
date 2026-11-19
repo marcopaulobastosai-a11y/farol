@@ -175,7 +175,10 @@ async function estado() {
     if (!it.opcional) { obrig += 1; if (it.tenho >= m) completos += 1; if (it.tenho <= 0) emFalta += 1; }
     if (aCaducar) caducar += 1;
     if (caducou) caducados += 1;
-    if (/^Água potável/.test(it.nome)) { aguaTem = it.tenho * 1.5; aguaMeta = m * 1.5; }
+    if (/^Água potável/.test(it.nome)) {
+      const f = /^l$|litro/i.test(String(it.unidade || '').trim()) ? 1 : 1.5;
+      aguaTem = it.tenho * f; aguaMeta = m * f;
+    }
     const falta = Math.max(0, m - it.tenho);
     const repor = (lotesPor[it.id] || []).filter((l) => l.validade && l.qtd > 0 && l.validade <= limite)
       .reduce((a, l) => a + l.qtd, 0);
