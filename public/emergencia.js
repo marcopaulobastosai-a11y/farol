@@ -104,6 +104,13 @@ var EM_CSS = [
   '.em-dlg .dois{display:grid;grid-template-columns:1fr 1fr;gap:10px}',
   '.em-dlg .acoes{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-top:4px}',
   '.em-dlg .acoes .apagar{margin-right:auto;color:#9B1C1C}',
+  '.em-lotes{display:flex;flex-direction:column;gap:6px}',
+  '.em-lotes > b{font-size:.75rem;color:var(--muted);font-weight:600}',
+  '.em-lote{display:grid;grid-template-columns:minmax(0,1fr) 72px 138px 36px;gap:6px;align-items:center}',
+  '.em-lote input{min-height:36px !important;padding:6px 8px !important;font-size:.85rem !important}',
+  '.em-lote button{font:inherit;width:36px;height:36px;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--muted);cursor:pointer}',
+  '.em-lotes .mais{align-self:flex-start}',
+  '@media (max-width:560px){.em-lote{grid-template-columns:minmax(0,1fr) 64px 36px}.em-lote input[type=date]{grid-column:1 / 3}}',
   '.em-banner{display:flex;align-items:center;gap:14px;justify-content:space-between;background:var(--surface);border:1px solid #F1C9A6;border-radius:12px;padding:12px 16px;margin:0 0 14px}',
   '.em-banner b{display:block;font-size:.9rem}',
   '.em-banner span{font-size:.82rem;color:var(--muted)}',
@@ -329,6 +336,8 @@ function emLinha(it){
   var n = el('div', 'em-nome');
   n.appendChild(el('b', null, it.nome));
   if (it.nota) n.appendChild(el('small', null, it.nota));
+  if (it.lotes && it.lotes.length > 1) n.appendChild(el('small', null, it.lotes.length + ' lotes — ⋯ para ver as validades de cada'));
+  else if (it.lotes && it.lotes.length === 1 && it.lotes[0].descricao) n.appendChild(el('small', null, it.lotes[0].descricao));
   l.appendChild(n);
   var q = el('div', 'em-q');
   var linha = el('div');
@@ -397,8 +406,29 @@ function emEditar(it){
   it = it || { categoria: EM.cat !== 'todas' ? EM.cat : 'conf', onde: 'despensa', quantidade: 1, tenho: 0 };
   var fNome = emCampo('Artigo', 'text', it.nome);
   var fCat = emCampo('Categoria', 'select', it.categoria, EM.d.categorias);
-  var fTenho = emCampo('Tenho', 'number', it.tenho);
-  var fVal = emCampo('Validade (a mais próxima)', 'date', it.validade || '');
+  var lotes = (it.lotes || []).map(function(x){ return { id: x.id, descricao: x.descricao || '', qtd: x.qtd, validade: x.validade || '' }; });
+  if (novo && !lotes.length) lotes.push({ descricao: '', qtd: '', validade: '' });
+  var boxL = el('div', 'em-lotes');
+  function desenharLotes(){
+    clear(boxL);
+    boxL.appendChild(el('b', null, 'O que há — um lote por produto ou validade'));
+    lotes.forEach(function(x, i){
+      var r = el('div', 'em-lote');
+      var d = el('input'); d.type = 'text'; d.placeholder = 'Produto / marca'; d.value = x.descricao; d.setAttribute('aria-label', 'Produto');
+      d.addEventListener('input', function(){ x.descricao = d.value; });
+      var q = el('input'); q.type = 'number'; q.step = 'any'; q.min = '0'; q.inputMode = 'decimal'; q.placeholder = 'Qtd'; q.value = x.qtd; q.setAttribute('aria-label', 'Quantidade');
+      q.addEventListener('input', function(){ x.qtd = q.value; });
+      var v = el('input'); v.type = 'date'; v.value = x.validade; v.setAttribute('aria-label', 'Validade');
+      v.addEventListener('input', function(){ x.validade = v.value; });
+      var t = el('button', null, '×'); t.type = 'button'; t.setAttribute('aria-label', 'Tirar este lote');
+      t.addEventListener('click', function(){ lotes.splice(i, 1); desenharLotes(); });
+      r.appendChild(d); r.appendChild(q); r.appendChild(v); r.appendChild(t);
+      boxL.appendChild(r);
+    });
+    var m = emBotao('+ Lote', 'small mais', function(){ lotes.push({ descricao: '', qtd: '', validade: '' }); desenharLotes(); });
+    boxL.appendChild(m);
+  }
+  desenharLotes();
   var fModo = emCampo('Meta', 'select', it.por_pessoa != null ? 'pessoa' : 'fixa', [['pessoa', 'Por pessoa (3 dias)'], ['fixa', 'Quantidade fixa']]);
   var fQ = emCampo('Quantidade', 'number', it.por_pessoa != null ? it.por_pessoa : it.quantidade);
   var fUn = emCampo('Unidade', 'text', it.unidade);
@@ -410,8 +440,9 @@ function emEditar(it){
   var gravar = emBotao('Gravar', 'primary', function(){
     var q = fQ.input.value;
     var corpo = {
-      nome: fNome.input.value, categoria: fCat.input.value, tenho: fTenho.input.value || 0,
-      validade: fVal.input.value || null, unidade: fUn.input.value, onde: fOnde.input.value,
+      nome: fNome.input.value, categoria: fCat.input.value,
+      lotes: lotes.filter(function(x){ return Number(String(x.qtd).replace(',', '.')) > 0; }),
+      unidade: fUn.input.value, onde: fOnde.input.value,
       loja: fLoja.input.value, nota: fNota.input.value,
       por_pessoa: fModo.input.value === 'pessoa' ? q : null,
       quantidade: fModo.input.value === 'fixa' ? q : (it.quantidade || 1)
@@ -431,8 +462,8 @@ function emEditar(it){
   botoes.push(emBotao('Cancelar', '', function(){ dlg.close(); }));
   botoes.push(gravar);
   dlg = emJanela(novo ? 'Artigo novo' : it.nome, novo ? null : 'Meta para ' + EM.d.pessoas + ' pessoas: ' + emN(it.meta) + ' ' + (it.unidade || ''),
-    [fNome, dois(fCat, fOnde), dois(fTenho, fVal), dois(fModo, fQ), dois(fUn, fLoja), fNota], botoes);
-  (novo ? fNome : fTenho).input.focus();
+    [fNome, dois(fCat, fOnde), boxL, dois(fModo, fQ), dois(fUn, fLoja), fNota], botoes);
+  fNome.input.focus();
 }
 
 function emPessoas(){
@@ -455,7 +486,7 @@ function emPorComprar(){
   return (EM.d.itens || []).filter(function(i){ return i.falta > 0 || i.estado === 'caducar' || i.estado === 'caducado'; })
     .map(function(i){
       var cad = i.estado === 'caducar' || i.estado === 'caducado';
-      return { it: i, qtd: cad ? i.meta : i.falta, cad: cad };
+      return { it: i, qtd: i.comprar || i.falta, cad: cad };
     });
 }
 function emPagCompras(a, card){
@@ -506,7 +537,7 @@ function emPagCompras(a, card){
       var r = el('div', 'em-c');
       var t = el('div', 't');
       t.appendChild(el('b', null, emN(x.qtd) + ' ' + (x.it.unidade || '') + ' · ' + x.it.nome));
-      var det = x.cad ? (x.it.estado === 'caducado' ? 'repor tudo: caducou a ' : 'repor tudo: caduca a ') + emData(x.it.validade)
+      var det = x.cad ? (x.it.estado === 'caducado' ? 'repor ' + emN(x.it.repor) + ': caducou a ' : 'repor ' + emN(x.it.repor) + ': caduca a ') + emData(x.it.validade)
         : (x.it.tenho > 0 ? 'tenho ' + emN(x.it.tenho) + ' de ' + emN(x.it.meta) : 'meta ' + emN(x.it.meta));
       if (x.it.na_compra) det += ' · na tarefa de compra';
       t.appendChild(el('small', x.cad ? 'cad' : '', det));

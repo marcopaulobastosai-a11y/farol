@@ -144,6 +144,11 @@ async function estado() {
     `SELECT id, categoria, nome, unidade, por_pessoa::float AS por_pessoa, quantidade::float AS quantidade,
             tenho::float AS tenho, to_char(validade, 'YYYY-MM-DD') AS validade, onde, loja, nota, opcional, sort
        FROM emergencia_itens ORDER BY sort, id`);
+  const lotesPor = {};
+  (await all(
+    `SELECT id, item_id, descricao, qtd::float AS qtd, to_char(validade, 'YYYY-MM-DD') AS validade
+       FROM emergencia_lotes ORDER BY validade NULLS LAST, id`))
+    .forEach((l) => { (lotesPor[l.item_id] = lotesPor[l.item_id] || []).push(l); });
   /* Pendentes na tarefa de compra aberta: para a lista saber o que ja la esta. */
   const compra = (await all(
     `SELECT t.id FROM tasks t
@@ -172,10 +177,15 @@ async function estado() {
     if (caducou) caducados += 1;
     if (/^Água potável/.test(it.nome)) { aguaTem = it.tenho * 1.5; aguaMeta = m * 1.5; }
     const falta = Math.max(0, m - it.tenho);
+    const repor = (lotesPor[it.id] || []).filter((l) => l.validade && l.qtd > 0 && l.validade <= limite)
+      .reduce((a, l) => a + l.qtd, 0);
     return Object.assign(it, {
       meta: m, estado: est, falta,
       dias: it.validade ? Math.round((Date.parse(it.validade) - Date.parse(hoje)) / 86400000) : null,
-      na_compra: naCompra[it.id] || 0
+      na_compra: naCompra[it.id] || 0,
+      repor: Math.round(repor * 100) / 100,
+      comprar: Math.round((falta + repor) * 100) / 100,
+      lotes: lotesPor[it.id] || []
     });
   });
   const gente = await all(
@@ -203,6 +213,48 @@ function numero(v) {
 }
 function data(v) { return /^\d{4}-\d{2}-\d{2}$/.test(String(v || '')) ? String(v) : null; }
 function texto(v, max) { const s = String(v == null ? '' : v).trim(); return s ? s.slice(0, max || 200) : null; }
+
+/* Os lotes de um artigo, trocados de uma vez (a janela do artigo manda a
+   lista inteira). Lotes sem quantidade nao ficam. */
+async function gravarLotes(itemId, lotes) {
+  await query('DELETE FROM emergencia_lotes WHERE item_id = $1 AND compra_id IS NULL', [itemId]);
+  for (const l of (Array.isArray(lotes) ? lotes : []).slice(0, 60)) {
+    const q = numero(l.qtd);
+    if (!q) continue;
+    if (l.id && Number(l.id) > 0) {
+      const ja = await all('UPDATE emergencia_lotes SET descricao = $3, qtd = $4, validade = $5 WHERE id = $1 AND item_id = $2 RETURNING id',
+        [Number(l.id), itemId, texto(l.descricao, 160), q, data(l.validade)]);
+      if (ja.length) continue;
+    }
+    await query('INSERT INTO emergencia_lotes (item_id, descricao, qtd, validade) VALUES ($1,$2,$3,$4)',
+      [itemId, texto(l.descricao, 160), q, data(l.validade)]);
+  }
+  /* Os lotes de compras (da tarefa) que nao vieram na lista sairam do stock. */
+  const ids = (Array.isArray(lotes) ? lotes : []).map((l) => Number(l.id)).filter((n) => n > 0);
+  await query('DELETE FROM emergencia_lotes WHERE item_id = $1 AND compra_id IS NOT NULL AND NOT (id = ANY($2::int[]))', [itemId, ids]);
+  await query('SELECT emergencia_sync($1)', [itemId]);
+}
+/* Acertar o total com − / +: o que se tira sai dos lotes que caducam
+   primeiro; o que se poe vai para um lote sem validade. */
+async function acertarTotal(itemId, alvo) {
+  const atual = (await all('SELECT COALESCE(sum(qtd),0)::float AS n FROM emergencia_lotes WHERE item_id = $1', [itemId]))[0].n;
+  let delta = Math.round((alvo - atual) * 100) / 100;
+  if (delta > 0) {
+    const solto = (await all('SELECT id FROM emergencia_lotes WHERE item_id = $1 AND validade IS NULL AND descricao IS NULL ORDER BY id LIMIT 1', [itemId]))[0];
+    if (solto) await query('UPDATE emergencia_lotes SET qtd = qtd + $2 WHERE id = $1', [solto.id, delta]);
+    else await query('INSERT INTO emergencia_lotes (item_id, qtd) VALUES ($1,$2)', [itemId, delta]);
+  } else if (delta < 0) {
+    const lotes = await all('SELECT id, qtd::float AS qtd FROM emergencia_lotes WHERE item_id = $1 ORDER BY validade NULLS LAST, id', [itemId]);
+    for (const l of lotes) {
+      if (delta >= 0) break;
+      const tira = Math.min(l.qtd, -delta);
+      if (tira >= l.qtd) await query('DELETE FROM emergencia_lotes WHERE id = $1', [l.id]);
+      else await query('UPDATE emergencia_lotes SET qtd = qtd - $2 WHERE id = $1', [l.id, tira]);
+      delta += tira;
+    }
+  }
+  await query('SELECT emergencia_sync($1)', [itemId]);
+}
 
 /* A primeira revisao: o proximo 15 de maio ou de novembro que ainda nao passou. */
 function proximaRevisao(hoje) {
@@ -289,11 +341,17 @@ function instalar(app, opcoes) {
     const cat = CATEGORIAS.some((c) => c[0] === b.categoria) ? b.categoria : 'conf';
     try {
       await query(
-        `INSERT INTO emergencia_itens (categoria, nome, unidade, por_pessoa, quantidade, tenho, validade, onde, loja, nota, opcional, sort)
-         VALUES ($1,$2,$3,$4,COALESCE($5,1),COALESCE($6,0),$7,$8,$9,$10,$11,
-                 (SELECT COALESCE(max(sort),0)+10 FROM emergencia_itens WHERE categoria = $1))`,
-        [cat, nome, texto(b.unidade, 30), numero(b.por_pessoa), numero(b.quantidade), numero(b.tenho), data(b.validade),
-         ONDE.includes(b.onde) ? b.onde : 'despensa', texto(b.loja, 60), texto(b.nota, 200), Boolean(b.opcional)]);
+        `INSERT INTO emergencia_itens (categoria, nome, unidade, por_pessoa, quantidade, onde, loja, nota, opcional, sort)
+         VALUES ($1,$2,$3,$4,COALESCE($5,1),$6,$7,$8,$9,
+                 (SELECT COALESCE(max(sort),0)+10 FROM emergencia_itens WHERE categoria = $1))
+         RETURNING id`,
+        [cat, nome, texto(b.unidade, 30), numero(b.por_pessoa), numero(b.quantidade),
+         ONDE.includes(b.onde) ? b.onde : 'despensa', texto(b.loja, 60), texto(b.nota, 200), Boolean(b.opcional)])
+        .then(async (r) => {
+          const id = r.rows[0].id;
+          if (Array.isArray(b.lotes)) await gravarLotes(id, b.lotes);
+          else if (numero(b.tenho)) await gravarLotes(id, [{ qtd: b.tenho, validade: b.validade }]);
+        });
       res.status(201).json(await estado());
     } catch (err) { falha(res, err, 'POST item'); }
   });
@@ -308,16 +366,20 @@ function instalar(app, opcoes) {
     if (tem('unidade')) por('unidade', texto(b.unidade, 30));
     if (tem('por_pessoa')) por('por_pessoa', numero(b.por_pessoa));
     if (tem('quantidade') && numero(b.quantidade) != null) por('quantidade', numero(b.quantidade));
-    if (tem('tenho') && numero(b.tenho) != null) por('tenho', numero(b.tenho));
-    if (tem('validade')) por('validade', data(b.validade));
     if (tem('onde') && ONDE.includes(b.onde)) por('onde', b.onde);
     if (tem('loja')) por('loja', texto(b.loja, 60));
     if (tem('nota')) por('nota', texto(b.nota, 200));
     if (tem('opcional')) por('opcional', Boolean(b.opcional));
-    if (!campos.length) return res.status(400).json({ error: 'Nada para mudar.' });
+    const lotes = tem('lotes') && Array.isArray(b.lotes);
+    const total = !lotes && tem('tenho') && numero(b.tenho) != null;
+    if (!campos.length && !lotes && !total) return res.status(400).json({ error: 'Nada para mudar.' });
     try {
-      const r = await all(`UPDATE emergencia_itens SET ${campos.join(', ')}, updated_at = now() WHERE id = $1 RETURNING id`, valores);
-      if (!r.length) return res.status(404).json({ error: 'Artigo não encontrado.' });
+      const id = Number(req.params.id);
+      const ha = await all('SELECT id FROM emergencia_itens WHERE id = $1', [id]);
+      if (!ha.length) return res.status(404).json({ error: 'Artigo não encontrado.' });
+      if (campos.length) await query(`UPDATE emergencia_itens SET ${campos.join(', ')}, updated_at = now() WHERE id = $1`, valores);
+      if (lotes) await gravarLotes(id, b.lotes);
+      else if (total) await acertarTotal(id, numero(b.tenho));
       res.json(await estado());
     } catch (err) { falha(res, err, 'PATCH item'); }
   });
@@ -340,36 +402,30 @@ function instalar(app, opcoes) {
     const val = data(b.validade);
     if (!id || !qtd) return res.status(400).json({ error: 'Falta o artigo ou a quantidade.' });
     try {
-      const it = (await all('SELECT id, tenho::float AS tenho FROM emergencia_itens WHERE id = $1', [id]))[0];
+      const it = (await all('SELECT id FROM emergencia_itens WHERE id = $1', [id]))[0];
       if (!it) return res.status(404).json({ error: 'Artigo não encontrado.' });
+      /* Repor o que caducava: os lotes que caducam nos proximos 60 dias
+         passam para o consumo da casa. */
+      if (b.substituir) {
+        await query(`DELETE FROM emergencia_lotes WHERE item_id = $1 AND validade IS NOT NULL
+                       AND validade <= CURRENT_DATE + ${AVISO_DIAS}`, [id]);
+      }
       const pend = (await all(
-        `SELECT c.id, c.task_id, c.titulo, c.qtd::float AS qtd FROM emergencia_compras c JOIN tasks t ON t.id = c.task_id
+        `SELECT c.id, c.task_id, c.titulo FROM emergencia_compras c JOIN tasks t ON t.id = c.task_id
           WHERE c.item_id = $1 AND NOT c.aplicado AND NOT t.done AND t.status NOT IN ('concluida','cancelada')
           ORDER BY c.id DESC LIMIT 1`, [id]))[0];
+      let feito = false;
       if (pend) {
-        if (pend.qtd !== qtd) await query('UPDATE emergencia_compras SET qtd = $2 WHERE id = $1', [pend.id, qtd]);
-        await query(`UPDATE task_items SET done = TRUE, completed_at = now() WHERE task_id = $1 AND title = $2 AND NOT done`,
+        await query('UPDATE emergencia_compras SET qtd = $2 WHERE id = $1', [pend.id, qtd]);
+        await query('UPDATE task_items SET done = TRUE, completed_at = now() WHERE task_id = $1 AND title = $2 AND NOT done',
           [pend.task_id, pend.titulo]);
-        /* Se o passo ja nao existe (apagado a mao), soma-se direto. */
-        const ap = (await all('SELECT aplicado FROM emergencia_compras WHERE id = $1', [pend.id]))[0];
-        if (!ap || !ap.aplicado) {
-          await query('UPDATE emergencia_itens SET tenho = tenho + $2, updated_at = now() WHERE id = $1', [id, qtd]);
-          await query('UPDATE emergencia_compras SET aplicado = TRUE WHERE id = $1', [pend.id]);
-        }
-      } else {
-        await query('UPDATE emergencia_itens SET tenho = tenho + $2, updated_at = now() WHERE id = $1', [id, qtd]);
+        const l = await all('UPDATE emergencia_lotes SET validade = $2, descricao = COALESCE($3, descricao) WHERE compra_id = $1 RETURNING id',
+          [pend.id, val, texto(b.descricao, 160)]);
+        feito = l.length > 0;
       }
-      /* Repor o que caducava: os antigos passam para o consumo da casa e o
-         stock fica so com o que se comprou. */
-      if (b.substituir) {
-        await query('UPDATE emergencia_itens SET tenho = $2, validade = $3, updated_at = now() WHERE id = $1', [id, qtd, val]);
-        return res.json(await estado());
-      }
-      if (val) {
-        await query(
-          `UPDATE emergencia_itens SET validade = CASE WHEN $3 > 0 AND validade IS NOT NULL AND validade >= CURRENT_DATE
-                                                       THEN LEAST(validade, $2::date) ELSE $2::date END
-            WHERE id = $1`, [id, val, it.tenho]);
+      if (!feito) {
+        await query('INSERT INTO emergencia_lotes (item_id, descricao, qtd, validade) VALUES ($1,$2,$3,$4)',
+          [id, texto(b.descricao, 160) || 'Compra', qtd, val]);
       }
       res.json(await estado());
     } catch (err) { falha(res, err, 'comprei'); }
@@ -384,7 +440,7 @@ function instalar(app, opcoes) {
       if (!e.ctx) { const x = new Error('Falta começar o stock de emergência.'); x.status = 400; throw x; }
       if (e.compra_id) return res.json(Object.assign(e, { task_id: e.compra_id, ja_havia: true }));
       const lista = e.itens.filter((i) => i.falta > 0 || i.estado === 'caducar' || i.estado === 'caducado')
-        .map((i) => ({ i, qtd: (i.estado === 'caducar' || i.estado === 'caducado') ? i.meta : i.falta }));
+        .map((i) => ({ i, qtd: i.comprar || i.falta }));
       if (!lista.length) { const x = new Error('Não falta nada.'); x.status = 400; throw x; }
       const ordemLoja = (l) => l || 'zz';
       lista.sort((a, b) => ordemLoja(a.i.loja).localeCompare(ordemLoja(b.i.loja)) || a.i.sort - b.i.sort);

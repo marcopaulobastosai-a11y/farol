@@ -1338,3 +1338,59 @@ DROP TRIGGER IF EXISTS emergencia_passo ON task_items;
 CREATE TRIGGER emergencia_passo
   AFTER INSERT OR UPDATE OF done ON task_items
   FOR EACH ROW EXECUTE FUNCTION emergencia_passo();
+
+-- Lotes do stock de emergencia (19 nov 2026): cada produto com a sua
+-- quantidade e a sua validade (o milho de 2028 e o de 2029 sao o mesmo
+-- artigo). O «tenho» e a validade do artigo passam a ser calculados: a soma
+-- dos lotes e a validade mais proxima dos que tem quantidade.
+CREATE TABLE IF NOT EXISTS emergencia_lotes (
+  id         SERIAL PRIMARY KEY,
+  item_id    INTEGER NOT NULL REFERENCES emergencia_itens(id) ON DELETE CASCADE,
+  descricao  TEXT,
+  qtd        NUMERIC NOT NULL DEFAULT 0,
+  validade   DATE,
+  compra_id  INTEGER REFERENCES emergencia_compras(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS emergencia_lotes_item ON emergencia_lotes (item_id);
+
+-- O que ja havia sem lotes passa a um lote, uma vez.
+INSERT INTO emergencia_lotes (item_id, descricao, qtd, validade)
+SELECT i.id, NULL, i.tenho, i.validade FROM emergencia_itens i
+ WHERE i.tenho > 0 AND NOT EXISTS (SELECT 1 FROM emergencia_lotes l WHERE l.item_id = i.id);
+
+CREATE OR REPLACE FUNCTION emergencia_sync(p_item INTEGER) RETURNS void AS $$
+BEGIN
+  UPDATE emergencia_itens SET
+    tenho = COALESCE((SELECT sum(qtd) FROM emergencia_lotes WHERE item_id = p_item), 0),
+    validade = (SELECT min(validade) FROM emergencia_lotes WHERE item_id = p_item AND qtd > 0),
+    updated_at = now()
+  WHERE id = p_item;
+END $$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION emergencia_lote_mudou() RETURNS trigger AS $$
+BEGIN
+  IF TG_OP <> 'INSERT' THEN PERFORM emergencia_sync(OLD.item_id); END IF;
+  IF TG_OP <> 'DELETE' THEN PERFORM emergencia_sync(NEW.item_id); END IF;
+  RETURN NULL;
+END $$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS emergencia_lote_mudou ON emergencia_lotes;
+CREATE TRIGGER emergencia_lote_mudou
+  AFTER INSERT OR UPDATE OR DELETE ON emergencia_lotes
+  FOR EACH ROW EXECUTE FUNCTION emergencia_lote_mudou();
+
+-- Riscar um passo da tarefa de compra cria um lote; tirar o risco apaga-o.
+CREATE OR REPLACE FUNCTION emergencia_passo() RETURNS trigger AS $$
+DECLARE c RECORD;
+BEGIN
+  FOR c IN SELECT * FROM emergencia_compras WHERE task_id = NEW.task_id AND titulo = NEW.title LOOP
+    IF NEW.done AND NOT c.aplicado THEN
+      INSERT INTO emergencia_lotes (item_id, descricao, qtd, compra_id) VALUES (c.item_id, 'Compra', c.qtd, c.id);
+      UPDATE emergencia_compras SET aplicado = TRUE WHERE id = c.id;
+    ELSIF NOT NEW.done AND c.aplicado THEN
+      DELETE FROM emergencia_lotes WHERE compra_id = c.id;
+      UPDATE emergencia_compras SET aplicado = FALSE WHERE id = c.id;
+    END IF;
+  END LOOP;
+  RETURN NEW;
+END $$ LANGUAGE plpgsql;
