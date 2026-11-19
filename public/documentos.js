@@ -1037,3 +1037,24 @@ document.addEventListener('click', function(e){
   window.aeDocsLado = novo;
   try { aeDocsLado = novo; } catch (e) {}
 })(0);
+
+/* Uma ligacao direta para o dossie da contabilidade: /#contabilidade abre os
+   Documentos na vista Contabilidade, em «Por imprimir». E o que a tarefa
+   mensal de imprimir leva na ligacao. */
+function dcIrContab(n){
+  if (location.hash !== '#contabilidade') return;
+  if (!window.D || !D.documents || typeof show !== 'function' || typeof renderDocumentos !== 'function') {
+    if ((n || 0) < 300) setTimeout(function(){ dcIrContab((n || 0) + 1); }, 200);
+    return;
+  }
+  setTimeout(function(){
+    if (typeof DOCS_AREA !== 'undefined') DOCS_AREA = null;
+    DC.vista = 'contab'; DC.cat = null; DC.att = null; DC.q = ''; DC.sel = null;
+    DC_CT.f = 'imprimir'; DC_CT.sel = {};
+    show('documentos');
+    renderDocumentos();
+    try { history.replaceState(null, '', location.pathname + location.search); } catch (e) {}
+  }, 300);
+}
+window.addEventListener('hashchange', function(){ dcIrContab(0); });
+dcIrContab(0);
