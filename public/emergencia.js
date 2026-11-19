@@ -110,6 +110,8 @@ var EM_CSS = [
   '@media (max-width:900px){',
   '  .em-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}',
   '  .em-cg,.em-plano{grid-template-columns:1fr}',
+  '}',
+  '@media (max-width:1180px){',
   '  .em-l{grid-template-columns:minmax(0,1fr) auto;gap:6px 10px}',
   '  .em-l.cab{display:none}',
   '  .em-l .em-q{grid-column:1 / -1;grid-row:2}',
