@@ -1278,3 +1278,63 @@ DROP TRIGGER IF EXISTS documento_para_contabilidade ON documents;
 CREATE TRIGGER documento_para_contabilidade
   BEFORE INSERT OR UPDATE OF context_id ON documents
   FOR EACH ROW EXECUTE FUNCTION documento_para_contabilidade();
+
+-- ---------------------------------------------------------------------------
+-- Stock de emergencia (19 nov 2026)
+--
+-- Casa > Emergencia: o que a casa tem guardado para aguentar 72 horas sem
+-- ajuda (recomendacao da UE e da ANEPC). Cada artigo tem uma meta - por
+-- pessoa (a agua, a comida) ou fixa (o radio, o estojo) - o que ha, a
+-- validade mais proxima e onde esta (despensa, mochila, entrada). O numero de
+-- pessoas e o plano da familia vivem em settings ('emergencia').
+--
+-- A lista recomendada nao entra aqui: entra pela app, no botao de comecar.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS emergencia_itens (
+  id          SERIAL PRIMARY KEY,
+  categoria   TEXT NOT NULL,
+  nome        TEXT NOT NULL,
+  unidade     TEXT,
+  por_pessoa  NUMERIC,                     -- quanto por pessoa para os 3 dias; NULL = quantidade fixa
+  quantidade  NUMERIC NOT NULL DEFAULT 1,  -- a meta fixa, quando por_pessoa e NULL
+  tenho       NUMERIC NOT NULL DEFAULT 0,
+  validade    DATE,
+  onde        TEXT,
+  loja        TEXT,
+  nota        TEXT,
+  opcional    BOOLEAN NOT NULL DEFAULT FALSE,
+  sort        INT NOT NULL DEFAULT 0,
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- A tarefa de compra: cada passo e um artigo. Riscar o passo soma ao stock;
+-- tirar o risco desfaz. A ligacao e pelo texto do passo, porque gravar a
+-- tarefa inteira apaga e volta a escrever os passos (os ids mudam).
+CREATE TABLE IF NOT EXISTS emergencia_compras (
+  id        SERIAL PRIMARY KEY,
+  task_id   INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  titulo    TEXT NOT NULL,
+  item_id   INTEGER NOT NULL REFERENCES emergencia_itens(id) ON DELETE CASCADE,
+  qtd       NUMERIC NOT NULL,
+  aplicado  BOOLEAN NOT NULL DEFAULT FALSE
+);
+CREATE INDEX IF NOT EXISTS emergencia_compras_task ON emergencia_compras (task_id);
+
+CREATE OR REPLACE FUNCTION emergencia_passo() RETURNS trigger AS $$
+DECLARE c RECORD;
+BEGIN
+  FOR c IN SELECT * FROM emergencia_compras WHERE task_id = NEW.task_id AND titulo = NEW.title LOOP
+    IF NEW.done AND NOT c.aplicado THEN
+      UPDATE emergencia_itens SET tenho = tenho + c.qtd, updated_at = now() WHERE id = c.item_id;
+      UPDATE emergencia_compras SET aplicado = TRUE WHERE id = c.id;
+    ELSIF NOT NEW.done AND c.aplicado THEN
+      UPDATE emergencia_itens SET tenho = GREATEST(0, tenho - c.qtd), updated_at = now() WHERE id = c.item_id;
+      UPDATE emergencia_compras SET aplicado = FALSE WHERE id = c.id;
+    END IF;
+  END LOOP;
+  RETURN NEW;
+END $$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS emergencia_passo ON task_items;
+CREATE TRIGGER emergencia_passo
+  AFTER INSERT OR UPDATE OF done ON task_items
+  FOR EACH ROW EXECUTE FUNCTION emergencia_passo();

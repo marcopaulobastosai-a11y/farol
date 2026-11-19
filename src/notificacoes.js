@@ -178,6 +178,30 @@ async function resumoDaManha(subs, agora) {
   }
 }
 
+/* Stock de emergencia: um aviso por artigo quando a validade entra nos
+   60 dias (de manha, so ao administrador). */
+async function emergenciaValidades(subs, agora) {
+  if (agora.hm < '08:30' || agora.hm > '10:00') return;
+  let itens = [];
+  try {
+    itens = await all(
+      `SELECT id, nome, to_char(validade, 'YYYY-MM-DD') AS validade FROM emergencia_itens
+        WHERE tenho > 0 AND validade IS NOT NULL AND validade <= CURRENT_DATE + 60`);
+  } catch (e) { return; }
+  if (!itens.length) return;
+  for (const s of subs.filter((x) => prefsDe(x).manha && acessos.ehAdmin(x.email))) {
+    const novos = [];
+    for (const it of itens) {
+      if (await umaVez('emerg:' + it.id + ':' + it.validade + ':s' + s.id)) novos.push(it);
+    }
+    if (!novos.length) continue;
+    const corpo = novos.length === 1
+      ? novos[0].nome + ' caduca a ' + novos[0].validade.split('-').reverse().join('/')
+      : novos.length + ' artigos caducam nos próximos 60 dias';
+    await enviar(s, { title: 'Stock de emergência', body: corpo + ' — passa para o consumo da casa e repõe.', url: '/?ver=emergencia', tag: 'emergencia' });
+  }
+}
+
 async function revisaoDeDomingo(subs, agora) {
   if (agora.sem !== 'Sun' || agora.hm < '18:00' || agora.hm > '21:00') return;
   const r = await all("SELECT value FROM settings WHERE key = 'revisao_fechos'");
@@ -202,6 +226,7 @@ async function ronda() {
       await lembretes(subs, agora);
       await resumoDaManha(subs, agora);
       await revisaoDeDomingo(subs, agora);
+      await emergenciaValidades(subs, agora);
     }
     await query("DELETE FROM push_enviados WHERE em < now() - INTERVAL '40 days'");
   } catch (e) {

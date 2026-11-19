@@ -218,6 +218,9 @@ function rvRender(){
   var prox = rvProximos();
   var cc = rvCcPendentes();
   var passos = ['caixa', 'contas', 'atraso', 'programas', 'proximos'];
+  /* O stock de emergencia (19 nov 2026): um passo so quando ha algo a tratar. */
+  var em = typeof window.emParaRevisao === 'function' ? window.emParaRevisao() : null;
+  if (em) passos.push('emergencia');
   var vistos = passos.filter(function(k){ return RV.vistos[k]; }).length;
 
   var topo = el('div', 'rv-topo');
@@ -269,6 +272,12 @@ function rvRender(){
   rvPasso(sec, 5, 'proximos', 'Os próximos 14 dias',
     prox.length ? prox.length + ' coisas com data: prazos, validades e eventos' : 'Nada com data',
     [['Abrir a Agenda', function(){ show('agenda'); }]], pxItens, prox.length > 10 ? 'e mais ' + (prox.length - 10) + ' na Agenda.' : '');
+
+  if (em){
+    rvPasso(sec, 6, 'emergencia', 'Stock de emergência', em.resumo,
+      [['Abrir a lista de compras', em.abrir]],
+      em.itens.map(function(x){ return rvItem(x.texto, x.lado, 'bad', em.abrir); }));
+  }
 
   var fim = el('div', 'rv-fim');
   if (rvFechada()) fim.appendChild(el('span', 'rv-ult', 'Fechada. Até ao próximo domingo.'));

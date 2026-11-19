@@ -45,6 +45,7 @@ DATABASE_URL=postgres://... npm start       # http://localhost:3000
 | `GET` | `/api/bootstrap` | o conteúdo do painel, numa chamada |
 | `GET` | `/api/gestao` | pessoas, projetos, tarefas e áreas |
 | `GET`/`POST`/`PATCH`/`DELETE` | `/api/tarefas`, `/api/pessoas`, `/api/documentos`, `/api/despesas`, `/api/inbox`, `/api/contextos`, `/api/acessos` | os módulos, cada um no seu ficheiro em `src/` |
+| `GET`/`POST`/`PATCH`/`PUT` | `/api/emergencia` | stock de emergência (Casa › Emergência): artigos, compras e plano — `src/emergencia.js` |
 
 ## Estrutura
 
