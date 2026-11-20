@@ -1073,6 +1073,11 @@ function dcAbrirContab(){
   var bs = document.querySelectorAll('#nav button[data-view]');
   for (var i = 0; i < bs.length; i++) bs[i].classList.toggle('is-active', bs[i].dataset.view === 'contabilidade');
   if (typeof renderDocumentos === 'function') renderDocumentos();
+  /* A lista fica abaixo dos numeros e dos prazos: desce-se logo ate ela. */
+  setTimeout(function(){
+    var w = document.querySelector('#view-documentos .dc-ct');
+    if (w) window.scrollTo({ top: Math.max(0, w.getBoundingClientRect().top + window.scrollY - 140), behavior: 'smooth' });
+  }, 450);
 }
 window.addEventListener('hashchange', function(){ dcIrContab(0); });
 dcIrContab(0);
