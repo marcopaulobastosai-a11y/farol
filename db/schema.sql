@@ -1261,22 +1261,30 @@ END $$;
 
 -- Quem poe o papel no dossie e a base de dados: ao nascer ou ao mudar de area.
 -- Se sair da area ainda por imprimir, sai tambem do dossie.
+-- 20 nov 2026: so as faturas (fatura, fatura-recibo, recibo, nota de credito)
+-- vao para o dossie; um papel que so depois ganha o tipo de fatura entra nessa
+-- altura, e um que deixa de ser fatura ainda por imprimir sai.
 CREATE OR REPLACE FUNCTION documento_para_contabilidade() RETURNS trigger AS $$
+DECLARE
+  conta BOOLEAN;
 BEGIN
-  IF TG_OP = 'UPDATE' AND OLD.context_id IS NOT DISTINCT FROM NEW.context_id THEN
+  IF TG_OP = 'UPDATE' AND OLD.context_id IS NOT DISTINCT FROM NEW.context_id
+     AND OLD.kind IS NOT DISTINCT FROM NEW.kind THEN
     RETURN NEW;
   END IF;
-  IF NEW.context_id IS NOT NULL
-     AND EXISTS (SELECT 1 FROM contexts WHERE id = NEW.context_id AND contabilidade) THEN
+  conta := NEW.context_id IS NOT NULL
+     AND lower(COALESCE(NEW.kind, '')) ~ '(fatura|recibo|nota de cr)'
+     AND EXISTS (SELECT 1 FROM contexts WHERE id = NEW.context_id AND contabilidade);
+  IF conta THEN
     IF NEW.contab_estado IS NULL THEN NEW.contab_estado := 'imprimir'; END IF;
-  ELSIF TG_OP = 'UPDATE' AND NEW.contab_estado = 'imprimir' THEN
+  ELSIF NEW.contab_estado = 'imprimir' THEN
     NEW.contab_estado := NULL;
   END IF;
   RETURN NEW;
 END $$ LANGUAGE plpgsql;
 DROP TRIGGER IF EXISTS documento_para_contabilidade ON documents;
 CREATE TRIGGER documento_para_contabilidade
-  BEFORE INSERT OR UPDATE OF context_id ON documents
+  BEFORE INSERT OR UPDATE OF context_id, kind ON documents
   FOR EACH ROW EXECUTE FUNCTION documento_para_contabilidade();
 
 -- ---------------------------------------------------------------------------
