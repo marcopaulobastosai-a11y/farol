@@ -37,7 +37,7 @@ var MN_ORDEM = {
      nao uma delas. */
   hoje: 10, agenda: 11, tarefas: 12, financas: 13,
   familia: 21, casa: 22, patrimonio: 23, profissional: 25, saude: 26, viagens: 27,
-  gente: 41, projetos: 42, documentos: 43, revisao: 44,
+  gente: 41, projetos: 42, documentos: 43, contabilidade: 44, revisao: 45,
   acessos: 51, areas: 52, pessoas: 53, destinatarios: 54, splitwise: 55, eventos: 56, despesas: 57
 };
 var MN_FORA = { inbox: true };

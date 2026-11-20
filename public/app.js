@@ -932,6 +932,8 @@ function marcarLido(d, lido){
 
 /* ---------------- navegação ---------------- */
 function show(view){
+  /* «Para imprimir» nao e um ecra: e os Documentos na vista Contabilidade. */
+  if (view === 'contabilidade' && typeof dcAbrirContab === 'function') { dcAbrirContab(); return; }
   var sections = document.querySelectorAll('.view');
   for (var i = 0; i < sections.length; i++){
     sections[i].classList.toggle('is-active', sections[i].id === 'view-' + view);

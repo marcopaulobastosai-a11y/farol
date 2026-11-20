@@ -753,8 +753,17 @@ function dcCtImprimir(lista){
   window.open('/api/documentos-contabilidade/imprimir?ids=' + lista.join(','), '_blank', 'noopener');
 }
 
+/* O numero ao lado de «Para imprimir» no menu. */
+function dcCtBadge(){
+  try {
+    var n = (D.documents || []).filter(function(d){ return d.contab_estado === 'imprimir' && !d.arquivado_em; }).length;
+    var b = document.getElementById('badgeContab'); if (b) b.textContent = n || '';
+  } catch (e) {}
+}
+
 function dcCt(base){
   dcCtEstilo();
+  dcCtBadge();
   var w = el('div', 'dc-ct');
   var q = dcNorm(DC.q);
   if (q) base = base.filter(function(d){ return (typeof docsTextoDe === 'function' ? docsTextoDe(d) : dcNorm(d.name)).indexOf(q) >= 0; });
@@ -965,6 +974,7 @@ function dcRender(){
       var porLer = (D.documents || []).filter(function(d){ return !d.lido && !d.arquivado_em; }).length;
       var bd = document.getElementById('badgeDocs'); if (bd) bd.textContent = porLer;
     } catch (e) {}
+    dcCtBadge();
   };
   novo.dcNovo = true;
   window.renderDocumentos = novo;
@@ -979,6 +989,7 @@ document.addEventListener('click', function(e){
   if (!b) return;
   if (typeof DOCS_AREA !== 'undefined') DOCS_AREA = null;
   DC.sel = null; DC.att = null;
+  if (DC.vista === 'contab') DC.vista = 'pastas';
   setTimeout(function(){ if (typeof renderDocumentos === 'function') renderDocumentos(); }, 0);
 }, true);
 
@@ -1048,13 +1059,20 @@ function dcIrContab(n){
     return;
   }
   setTimeout(function(){
-    if (typeof DOCS_AREA !== 'undefined') DOCS_AREA = null;
-    DC.vista = 'contab'; DC.cat = null; DC.att = null; DC.q = ''; DC.sel = null;
-    DC_CT.f = 'imprimir'; DC_CT.sel = {};
-    show('documentos');
-    renderDocumentos();
+    dcAbrirContab();
     try { history.replaceState(null, '', location.pathname + location.search); } catch (e) {}
   }, 300);
+}
+/* Os Documentos na vista Contabilidade, em «Por imprimir» - pelo menu
+   («Para imprimir») ou pela ligacao. */
+function dcAbrirContab(){
+  if (typeof DOCS_AREA !== 'undefined') DOCS_AREA = null;
+  DC.vista = 'contab'; DC.cat = null; DC.att = null; DC.q = ''; DC.sel = null;
+  DC_CT.f = 'imprimir'; DC_CT.sel = {};
+  show('documentos');
+  var bs = document.querySelectorAll('#nav button[data-view]');
+  for (var i = 0; i < bs.length; i++) bs[i].classList.toggle('is-active', bs[i].dataset.view === 'contabilidade');
+  if (typeof renderDocumentos === 'function') renderDocumentos();
 }
 window.addEventListener('hashchange', function(){ dcIrContab(0); });
 dcIrContab(0);
