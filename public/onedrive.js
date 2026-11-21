@@ -11,6 +11,12 @@
  * escondido (#odUpload) e a funcao window.odEnviarFicheiro(execId, meta), que
  * manda o ficheiro escolhido para /api/inbox e regista-o em /api/onedrive.
  * Dados em /api/onedrive (src/onedrive.js).
+ *
+ * Janela de progresso (21 nov): enquanto uma execucao esta pedida ou a correr,
+ * aparece em qualquer ecra do Farol uma janela flutuante com o passo atual, a
+ * barra de progresso e a lista dos passos que a rotina vai registando
+ * (/api/onedrive/agora). Fecha-se para uma pilula pequena e volta a abrir-se
+ * com um clique. No separador da propria rotina (#onedrive-rotina) nao aparece.
  */
 
 var OD = { d: null, aLer: false, filtro: 'todos', procura: '', aba: 'historico' };
@@ -89,7 +95,37 @@ var OD_CSS = [
   '.od-dlg label.linha input{width:auto;min-height:0}',
   '.od-dlg .dois{display:grid;grid-template-columns:1fr 1fr;gap:10px}',
   '.od-dlg .acoes{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-top:4px}',
-  '#odUpload{position:fixed;left:-9999px;top:0;width:1px;height:1px;opacity:0}'
+  '#odUpload{position:fixed;left:-9999px;top:0;width:1px;height:1px;opacity:0}',
+  '#odPop{position:fixed;right:20px;bottom:20px;z-index:9000;width:min(400px,calc(100vw - 24px));background:var(--surface,#fff);color:var(--ink,#111);border:1px solid var(--line,#ddd);border-radius:14px;box-shadow:0 18px 48px rgba(15,23,32,.22);display:flex;flex-direction:column;overflow:hidden;font-size:.84rem}',
+  '#odPop .op-cab{display:flex;align-items:flex-start;gap:10px;padding:12px 14px 10px;border-bottom:1px solid var(--line-soft,#eee)}',
+  '#odPop .op-cab .op-t{flex:1;min-width:0}',
+  '#odPop .op-cab b{display:block;font-size:.92rem;font-weight:700}',
+  '#odPop .op-cab small{display:block;color:var(--muted,#777);font-size:.74rem;margin-top:2px}',
+  '#odPop .op-cab button{font:inherit;width:28px;height:28px;border-radius:8px;border:1px solid transparent;background:none;color:var(--muted,#777);cursor:pointer;font-size:1rem;line-height:1;flex:none}',
+  '#odPop .op-cab button:hover{border-color:var(--line,#ddd);color:var(--ink,#111)}',
+  '#odPop .op-roda{flex:none;width:18px;height:18px;margin-top:2px;border-radius:50%;border:2px solid var(--line,#ddd);border-top-color:var(--accent,#0b7);animation:odRoda .9s linear infinite}',
+  '#odPop .op-roda.fim{animation:none;border-color:#2F7D4F;background:#2F7D4F}',
+  '#odPop .op-roda.erro{animation:none;border-color:#B42318;background:#B42318}',
+  '#odPop .op-roda.espera{animation:odPulsa 1.6s ease-in-out infinite;border-color:var(--accent,#0b7);border-top-color:var(--accent,#0b7)}',
+  '@keyframes odRoda{to{transform:rotate(360deg)}}',
+  '@keyframes odPulsa{50%{opacity:.35}}',
+  '#odPop .op-agora{padding:10px 14px 4px;font-weight:600;word-break:break-word}',
+  '#odPop .op-barra{margin:6px 14px 2px;height:6px;border-radius:3px;background:var(--line-soft,#eee);overflow:hidden}',
+  '#odPop .op-barra i{display:block;height:100%;background:var(--accent,#0b7);transition:width .4s}',
+  '#odPop .op-num{padding:0 14px;color:var(--muted,#777);font-size:.74rem;display:flex;justify-content:space-between}',
+  '#odPop .op-lista{margin:8px 0 0;padding:4px 0;max-height:230px;overflow-y:auto;border-top:1px solid var(--line-soft,#eee);list-style:none}',
+  '#odPop .op-lista li{display:grid;grid-template-columns:58px 10px minmax(0,1fr);gap:8px;align-items:baseline;padding:3px 14px;font-size:.78rem}',
+  '#odPop .op-lista li time{font-family:var(--mono,monospace);color:var(--muted,#777);font-size:.7rem}',
+  '#odPop .op-lista li i{width:7px;height:7px;border-radius:50%;background:var(--muted,#999);display:inline-block}',
+  '#odPop .op-lista li.ok i{background:#2F7D4F}#odPop .op-lista li.erro i{background:#B42318}',
+  '#odPop .op-lista li.aviso i{background:#C27C0E}#odPop .op-lista li.fase i{background:var(--accent,#0b7)}',
+  '#odPop .op-lista li.fase span{font-weight:600}#odPop .op-lista li.erro span{color:#9B1C1C}',
+  '#odPop .op-nota{padding:8px 14px;color:var(--muted,#777);font-size:.76rem}',
+  '#odPop .op-pe{display:flex;gap:8px;justify-content:flex-end;padding:10px 14px;border-top:1px solid var(--line-soft,#eee)}',
+  '#odPop .op-pe .btn{min-height:32px;font-size:.78rem}',
+  '#odPill{position:fixed;right:20px;bottom:20px;z-index:9000;display:flex;align-items:center;gap:8px;font:inherit;font-size:.8rem;font-weight:600;padding:8px 14px;border-radius:999px;border:1px solid var(--line,#ddd);background:var(--surface,#fff);color:var(--ink,#111);box-shadow:0 8px 24px rgba(15,23,32,.18);cursor:pointer}',
+  '#odPill .op-roda{width:12px;height:12px;border-radius:50%;border:2px solid var(--line,#ddd);border-top-color:var(--accent,#0b7);animation:odRoda .9s linear infinite}',
+  '@media (max-width:900px){#odPop,#odPill{bottom:84px;right:12px}}'
 ].join('\n');
 
 function odEstilo(){
@@ -222,7 +258,8 @@ function odCartaoAgenda(d){
   bCo.addEventListener('click', function(){
     bCo.disabled = true;
     odPost('/api/onedrive/correr').then(function(r){
-      toast(r.disparada ? 'Rotina a arrancar no Mac. A página atualiza sozinha.' : 'Pedido registado. A próxima passagem trata dele.');
+      toast(r.disparada ? 'Rotina a arrancar no Mac.' : 'Pedido registado. A próxima passagem trata dele.');
+      odSeguir(r.id);
       odCarregar(); odVigiar();
     }).catch(function(e){ bCo.disabled = false; toast(e.message || 'Não foi possível pedir a execução.'); });
   });
@@ -551,6 +588,8 @@ window.odEnviarFicheiro = function(execId, meta){
   var f = lista[0];
   if (!f) return Promise.resolve({ ok: false, erro: 'sem ficheiro no #odUpload' });
   var nome = meta.nome || f.name;
+  var conta = meta.total ? ' (' + (meta.atual || '?') + ' de ' + meta.total + ')' : '';
+  odPasso(execId, 'A enviar «' + nome + '» para a Caixa' + conta, { ficheiro: nome, atual: meta.atual ? meta.atual - 1 : null, total: meta.total });
   var fd = new FormData();
   fd.append('ficheiro', f, nome);
   fd.append('note', 'Entrada do OneDrive (00_Entrada): ' + nome);
@@ -565,10 +604,178 @@ window.odEnviarFicheiro = function(execId, meta){
       .then(function(r){ return r.json(); })
       .then(function(j){
         inp.value = '';
+        odPasso(execId,
+          reg.estado === 'enviado' ? 'Na Caixa: «' + nome + '» — a ler e catalogar'
+            : reg.estado === 'repetido' ? 'Já estava na Caixa: «' + nome + '»'
+            : 'Não entrou: «' + nome + '» (' + reg.erro + ')',
+          { tipo: reg.estado === 'erro' ? 'erro' : (reg.estado === 'repetido' ? 'aviso' : 'ok'), ficheiro: nome, atual: meta.atual || null, total: meta.total });
         return { ok: reg.estado !== 'erro', estado: reg.estado, inbox_id: reg.inbox_id || null, ficheiro_id: j.id, erro: reg.erro || null };
       });
   }).catch(function(e){ return { ok: false, erro: e.message }; });
 };
+
+/* Um passo da rotina, para a janela de progresso. Nunca falha para fora:
+   um passo que nao se grava nao pode parar o processamento. */
+window.odPasso = function(execId, texto, o){
+  o = o || {};
+  if (!execId || !texto) return Promise.resolve(null);
+  return fetch('/api/onedrive/execucoes/' + execId + '/passos', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ texto: texto, tipo: o.tipo || 'info', ficheiro: o.ficheiro || null,
+      atual: o.atual != null ? o.atual : null, total: o.total != null ? o.total : null })
+  }).then(function(r){ return r.ok ? r.json() : null; }).catch(function(){ return null; });
+};
+
+/* ---- Janela de progresso ---- */
+var ODP = { ex: null, seguir: null, ultimo: 0, passos: [], mini: false, fechada: {}, timer: null, aLer: false };
+
+function odEhRotina(){ return /rotina/.test(location.hash || ''); }
+
+function odSeguir(id){
+  if (!id) return;
+  if (ODP.seguir !== id){ ODP.seguir = id; ODP.ultimo = 0; ODP.passos = []; }
+  ODP.mini = false;
+  delete ODP.fechada[id];
+  odAgendarVer(200);
+}
+
+function odAgendarVer(ms){
+  clearTimeout(ODP.timer);
+  ODP.timer = setTimeout(odVerAgora, ms);
+}
+
+function odACorrer(ex){ return ex && (ex.estado === 'pedida' || ex.estado === 'a_correr') && !ex.parada; }
+
+function odVerAgora(){
+  if (odEhRotina() || typeof fetch !== 'function') return;
+  if (document.hidden){ odAgendarVer(30000); return; }
+  if (ODP.aLer){ odAgendarVer(4000); return; }
+  ODP.aLer = true;
+  var url = '/api/onedrive/agora?depois=' + ODP.ultimo + (ODP.seguir ? '&execucao=' + ODP.seguir : '');
+  fetch(url).then(function(r){ return r.ok ? r.json() : null; }).then(function(d){
+    ODP.aLer = false;
+    if (!d){ odAgendarVer(30000); return; }
+    var ex = d.execucao;
+    if (ex && (!ODP.ex || ODP.ex.id !== ex.id)){
+      /* Outra execucao: comeca a lista do zero. */
+      if (ODP.ex && ODP.ex.id !== ex.id){ ODP.passos = []; ODP.ultimo = 0; }
+      if (odACorrer(ex)) ODP.seguir = ex.id;
+    }
+    ODP.ex = ex;
+    (d.passos || []).forEach(function(p){ ODP.passos.push(p); if (p.id > ODP.ultimo) ODP.ultimo = p.id; });
+    if (ODP.passos.length > 300) ODP.passos = ODP.passos.slice(-300);
+    var mostrar = ex && !ODP.fechada[ex.id] && (odACorrer(ex) || ODP.seguir === ex.id);
+    odDesenharPop(mostrar);
+    var corre = odACorrer(ex);
+    if (ex && !corre && ODP.seguir === ex.id && OD.d){ odCarregar(); }
+    odAgendarVer(corre ? 4000 : 30000);
+  }).catch(function(){ ODP.aLer = false; odAgendarVer(30000); });
+}
+
+function odHora(iso){
+  var d = new Date(iso);
+  if (isNaN(d)) return '';
+  return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0') + ':' + String(d.getSeconds()).padStart(2, '0');
+}
+
+function odDesenharPop(mostrar){
+  var pop = document.getElementById('odPop'), pill = document.getElementById('odPill');
+  var ex = ODP.ex;
+  if (!mostrar || !ex){
+    if (pop) pop.remove();
+    if (pill) pill.remove();
+    return;
+  }
+  odEstilo();
+  var corre = odACorrer(ex);
+  var total = ex.total || 0, feitos = Math.min(ex.feitos || 0, total || ex.feitos || 0);
+  if (ODP.mini && corre){
+    if (pop) pop.remove();
+    if (!pill){
+      pill = el('button'); pill.id = 'odPill'; pill.type = 'button';
+      pill.addEventListener('click', function(){ ODP.mini = false; odDesenharPop(true); });
+      document.body.appendChild(pill);
+    }
+    clear(pill);
+    pill.appendChild(el('span', 'op-roda'));
+    pill.appendChild(document.createTextNode('OneDrive: ' + (ex.estado === 'pedida' ? 'à espera do Mac' : (total ? feitos + ' de ' + total : 'a processar'))));
+    pill.title = ex.passo || '';
+    return;
+  }
+  if (pill) pill.remove();
+  var lista = pop ? pop.querySelector('.op-lista') : null;
+  var noFundo = !lista || (lista.scrollHeight - lista.scrollTop - lista.clientHeight < 30);
+  if (!pop){
+    pop = el('div'); pop.id = 'odPop';
+    pop.setAttribute('role', 'status'); pop.setAttribute('aria-live', 'polite');
+    document.body.appendChild(pop);
+  }
+  clear(pop);
+  var cab = el('div', 'op-cab');
+  var falhou = ex.estado === 'falhou' || ex.estado === 'com_erros' || ex.parada;
+  cab.appendChild(el('span', 'op-roda' + (corre ? (ex.estado === 'pedida' ? ' espera' : '') : (falhou ? ' erro' : ' fim'))));
+  var t = el('div', 'op-t');
+  var tit = ex.parada ? 'A rotina deixou de dar sinal'
+    : ex.estado === 'pedida' ? 'À espera que a rotina arranque'
+    : ex.estado === 'a_correr' ? 'A processar a pasta 00_Entrada'
+    : ex.estado === 'concluida' ? 'Entrada do OneDrive tratada'
+    : ex.estado === 'com_erros' ? 'Tratada, com erros' : 'A execução falhou';
+  t.appendChild(el('b', null, tit));
+  var quando = ex.iniciada_em || ex.pedida_em;
+  t.appendChild(el('small', null, 'Execução n.º ' + ex.id + ' · ' + (ex.origem === 'manual' ? 'Correr agora' : 'agendada') +
+    (quando ? ' · desde ' + odHora(quando).slice(0, 5) : '')));
+  cab.appendChild(t);
+  if (corre){
+    var bm = el('button', null, '–'); bm.type = 'button'; bm.title = 'Minimizar';
+    bm.addEventListener('click', function(){ ODP.mini = true; odDesenharPop(true); });
+    cab.appendChild(bm);
+  }
+  var bx = el('button', null, '×'); bx.type = 'button'; bx.title = corre ? 'Esconder (continua a correr)' : 'Fechar';
+  bx.addEventListener('click', function(){
+    if (corre){ ODP.mini = true; odDesenharPop(true); return; }
+    ODP.fechada[ex.id] = true; ODP.seguir = null; odDesenharPop(false);
+  });
+  cab.appendChild(bx);
+  pop.appendChild(cab);
+
+  pop.appendChild(el('div', 'op-agora', ex.passo || (ex.estado === 'pedida' ? 'À espera que a rotina arranque no Mac' : 'A começar…')));
+  if (total || corre){
+    var bar = el('div', 'op-barra'); var i = el('i');
+    i.style.width = (total ? Math.round(100 * feitos / total) : (ex.estado === 'pedida' ? 0 : 8)) + '%';
+    bar.appendChild(i); pop.appendChild(bar);
+    var num = el('div', 'op-num');
+    num.appendChild(el('span', null, total ? feitos + ' de ' + total + ' ficheiro(s)' : 'a contar os ficheiros…'));
+    var ult = ex.atualizado_em ? 'último sinal ' + odHora(ex.atualizado_em) : '';
+    num.appendChild(el('span', null, ult));
+    pop.appendChild(num);
+  }
+  if (ex.estado === 'pedida'){
+    pop.appendChild(el('div', 'op-nota', 'Precisa do Mac ligado, do Chrome aberto e do Farol com a sessão iniciada. Sem disparo direto, o pedido é apanhado na próxima passagem (' + (((OD.d || {}).agendamento || {}).horas || []).join(', ') + ').'));
+  }
+  if (ex.parada){
+    pop.appendChild(el('div', 'op-nota', 'Sem notícias há mais de 45 minutos: o Mac pode ter adormecido ou o Chrome fechado. Os ficheiros que faltam ficam na raiz para a próxima passagem.'));
+  }
+  var ul = el('ul', 'op-lista');
+  ODP.passos.slice(-80).forEach(function(p){
+    var li = el('li', p.tipo);
+    li.appendChild(el('time', null, odHora(p.em)));
+    li.appendChild(el('i'));
+    li.appendChild(el('span', null, p.texto));
+    ul.appendChild(li);
+  });
+  if (!ODP.passos.length) ul.appendChild(el('li', null, ''));
+  pop.appendChild(ul);
+  if (!corre){
+    var pe = el('div', 'op-pe');
+    var bv = el('button', 'btn', 'Ver histórico'); bv.type = 'button';
+    bv.addEventListener('click', function(){ OD.aba = 'historico'; OD.filtro = 'todos'; show('onedrive'); });
+    var bf = el('button', 'btn primary', 'Fechar'); bf.type = 'button';
+    bf.addEventListener('click', function(){ ODP.fechada[ex.id] = true; ODP.seguir = null; odDesenharPop(false); });
+    pe.appendChild(bv); pe.appendChild(bf);
+    pop.appendChild(pe);
+  }
+  if (noFundo) ul.scrollTop = ul.scrollHeight;
+}
 
 function odMontar(){
   if (document.getElementById('view-onedrive')) return;
@@ -605,8 +812,13 @@ function odLigar(){
     novo.odEmbrulhado = true;
     window.show = novo;
   }
-  /* Abrir o Farol com #onedrive leva logo a este ecra (a rotina usa isto). */
-  if (location.hash === '#onedrive') setTimeout(function(){ show('onedrive'); }, 400);
+  /* Abrir o Farol com #onedrive leva logo a este ecra (a rotina usa
+     #onedrive-rotina, que nao mostra a janela de progresso). */
+  if (/^#onedrive/.test(location.hash)) setTimeout(function(){ show('onedrive'); }, 400);
+  /* A janela de progresso vigia em qualquer ecra: de 30 em 30 s, ou de 4 em
+     4 s enquanto ha uma execucao a correr. */
+  odAgendarVer(1500);
+  document.addEventListener('visibilitychange', function(){ if (!document.hidden) odAgendarVer(300); });
 }
 
 (function odEsperar(n){
