@@ -24,6 +24,11 @@
  *   PUT    /api/onedrive/agendamento        { horas: ['11:00','16:00'], ativo }
  *   PUT    /api/onedrive/pastas             { context_id, caminho }
  *   POST   /api/onedrive/correr             pede uma execucao ja
+ *   POST   /api/onedrive/execucoes/:id/passos  { texto, tipo, ficheiro, atual, total }
+ *   GET    /api/onedrive/agora?depois=N     a execucao em curso e os passos novos
+ *
+ * Os passos sao o que a janela de progresso mostra enquanto a rotina corre:
+ * cada ficheiro enviado, movido e copiado, e os erros, a medida que acontecem.
  *
  * «Correr agora» dispara a rotina pela API das rotinas do Claude quando o
  * Marco tiver posto ROTINA_ENTRADA_URL e ROTINA_ENTRADA_TOKEN no Railway.
@@ -75,6 +80,19 @@ function preparar() {
         criado_em   TIMESTAMPTZ NOT NULL DEFAULT now(),
         PRIMARY KEY (ficheiro_id, task_id)
       );
+      ALTER TABLE onedrive_execucoes ADD COLUMN IF NOT EXISTS total INTEGER;
+      ALTER TABLE onedrive_execucoes ADD COLUMN IF NOT EXISTS feitos INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE onedrive_execucoes ADD COLUMN IF NOT EXISTS passo TEXT;
+      ALTER TABLE onedrive_execucoes ADD COLUMN IF NOT EXISTS atualizado_em TIMESTAMPTZ;
+      CREATE TABLE IF NOT EXISTS onedrive_passos (
+        id          SERIAL PRIMARY KEY,
+        execucao_id INTEGER NOT NULL REFERENCES onedrive_execucoes(id) ON DELETE CASCADE,
+        em          TIMESTAMPTZ NOT NULL DEFAULT now(),
+        tipo        TEXT NOT NULL DEFAULT 'info',
+        texto       TEXT NOT NULL,
+        ficheiro    TEXT
+      );
+      CREATE INDEX IF NOT EXISTS onedrive_passos_exec_idx ON onedrive_passos (execucao_id, id);
       CREATE TABLE IF NOT EXISTS onedrive_pastas (
         context_id INTEGER PRIMARY KEY REFERENCES contexts(id) ON DELETE CASCADE,
         caminho    TEXT NOT NULL,
@@ -279,6 +297,55 @@ async function dispararRotina(execId) {
   }
 }
 
+const TIPOS_PASSO = ['info', 'ok', 'erro', 'aviso', 'fase'];
+
+/* Um passo da execucao: fica na lista e passa a ser o «a fazer agora». */
+async function registarPasso(execId, b) {
+  const texto = texto_(b.texto, 500);
+  if (!texto) throw erro(400, 'Falta o texto do passo.');
+  const tipo = TIPOS_PASSO.includes(b.tipo) ? b.tipo : 'info';
+  const n = (v) => (Number.isInteger(Number(v)) && Number(v) >= 0 && v !== null && v !== '' ? Number(v) : null);
+  const r = await all(
+    `UPDATE onedrive_execucoes SET passo = $2, atualizado_em = now(),
+            feitos = COALESCE($3, feitos), total = COALESCE($4, total),
+            estado = CASE WHEN estado = 'pedida' THEN 'a_correr' ELSE estado END,
+            iniciada_em = COALESCE(iniciada_em, now())
+      WHERE id = $1 RETURNING id`, [execId, texto, n(b.atual), n(b.total)]);
+  if (!r.length) throw erro(404, 'Execução não encontrada.');
+  const p = await all(
+    `INSERT INTO onedrive_passos (execucao_id, tipo, texto, ficheiro) VALUES ($1,$2,$3,$4) RETURNING id`,
+    [execId, tipo, texto, texto_(b.ficheiro, 400)]);
+  return p[0].id;
+}
+const texto_ = (v, m) => texto(v, m);
+
+/* O que esta a correr agora (ou acabou ha pouco), com os passos depois de N. */
+async function agora(depois, execPedida) {
+  await preparar();
+  let ex = null;
+  if (execPedida) {
+    ex = (await all(`SELECT * FROM onedrive_execucoes WHERE id = $1`, [execPedida]))[0] || null;
+  }
+  if (!ex) {
+    ex = (await all(
+      `SELECT * FROM onedrive_execucoes
+        WHERE (estado IN ('pedida','a_correr')
+               AND COALESCE(atualizado_em, iniciada_em, pedida_em) > now() - interval '45 minutes')
+           OR (estado NOT IN ('pedida','a_correr') AND terminada_em > now() - interval '10 minutes')
+        ORDER BY (estado IN ('pedida','a_correr')) DESC, id DESC LIMIT 1`))[0] || null;
+  }
+  if (!ex) return { execucao: null, passos: [] };
+  /* Uma execucao que deixou de dar sinal ha mais de 45 minutos morreu pelo
+     caminho (Mac a dormir, Chrome fechado): deixa de se mostrar a correr. */
+  const sinal = ex.atualizado_em || ex.iniciada_em || ex.pedida_em;
+  if ((ex.estado === 'a_correr' || ex.estado === 'pedida') && sinal &&
+      Date.now() - new Date(sinal).getTime() > 45 * 60000) ex.parada = true;
+  const passos = await all(
+    `SELECT id, em, tipo, texto, ficheiro FROM onedrive_passos
+      WHERE execucao_id = $1 AND id > $2 ORDER BY id LIMIT 300`, [ex.id, Number(depois) || 0]);
+  return { execucao: ex, passos };
+}
+
 function falha(res, err, onde) {
   if (!err.status) console.error('[farol] onedrive ' + onde + ':', err.message);
   res.status(err.status || 500).json({ error: err.status ? err.message : 'Não foi possível tratar da Entrada do OneDrive.' });
@@ -290,6 +357,18 @@ function instalar(app, opcoes) {
 
   app.get('/api/onedrive', async (_req, res) => {
     try { res.json(await estado()); } catch (err) { falha(res, err, 'GET'); }
+  });
+
+  app.get('/api/onedrive/agora', async (req, res) => {
+    try { res.json(await agora(req.query.depois, Number(req.query.execucao) || null)); }
+    catch (err) { falha(res, err, 'agora'); }
+  });
+
+  app.post('/api/onedrive/execucoes/:id/passos', async (req, res) => {
+    try {
+      await preparar();
+      res.status(201).json({ id: await registarPasso(Number(req.params.id), req.body || {}) });
+    } catch (err) { falha(res, err, 'passos'); }
   });
 
   app.get('/api/onedrive/por-copiar', async (_req, res) => {
@@ -320,6 +399,7 @@ function instalar(app, opcoes) {
           `INSERT INTO onedrive_execucoes (origem, estado, iniciada_em) VALUES ($1, 'a_correr', now()) RETURNING *`,
           [b.origem === 'manual' ? 'manual' : 'agendada']))[0];
       }
+      await registarPasso(row.id, { tipo: 'fase', texto: 'Execução iniciada no Mac' });
       res.status(201).json(Object.assign({}, row, { agendamento: await agendamento(), pastas: await pastas() }));
     } catch (err) { falha(res, err, 'POST execucoes'); }
   });
@@ -338,6 +418,12 @@ function instalar(app, opcoes) {
           WHERE id = $1 RETURNING *`,
         [Number(req.params.id), est, n(b.n_ficheiros), n(b.n_erros), n(b.n_copias), texto(b.resumo, 4000)]);
       if (!r.length) throw erro(404, 'Execução não encontrada.');
+      if (est !== 'a_correr') {
+        const fim = { concluida: 'Concluída', com_erros: 'Concluída com erros', falhou: 'Falhou' }[est];
+        await query(`INSERT INTO onedrive_passos (execucao_id, tipo, texto) VALUES ($1,$2,$3)`,
+          [r[0].id, est === 'concluida' ? 'fase' : 'erro', fim + (r[0].resumo ? ': ' + r[0].resumo : '')]);
+        await query(`UPDATE onedrive_execucoes SET passo = $2, atualizado_em = now() WHERE id = $1`, [r[0].id, fim]);
+      }
       res.json(r[0]);
     } catch (err) { falha(res, err, 'PATCH execucoes'); }
   });
@@ -460,10 +546,12 @@ function instalar(app, opcoes) {
       await preparar();
       const aberto = (await all(
         `SELECT id FROM onedrive_execucoes WHERE estado IN ('pedida','a_correr')
-            AND COALESCE(iniciada_em, pedida_em) > now() - interval '30 minutes' ORDER BY id DESC LIMIT 1`))[0];
+            AND COALESCE(atualizado_em, iniciada_em, pedida_em) > now() - interval '30 minutes' ORDER BY id DESC LIMIT 1`))[0];
       if (aberto) return res.status(409).json({ error: 'Já há uma execução pedida ou a correr.', id: aberto.id });
       const row = (await all(
-        `INSERT INTO onedrive_execucoes (origem, estado) VALUES ('manual', 'pedida') RETURNING *`))[0];
+        `INSERT INTO onedrive_execucoes (origem, estado, passo, atualizado_em)
+         VALUES ('manual', 'pedida', 'À espera que a rotina arranque no Mac', now()) RETURNING *`))[0];
+      await query(`INSERT INTO onedrive_passos (execucao_id, tipo, texto) VALUES ($1,'fase','Pedido «Correr agora» registado')`, [row.id]);
       const d = await dispararRotina(row.id);
       if (!d.disparada) {
         await query(`UPDATE onedrive_execucoes SET resumo = $2 WHERE id = $1`,
@@ -476,4 +564,4 @@ function instalar(app, opcoes) {
   });
 }
 
-module.exports = { instalar, estado, porCopiar, horasValidas, caminhoLimpo };
+module.exports = { instalar, estado, porCopiar, agora, horasValidas, caminhoLimpo };
