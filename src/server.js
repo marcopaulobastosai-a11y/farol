@@ -934,6 +934,9 @@ require('./revisao').instalar(app);
 require('./captar').instalar(app);
 /* O stock de emergencia: Casa > Emergencia (19 nov 2026). */
 require('./emergencia').instalar(app, { tarefas });
+
+// Entrada do OneDrive: o rasto da rotina que esvazia a pasta 00_Entrada.
+require('./onedrive').instalar(app, { tarefas });
 /* Notificacoes push (26 out 2026): src/notificacoes.js. */
 const notificacoes = require('./notificacoes');
 notificacoes.instalar(app);
