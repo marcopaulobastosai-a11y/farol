@@ -122,7 +122,7 @@ function mpRender(){
 
   sec.appendChild(el('div', 'mp-h', 'Mais'));
   var mais = el('div', 'mp-mais');
-  [['tarefas', 'Tarefas'], ['projetos', 'Projetos'], ['documentos', 'Documentos'], ['revisao', 'Revisão'], ['inbox', 'Caixa de entrada'], ['menu', 'Menu completo']].forEach(function(x){
+  [['tarefas', 'Tarefas'], ['presentes', 'Presentes'], ['projetos', 'Projetos'], ['documentos', 'Documentos'], ['revisao', 'Revisão'], ['inbox', 'Caixa de entrada'], ['menu', 'Menu completo']].forEach(function(x){
     var nb = document.querySelector('#nav button[data-view="' + x[0] + '"]');
     if (x[0] !== 'menu' && !nb) return;
     var b = el('button');

@@ -934,6 +934,8 @@ require('./revisao').instalar(app);
 require('./captar').instalar(app);
 /* O stock de emergencia: Casa > Emergencia (19 nov 2026). */
 require('./emergencia').instalar(app, { tarefas });
+/* Os presentes: Transversal > Presentes (23 nov 2026), em vez da Gift List. */
+require('./presentes').instalar(app, { tarefas });
 
 // Entrada do OneDrive: o rasto da rotina que esvazia a pasta 00_Entrada.
 require('./onedrive').instalar(app, { tarefas });

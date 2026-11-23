@@ -1402,3 +1402,86 @@ BEGIN
   END LOOP;
   RETURN NEW;
 END $$ LANGUAGE plpgsql;
+
+-- Presentes (23 nov 2026). Substitui a app Gift List do Mac.
+-- Uma ocasiao (o Natal de cada ano, um aniversario, outra), as pessoas a quem
+-- se oferece (podem ser pessoas do Farol ou so um nome: amigos, filhos dos
+-- amigos) e cada presente com o seu estado. Um presente sem ocasiao e uma
+-- ideia na lista de desejos da pessoa. Cada ocasiao fica guardada: nao ha
+-- arquivo nem «reset».
+CREATE TABLE IF NOT EXISTS presentes_ocasioes (
+  id         SERIAL PRIMARY KEY,
+  nome       TEXT NOT NULL,
+  tipo       TEXT NOT NULL DEFAULT 'outra',      -- natal | aniversario | outra
+  data       DATE,
+  orcamento  NUMERIC(12,2),
+  arquivada  BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS presentes_destinatarios (
+  id         SERIAL PRIMARY KEY,
+  nome       TEXT NOT NULL,
+  person_id  INTEGER REFERENCES people(id) ON DELETE SET NULL,
+  grupo      TEXT,
+  gostos     TEXT,
+  tamanhos   TEXT,
+  ativo      BOOLEAN NOT NULL DEFAULT TRUE,
+  sort       INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS presentes_dest_pessoa ON presentes_destinatarios (person_id) WHERE person_id IS NOT NULL;
+CREATE TABLE IF NOT EXISTS presentes (
+  id              SERIAL PRIMARY KEY,
+  ocasiao_id      INTEGER REFERENCES presentes_ocasioes(id) ON DELETE CASCADE,
+  destinatario_id INTEGER NOT NULL REFERENCES presentes_destinatarios(id) ON DELETE CASCADE,
+  titulo          TEXT NOT NULL,
+  estado          TEXT NOT NULL DEFAULT 'ideia',  -- ideia | comprado | feito | enviado | chegou | embrulhado | entregue
+  tipo            TEXT NOT NULL DEFAULT 'presente', -- presente | lembranca
+  preco           NUMERIC(12,2),
+  de_quem         TEXT,
+  loja            TEXT,
+  tamanho         TEXT,
+  transportadora  TEXT,
+  seguimento      TEXT,
+  chega_ate       DATE,
+  guardado        TEXT,
+  notas           TEXT,
+  movimento_id    INTEGER,                         -- fin_movimentos.id (a compra no banco)
+  task_id         INTEGER,                         -- a tarefa de embrulhar, quando existe
+  estados         JSONB NOT NULL DEFAULT '{}'::jsonb, -- {"comprado":"2026-11-14", ...}
+  sort            INTEGER NOT NULL DEFAULT 0,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS presentes_ocasiao ON presentes (ocasiao_id);
+CREATE INDEX IF NOT EXISTS presentes_dest ON presentes (destinatario_id);
+CREATE TABLE IF NOT EXISTS presentes_orcamentos (
+  ocasiao_id      INTEGER NOT NULL REFERENCES presentes_ocasioes(id) ON DELETE CASCADE,
+  destinatario_id INTEGER NOT NULL REFERENCES presentes_destinatarios(id) ON DELETE CASCADE,
+  valor           NUMERIC(12,2) NOT NULL,
+  PRIMARY KEY (ocasiao_id, destinatario_id)
+);
+
+-- Riscar um passo da tarefa de embrulhar passa o presente a «embrulhado»;
+-- tirar o risco volta a «chegou». O passo chama-se «<pessoa> — <presente>».
+CREATE OR REPLACE FUNCTION presentes_passo() RETURNS trigger AS $$
+BEGIN
+  IF TG_OP = 'UPDATE' AND NEW.done IS NOT DISTINCT FROM OLD.done THEN RETURN NEW; END IF;
+  IF NEW.done THEN
+    UPDATE presentes p SET estado = 'embrulhado', updated_at = now(),
+           estados = p.estados || jsonb_build_object('embrulhado', to_char(now() AT TIME ZONE 'Europe/Lisbon', 'YYYY-MM-DD'))
+      FROM presentes_destinatarios d
+     WHERE p.task_id = NEW.task_id AND d.id = p.destinatario_id
+       AND d.nome || ' — ' || p.titulo = NEW.title AND p.estado IN ('chegou', 'feito', 'comprado', 'enviado');
+  ELSIF TG_OP = 'UPDATE' THEN
+    UPDATE presentes p SET estado = 'chegou', updated_at = now()
+      FROM presentes_destinatarios d
+     WHERE p.task_id = NEW.task_id AND d.id = p.destinatario_id
+       AND d.nome || ' — ' || p.titulo = NEW.title AND p.estado = 'embrulhado';
+  END IF;
+  RETURN NEW;
+END $$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS presentes_passo ON task_items;
+CREATE TRIGGER presentes_passo
+  AFTER INSERT OR UPDATE OF done ON task_items
+  FOR EACH ROW EXECUTE FUNCTION presentes_passo();
