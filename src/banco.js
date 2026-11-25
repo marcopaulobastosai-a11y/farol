@@ -394,6 +394,14 @@ function instalar(app, deps) {
     } catch (e) { falha(res, e, 'gravar a conta'); }
   });
 
+  /* O que a API devolve, tal e qual (para conferir datas e textos). */
+  app.get('/api/financas/banco/contas/:uid/bruto', async (req, res) => {
+    try {
+      const desde = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.desde || '')) ? String(req.query.desde) : menosDias(new Date().toISOString().slice(0, 10), 30);
+      res.json({ transacoes: await lerTransacoes(req.params.uid, desde) });
+    } catch (e) { falha(res, e, 'ler as transações do banco'); }
+  });
+
   app.post('/api/financas/banco/sincronizar', async (_req, res) => {
     try { res.json(await sincronizar('manual')); } catch (e) { falha(res, e, 'ler o banco'); }
   });
