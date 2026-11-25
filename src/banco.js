@@ -109,6 +109,15 @@ async function preparar() {
     );
     CREATE INDEX IF NOT EXISTS fin_banco_vistos_mov_idx ON fin_banco_vistos (movimento_id);
   `);
+  /* 25/11: a primeira leitura usou a booking_date nos cartoes e criou dois
+     repetidos no Classic (apagados a mao). Esquecer essas duas para voltarem
+     a ser ligadas ao movimento certo. */
+  await query(`DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM settings WHERE key = 'banco_fix_classic_2511') THEN
+      DELETE FROM fin_banco_vistos WHERE conta = 'CPAN 440646******3278' AND ref IN ('63160','63130') AND movimento_id IS NULL;
+      INSERT INTO settings (key, value) VALUES ('banco_fix_classic_2511', 'feito');
+    END IF;
+  EXCEPTION WHEN OTHERS THEN RAISE WARNING 'banco fix: %', SQLERRM; END $$;`);
 }
 
 /* ---------------- autorizar ---------------- */
@@ -148,7 +157,10 @@ async function sugerirConta(ident) {
 }
 
 /* ---------------- sincronizar ---------------- */
-function dataDe(t) { return String(t.booking_date || t.value_date || t.transaction_date || '').slice(0, 10); }
+/* Nos cartoes do CA a API pos booking_date = dia da leitura em todas as
+   compras; a data certa (a «Data movimento» do homebanking e do extrato) e a
+   transaction_date. Nas contas a ordem transaction_date vem vazia. */
+function dataDe(t) { return String(t.transaction_date || t.booking_date || t.value_date || '').slice(0, 10); }
 function valorDe(t) {
   const a = Number((t.transaction_amount && t.transaction_amount.amount) || 0);
   const ind = String(t.credit_debit_indicator || '').toUpperCase();
@@ -189,7 +201,7 @@ async function sincronizarConta(bc) {
   const desde = ultimo ? menosDias(ultimo, 7) : menosDias(hoje, 30);
   const txs = (await lerTransacoes(bc.uid, desde))
     .filter((t) => !t.status || String(t.status).toUpperCase() === 'BOOK')
-    .filter((t) => dataDe(t));
+    .filter((t) => dataDe(t) && Math.abs(valorDe(t)) >= 0.005); // sem os avisos a zero («Disp. de um cart cred»)
   txs.sort((a, b) => dataDe(a).localeCompare(dataDe(b)));
   const novos = [], ligados = [];
   for (const t of txs) {
