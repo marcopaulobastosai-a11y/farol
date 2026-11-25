@@ -55,17 +55,24 @@ select{font:inherit;padding:.3rem;border-radius:6px;border:1px solid var(--line)
   function desenhar(e){
     var h = '';
     if (!e.configurado) h += '<div class="msg aviso">Falta configurar a aplicação: no Railway, serviço <b>farol</b>, Variables, acrescentar <code>EB_APP_ID</code> e <code>EB_PRIVATE_KEY</code> (o conteúdo do ficheiro .pem).</div>';
-    var ativa = (e.ligacoes || []).filter(function(l){ return l.estado === 'ativa'; })[0];
-    h += '<div class="card"><div class="linha">';
-    if (ativa) {
-      var dias = ativa.valido_ate ? Math.floor((new Date(ativa.valido_ate) - new Date()) / 86400000) : null;
-      var cls = dias == null ? 'muted' : (dias < 0 ? 'erro' : (dias <= 10 ? 'aviso' : 'ok'));
-      h += '<span><b>' + esc(ativa.aspsp) + '</b> · autorizado até <span class="' + cls + '">' + (ativa.valido_ate ? new Date(ativa.valido_ate).toLocaleDateString('pt-PT') : '—') + (dias != null ? ' (' + (dias < 0 ? 'expirou' : dias + ' dias') + ')' : '') + '</span></span>';
-    } else h += '<span class="muted">Nenhum banco ligado.</span>';
-    h += '<span style="flex:1"></span><button id="ligar"' + (e.configurado ? '' : ' disabled') + '>' + (ativa ? 'Renovar autorização' : 'Ligar Crédito Agrícola') + '</button>';
-    h += '<button class="sec" id="ler"' + (e.configurado && ativa ? '' : ' disabled') + '>Ler agora</button></div></div>';
+    var ativas = (e.ligacoes || []).filter(function(l){ return l.estado === 'ativa'; });
+    var ativa = ativas[0];
+    var NOMES = { personal: 'Pessoal', business: 'Empresa' };
+    h += '<div class="card">';
+    ['personal','business'].forEach(function(tp){
+      var l = ativas.filter(function(x){ return (x.tipo || 'personal') === tp; })[0];
+      h += '<div class="linha" style="margin:.3rem 0">';
+      if (l) {
+        var dias = l.valido_ate ? Math.floor((new Date(l.valido_ate) - new Date()) / 86400000) : null;
+        var cls = dias == null ? 'muted' : (dias < 0 ? 'erro' : (dias <= 10 ? 'aviso' : 'ok'));
+        h += '<span><b>' + esc(l.aspsp) + ' · ' + NOMES[tp] + '</b> · autorizado até <span class="' + cls + '">' + (l.valido_ate ? new Date(l.valido_ate).toLocaleDateString('pt-PT') : '—') + (dias != null ? ' (' + (dias < 0 ? 'expirou' : dias + ' dias') + ')' : '') + '</span></span>';
+      } else h += '<span class="muted">' + NOMES[tp] + ': nenhum banco ligado.</span>';
+      h += '<span style="flex:1"></span><button class="' + (tp === 'business' ? 'sec ' : '') + 'ligar" data-tipo="' + tp + '"' + (e.configurado ? '' : ' disabled') + '>' + (l ? 'Renovar ' : 'Ligar ') + (tp === 'business' ? 'empresa' : 'pessoal') + '</button></div>';
+    });
+    h += '<div class="linha" style="margin-top:.6rem"><span style="flex:1"></span><button class="sec" id="ler"' + (e.configurado && ativa ? '' : ' disabled') + '>Ler agora</button></div></div>';
 
-    var contas = (e.contas || []).filter(function(c){ return !ativa || c.ligacao_id === ativa.id; });
+    var ids = ativas.map(function(l){ return l.id; });
+    var contas = (e.contas || []).filter(function(c){ return ids.indexOf(c.ligacao_id) >= 0; });
     if (contas.length) {
       var opts = function(sel){ return '<option value="">— não importar —</option>' + (e.farol_contas || []).map(function(f){ return '<option value="' + f.id + '"' + (f.id === sel ? ' selected' : '') + '>' + esc(f.nome) + '</option>'; }).join(''); };
       h += '<h2>Contas autorizadas</h2><div class="card"><table><tr><th>No banco</th><th>Conta no Farol</th><th class="num">Saldo banco</th><th class="num">Saldo Farol</th><th>Última leitura</th></tr>';
@@ -90,9 +97,10 @@ select{font:inherit;padding:.3rem;border-radius:6px;border:1px solid var(--line)
       h += '</div>';
     }
     C.className = ''; C.innerHTML = h;
-    var b = document.getElementById('ligar');
-    if (b) b.onclick = function(){ b.disabled = true; b.textContent = 'A abrir o banco…';
-      api('/api/financas/banco/ligar', 'POST', { banco: 'Crédito Agrícola', pais: 'PT' }).then(function(r){ location.href = r.url; }, function(err){ A.innerHTML = '<div class="msg erro">' + esc(err.message) + '</div>'; b.disabled = false; b.textContent = 'Tentar outra vez'; }); };
+    Array.prototype.forEach.call(document.querySelectorAll('button.ligar'), function(b){
+      b.onclick = function(){ b.disabled = true; b.textContent = 'A abrir o banco…';
+        api('/api/financas/banco/ligar', 'POST', { banco: 'Crédito Agrícola', pais: 'PT', tipo: b.getAttribute('data-tipo') }).then(function(r){ location.href = r.url; }, function(err){ A.innerHTML = '<div class="msg erro">' + esc(err.message) + '</div>'; b.disabled = false; b.textContent = 'Tentar outra vez'; }); };
+    });
     var l = document.getElementById('ler');
     if (l) l.onclick = function(){ l.disabled = true; l.textContent = 'A ler o banco…';
       api('/api/financas/banco/sincronizar', 'POST', {}).then(function(r){ A.innerHTML = '<div class="msg ok">' + (r.novos || 0) + ' movimento(s) novo(s).</div>'; carregar(); }, function(err){ A.innerHTML = '<div class="msg erro">' + esc(err.message) + '</div>'; l.disabled = false; l.textContent = 'Ler agora'; }); };

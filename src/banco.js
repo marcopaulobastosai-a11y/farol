@@ -85,6 +85,7 @@ async function preparar() {
       estado      TEXT NOT NULL DEFAULT 'ativa',
       created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
     );
+    ALTER TABLE fin_banco_ligacoes ADD COLUMN IF NOT EXISTS tipo TEXT NOT NULL DEFAULT 'personal';
     CREATE TABLE IF NOT EXISTS fin_banco_contas (
       uid             TEXT PRIMARY KEY,
       ligacao_id      INTEGER REFERENCES fin_banco_ligacoes(id) ON DELETE CASCADE,
@@ -121,7 +122,7 @@ async function preparar() {
 }
 
 /* ---------------- autorizar ---------------- */
-const estadosPendentes = new Map(); // state -> {aspsp, pais, criado}
+const estadosPendentes = new Map(); // state -> {aspsp, pais, tipo, criado}
 function urlRetorno(req) {
   const base = process.env.EB_REDIRECT_URL || ('https://' + req.get('host') + '/api/financas/banco/retorno');
   return base;
@@ -315,7 +316,7 @@ async function arrancar() {
 
 /* ---------------- estado ---------------- */
 async function estado() {
-  const ligacoes = await all("SELECT id, aspsp, pais, valido_ate, estado, created_at FROM fin_banco_ligacoes ORDER BY id DESC");
+  const ligacoes = await all("SELECT id, aspsp, pais, tipo, valido_ate, estado, created_at FROM fin_banco_ligacoes ORDER BY id DESC");
   const contas = await all(
     `SELECT c.uid, c.ligacao_id, c.conta_id, c.identificacao, c.nome, c.saldo_banco, c.saldo_em, c.sincronizado_em, c.ultimo_erro, f.nome AS conta_nome
        FROM fin_banco_contas c LEFT JOIN fin_contas f ON f.id = c.conta_id ORDER BY c.ligacao_id DESC, c.identificacao`);
@@ -349,14 +350,16 @@ function instalar(app, deps) {
     try {
       const b = req.body || {};
       const aspsp = String(b.banco || 'Crédito Agrícola'), pais = String(b.pais || 'PT');
+      /* personal = contas do Marco; business = contas da empresa (outra adesao no banco). */
+      const tipo = b.tipo === 'business' ? 'business' : 'personal';
       const segs = await validadeMaxima(aspsp, pais);
       const ate = new Date(Date.now() + Math.max(3600, segs - 3600) * 1000).toISOString();
       const state = crypto.randomUUID();
-      estadosPendentes.set(state, { aspsp, pais, criado: Date.now() });
+      estadosPendentes.set(state, { aspsp, pais, tipo, criado: Date.now() });
       const r = await eb('POST', '/auth', {
         access: { valid_until: ate },
         aspsp: { name: aspsp, country: pais },
-        state, redirect_url: urlRetorno(req), psu_type: 'personal'
+        state, redirect_url: urlRetorno(req), psu_type: tipo
       });
       res.json({ url: r.url, valido_ate: ate });
     } catch (e) { falha(res, e, 'começar a ligação ao banco'); }
@@ -372,8 +375,9 @@ function instalar(app, deps) {
       estadosPendentes.delete(String(req.query.state || ''));
       const s = await eb('POST', '/sessions', { code });
       const ate = (s.access && s.access.valid_until) || null;
-      const lig = (await all('INSERT INTO fin_banco_ligacoes (aspsp, pais, session_id, valido_ate) VALUES ($1,$2,$3,$4) RETURNING id',
-        [(s.aspsp && s.aspsp.name) || (pend && pend.aspsp) || 'Banco', (s.aspsp && s.aspsp.country) || (pend && pend.pais) || 'PT', s.session_id || null, ate]))[0];
+      const tipo = (s.psu_type) || (pend && pend.tipo) || 'personal';
+      const lig = (await all('INSERT INTO fin_banco_ligacoes (aspsp, pais, session_id, valido_ate, tipo) VALUES ($1,$2,$3,$4,$5) RETURNING id',
+        [(s.aspsp && s.aspsp.name) || (pend && pend.aspsp) || 'Banco', (s.aspsp && s.aspsp.country) || (pend && pend.pais) || 'PT', s.session_id || null, ate, tipo]))[0];
       for (const a of (s.accounts || [])) {
         const uid = a.uid || a;
         const ident = identificacaoDe(a);
@@ -388,7 +392,12 @@ function instalar(app, deps) {
       }
       /* Ligacoes anteriores ao mesmo banco ficam substituidas: os uids
          antigos deixam de servir. */
-      await query("UPDATE fin_banco_ligacoes SET estado = 'substituida' WHERE id <> $1 AND aspsp = (SELECT aspsp FROM fin_banco_ligacoes WHERE id = $1) AND estado = 'ativa'", [lig.id]);
+      /* So a mesma adesao (mesmo banco e mesmo tipo, pessoal ou empresa) e
+         substituida; a ligacao da empresa nao apaga a pessoal. */
+      await query(`UPDATE fin_banco_ligacoes SET estado = 'substituida'
+                    WHERE id <> $1 AND estado = 'ativa' AND (aspsp, tipo) = (SELECT aspsp, tipo FROM fin_banco_ligacoes WHERE id = $1)
+                      AND id IN (SELECT DISTINCT ligacao_id FROM fin_banco_contas WHERE identificacao = ANY($2::text[]))`,
+        [lig.id, (s.accounts || []).map(identificacaoDe)]);
       volta('ok=' + (s.accounts || []).length);
     } catch (e) {
       console.error('[farol] banco retorno:', e.message);
