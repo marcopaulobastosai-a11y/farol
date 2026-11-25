@@ -231,9 +231,12 @@ async function sincronizarConta(bc) {
     await query('INSERT INTO fin_banco_vistos (conta, ref, movimento_id, criado) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING', [bc.identificacao, ref, id, Boolean(id)]);
     if (id) novos.push(id);
   }
-  /* Saldo do banco, para comparar com o do Farol. */
+  /* Saldo do banco, para comparar com o do Farol. A PSD2 deixa ler cada
+     conta so 4 vezes por dia sem o Marco presente (transacoes e saldo contam
+     as duas): o saldo pede-se no maximo uma vez a cada 20 horas. */
   let saldoBanco = null;
-  try {
+  const ultSaldo = (await all('SELECT saldo_em FROM fin_banco_contas WHERE uid = $1', [bc.uid]))[0];
+  if (!ultSaldo || !ultSaldo.saldo_em || Date.now() - new Date(ultSaldo.saldo_em).getTime() > 20 * 3600 * 1000) try {
     const b = await eb('GET', '/accounts/' + encodeURIComponent(bc.uid) + '/balances');
     const lista = b.balances || [];
     const pref = ['CLBD', 'ITAV', 'XPCD', 'ITBD', 'CLAV', 'OPBD'];
