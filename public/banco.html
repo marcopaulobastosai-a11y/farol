@@ -58,17 +58,23 @@ select{font:inherit;padding:.3rem;border-radius:6px;border:1px solid var(--line)
     if (!e.configurado) h += '<div class="msg aviso">Falta configurar a aplicação: no Railway, serviço <b>farol</b>, Variables, acrescentar <code>EB_APP_ID</code> e <code>EB_PRIVATE_KEY</code> (o conteúdo do ficheiro .pem).</div>';
     var ativas = (e.ligacoes || []).filter(function(l){ return l.estado === 'ativa'; });
     var ativa = ativas[0];
-    var NOMES = { personal: 'Pessoal', business: 'Empresa' };
+    /* As adesoes ligadas: cada uma e um banco (ASPSP) e um tipo. O Moey e da
+       Caixa Central de Credito Agricola (na Enable Banking nao tem nome proprio). */
+    var LIGS = [
+      { banco: 'Crédito Agrícola', tipo: 'personal', rot: 'Crédito Agrícola · Pessoal', btn: 'CA pessoal' },
+      { banco: 'Crédito Agrícola', tipo: 'business', rot: 'Crédito Agrícola · Empresa', btn: 'CA empresa' },
+      { banco: 'Caixa Central de Crédito Agrícola Mutuo', tipo: 'personal', rot: 'Moey', btn: 'Moey' }
+    ];
     h += '<div class="card">';
-    ['personal','business'].forEach(function(tp){
-      var l = ativas.filter(function(x){ return (x.tipo || 'personal') === tp; })[0];
+    LIGS.forEach(function(g, i){
+      var l = ativas.filter(function(x){ return x.aspsp === g.banco && (x.tipo || 'personal') === g.tipo; })[0];
       h += '<div class="linha" style="margin:.3rem 0">';
       if (l) {
         var dias = l.valido_ate ? Math.floor((new Date(l.valido_ate) - new Date()) / 86400000) : null;
         var cls = dias == null ? 'muted' : (dias < 0 ? 'erro' : (dias <= 10 ? 'aviso' : 'ok'));
-        h += '<span><b>' + esc(l.aspsp) + ' · ' + NOMES[tp] + '</b> · autorizado até <span class="' + cls + '">' + (l.valido_ate ? new Date(l.valido_ate).toLocaleDateString('pt-PT') : '—') + (dias != null ? ' (' + (dias < 0 ? 'expirou' : dias + ' dias') + ')' : '') + '</span></span>';
-      } else h += '<span class="muted">' + NOMES[tp] + ': nenhum banco ligado.</span>';
-      h += '<span style="flex:1"></span><button class="' + (tp === 'business' ? 'sec ' : '') + 'ligar" data-tipo="' + tp + '"' + (e.configurado ? '' : ' disabled') + '>' + (l ? 'Renovar ' : 'Ligar ') + (tp === 'business' ? 'empresa' : 'pessoal') + '</button></div>';
+        h += '<span><b>' + esc(g.rot) + '</b> · autorizado até <span class="' + cls + '">' + (l.valido_ate ? new Date(l.valido_ate).toLocaleDateString('pt-PT') : '—') + (dias != null ? ' (' + (dias < 0 ? 'expirou' : dias + ' dias') + ')' : '') + '</span></span>';
+      } else h += '<span class="muted">' + esc(g.rot) + ': não ligado.</span>';
+      h += '<span style="flex:1"></span><button class="' + (i ? 'sec ' : '') + 'ligar" data-i="' + i + '"' + (e.configurado ? '' : ' disabled') + '>' + (l ? 'Renovar ' : 'Ligar ') + esc(g.btn) + '</button></div>';
     });
     h += '<div class="linha" style="margin-top:.6rem"><span style="flex:1"></span><button class="sec" id="ler"' + (e.configurado && ativa ? '' : ' disabled') + '>Ler agora</button></div></div>';
 
@@ -100,7 +106,7 @@ select{font:inherit;padding:.3rem;border-radius:6px;border:1px solid var(--line)
     C.className = ''; C.innerHTML = h;
     Array.prototype.forEach.call(document.querySelectorAll('button.ligar'), function(b){
       b.onclick = function(){ b.disabled = true; b.textContent = 'A abrir o banco…';
-        api('/api/financas/banco/ligar', 'POST', { banco: 'Crédito Agrícola', pais: 'PT', tipo: b.getAttribute('data-tipo') }).then(function(r){ location.href = r.url; }, function(err){ A.innerHTML = '<div class="msg erro">' + esc(err.message) + '</div>'; b.disabled = false; b.textContent = 'Tentar outra vez'; }); };
+        var g = LIGS[+b.getAttribute('data-i')]; api('/api/financas/banco/ligar', 'POST', { banco: g.banco, pais: 'PT', tipo: g.tipo }).then(function(r){ location.href = r.url; }, function(err){ A.innerHTML = '<div class="msg erro">' + esc(err.message) + '</div>'; b.disabled = false; b.textContent = 'Tentar outra vez'; }); };
     });
     var l = document.getElementById('ler');
     if (l) l.onclick = function(){ l.disabled = true; l.textContent = 'A ler o banco…';
