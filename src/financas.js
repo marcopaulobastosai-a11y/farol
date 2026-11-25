@@ -2517,5 +2517,5 @@ function instalar(app) {
 }
 
 /* Os relatorios (src/relatorios.js) leem com as mesmas pecas. */
-module.exports = { instalar, preparar, categorizar, base, natureza, movimentosEntre, ancoras, saldoEm,
+module.exports = { instalar, preparar, categorizar, base, ligarIdentificadores, natureza, movimentosEntre, ancoras, saldoEm,
   _teste: { chave, norm, recorrentes, saldoEm, somaMes, mesesAte } };

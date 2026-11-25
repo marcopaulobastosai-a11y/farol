@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ligação ao banco · Farol</title>
+<meta name="robots" content="noindex">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500&family=Newsreader:wght@400;500&display=swap">
+<style>
+:root{--bg:#F7F6F3;--surface:#FFFFFF;--ink:#1C1F1E;--ink-2:#3C4240;--muted:#6B7472;--line:#E2E0DA;--accent:#0F6E70;--ok:#2E7D4F;--aviso:#A15C07;--erro:#B3261E}
+@media (prefers-color-scheme:dark){:root{--bg:#141716;--surface:#1B1F1E;--ink:#ECEAE4;--ink-2:#C7CAC7;--muted:#8E9895;--line:#2C312F;--accent:#5FB3B0}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;line-height:1.5}
+main{max-width:52rem;margin:0 auto;padding:2rem 1.25rem 4rem}
+h1{font-family:Newsreader,Georgia,serif;font-weight:500;font-size:1.9rem;margin:0 0 .25rem}
+h2{font-family:Newsreader,Georgia,serif;font-weight:500;font-size:1.2rem;margin:2rem 0 .5rem}
+p{color:var(--ink-2)}
+a{color:var(--accent)}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:1rem 1.1rem;margin:.75rem 0}
+table{width:100%;border-collapse:collapse;font-size:.92rem}
+th,td{text-align:left;padding:.45rem .4rem;border-bottom:1px solid var(--line);vertical-align:middle}
+th{color:var(--muted);font-weight:500}
+td.num{text-align:right;font-variant-numeric:tabular-nums}
+button{font:inherit;padding:.5rem .9rem;border-radius:8px;border:1px solid var(--accent);background:var(--accent);color:#fff;cursor:pointer}
+button.sec{background:transparent;color:var(--accent)}
+button:disabled{opacity:.5;cursor:default}
+select{font:inherit;padding:.3rem;border-radius:6px;border:1px solid var(--line);background:var(--surface);color:var(--ink);max-width:16rem}
+.ok{color:var(--ok)}.aviso{color:var(--aviso)}.erro{color:var(--erro)}.muted{color:var(--muted)}
+.msg{padding:.7rem .9rem;border-radius:8px;margin:.75rem 0;border:1px solid var(--line);background:var(--surface)}
+.linha{display:flex;gap:.6rem;flex-wrap:wrap;align-items:center}
+</style>
+</head>
+<body>
+<main>
+  <p><a href="/">← Farol</a></p>
+  <h1>Ligação ao banco</h1>
+  <p>O Farol lê sozinho os movimentos das contas autorizadas, de manhã (8h05) e à noite (21h05), por Open Banking (Enable Banking). A autorização faz-se no ecrã do próprio banco e tem prazo; antes de acabar, volta-se a ligar aqui.</p>
+  <div id="aviso"></div>
+  <div id="conteudo" class="muted">A ler…</div>
+</main>
+<script>
+(function(){
+  var C = document.getElementById('conteudo'), A = document.getElementById('aviso');
+  var eur = function(v){ return v == null ? '—' : Number(v).toLocaleString('pt-PT',{minimumFractionDigits:2,maximumFractionDigits:2}) + ' €'; };
+  var dt = function(s){ if(!s) return '—'; var d = new Date(s); return d.toLocaleDateString('pt-PT') + ' ' + d.toLocaleTimeString('pt-PT',{hour:'2-digit',minute:'2-digit'}); };
+  var esc = function(s){ return String(s == null ? '' : s).replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); };
+  function api(url, metodo, corpo){
+    return fetch(url, { method: metodo || 'GET', headers: corpo ? {'Content-Type':'application/json'} : undefined, body: corpo ? JSON.stringify(corpo) : undefined, credentials: 'same-origin' })
+      .then(function(r){ return r.json().then(function(j){ if(!r.ok) throw new Error(j && j.error || ('HTTP ' + r.status)); return j; }, function(){ if(r.status === 401) throw new Error('Sem sessão: entra no Farol primeiro.'); throw new Error('HTTP ' + r.status); }); });
+  }
+  var q = new URLSearchParams(location.search);
+  if (q.get('ok') != null) A.innerHTML = '<div class="msg ok">Banco ligado: ' + esc(q.get('ok')) + ' conta(s) autorizada(s). Confirma abaixo a conta do Farol de cada uma e carrega em «Ler agora».</div>';
+  if (q.get('erro')) A.innerHTML = '<div class="msg erro">A ligação não ficou feita: ' + esc(q.get('erro')) + '</div>';
+
+  function desenhar(e){
+    var h = '';
+    if (!e.configurado) h += '<div class="msg aviso">Falta configurar a aplicação: no Railway, serviço <b>farol</b>, Variables, acrescentar <code>EB_APP_ID</code> e <code>EB_PRIVATE_KEY</code> (o conteúdo do ficheiro .pem).</div>';
+    var ativa = (e.ligacoes || []).filter(function(l){ return l.estado === 'ativa'; })[0];
+    h += '<div class="card"><div class="linha">';
+    if (ativa) {
+      var dias = ativa.valido_ate ? Math.floor((new Date(ativa.valido_ate) - new Date()) / 86400000) : null;
+      var cls = dias == null ? 'muted' : (dias < 0 ? 'erro' : (dias <= 10 ? 'aviso' : 'ok'));
+      h += '<span><b>' + esc(ativa.aspsp) + '</b> · autorizado até <span class="' + cls + '">' + (ativa.valido_ate ? new Date(ativa.valido_ate).toLocaleDateString('pt-PT') : '—') + (dias != null ? ' (' + (dias < 0 ? 'expirou' : dias + ' dias') + ')' : '') + '</span></span>';
+    } else h += '<span class="muted">Nenhum banco ligado.</span>';
+    h += '<span style="flex:1"></span><button id="ligar"' + (e.configurado ? '' : ' disabled') + '>' + (ativa ? 'Renovar autorização' : 'Ligar Crédito Agrícola') + '</button>';
+    h += '<button class="sec" id="ler"' + (e.configurado && ativa ? '' : ' disabled') + '>Ler agora</button></div></div>';
+
+    var contas = (e.contas || []).filter(function(c){ return !ativa || c.ligacao_id === ativa.id; });
+    if (contas.length) {
+      var opts = function(sel){ return '<option value="">— não importar —</option>' + (e.farol_contas || []).map(function(f){ return '<option value="' + f.id + '"' + (f.id === sel ? ' selected' : '') + '>' + esc(f.nome) + '</option>'; }).join(''); };
+      h += '<h2>Contas autorizadas</h2><div class="card"><table><tr><th>No banco</th><th>Conta no Farol</th><th class="num">Saldo banco</th><th class="num">Saldo Farol</th><th>Última leitura</th></tr>';
+      contas.forEach(function(c){
+        var bate = c.saldo_banco != null && c.saldo_farol != null ? (Math.abs(Number(c.saldo_banco) - Number(c.saldo_farol)) < 0.01 || Math.abs(Number(c.saldo_banco) + Number(c.saldo_farol)) < 0.01) : null;
+        h += '<tr><td>' + esc(c.identificacao) + (c.nome ? '<br><span class="muted">' + esc(c.nome) + '</span>' : '') + '</td>' +
+          '<td><select data-uid="' + esc(c.uid) + '">' + opts(c.conta_id) + '</select></td>' +
+          '<td class="num">' + eur(c.saldo_banco) + '</td>' +
+          '<td class="num ' + (bate === null ? '' : (bate ? 'ok' : 'aviso')) + '">' + eur(c.saldo_farol) + '</td>' +
+          '<td>' + dt(c.sincronizado_em) + (c.ultimo_erro ? '<br><span class="erro">' + esc(c.ultimo_erro) + '</span>' : '') + '</td></tr>';
+      });
+      h += '</table><p class="muted" style="margin:.6rem 0 0">Nos cartões de crédito o banco pode mostrar o saldo em dívida com o sinal ao contrário do Farol; conta como certo se só o sinal diferir.</p></div>';
+    }
+    if (e.ultima) {
+      var u = e.ultima;
+      h += '<h2>Última leitura</h2><div class="card"><p style="margin:0 0 .5rem">' + dt(u.fim) + ' · ' + esc(u.origem) + ' · <b>' + (u.novos || 0) + '</b> movimento(s) novo(s)' + (u.erro ? ' · <span class="erro">' + esc(u.erro) + '</span>' : '') + '</p>';
+      if ((u.contas || []).length) {
+        h += '<table><tr><th>Conta</th><th class="num">Lidos</th><th class="num">Novos</th><th class="num">Já estavam</th><th></th></tr>';
+        u.contas.forEach(function(c){ h += '<tr><td>' + esc(c.conta) + '</td><td class="num">' + (c.lidos != null ? c.lidos : '') + '</td><td class="num">' + (c.novos != null ? c.novos : '') + '</td><td class="num">' + (c.ligados != null ? c.ligados : '') + '</td><td class="erro">' + esc(c.erro || '') + '</td></tr>'; });
+        h += '</table>';
+      }
+      h += '</div>';
+    }
+    C.className = ''; C.innerHTML = h;
+    var b = document.getElementById('ligar');
+    if (b) b.onclick = function(){ b.disabled = true; b.textContent = 'A abrir o banco…';
+      api('/api/financas/banco/ligar', 'POST', { banco: 'Crédito Agrícola', pais: 'PT' }).then(function(r){ location.href = r.url; }, function(err){ A.innerHTML = '<div class="msg erro">' + esc(err.message) + '</div>'; b.disabled = false; b.textContent = 'Tentar outra vez'; }); };
+    var l = document.getElementById('ler');
+    if (l) l.onclick = function(){ l.disabled = true; l.textContent = 'A ler o banco…';
+      api('/api/financas/banco/sincronizar', 'POST', {}).then(function(r){ A.innerHTML = '<div class="msg ok">' + (r.novos || 0) + ' movimento(s) novo(s).</div>'; carregar(); }, function(err){ A.innerHTML = '<div class="msg erro">' + esc(err.message) + '</div>'; l.disabled = false; l.textContent = 'Ler agora'; }); };
+    Array.prototype.forEach.call(document.querySelectorAll('select[data-uid]'), function(s){
+      s.onchange = function(){ api('/api/financas/banco/contas/' + encodeURIComponent(s.getAttribute('data-uid')), 'PATCH', { conta_id: s.value }).then(desenhar, function(err){ A.innerHTML = '<div class="msg erro">' + esc(err.message) + '</div>'; }); };
+    });
+  }
+  function carregar(){ api('/api/financas/banco').then(desenhar, function(err){ C.className = 'erro'; C.textContent = err.message; }); }
+  carregar();
+})();
+</script>
+</body>
+</html>

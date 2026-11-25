@@ -910,6 +910,9 @@ require('./splitwise').instalar(app, {
 /* Financas e Patrimonio: contas, movimentos, orcamentos, contas correntes. */
 const financas = require('./financas');
 financas.instalar(app);
+/* Open Banking (Enable Banking): o Farol le sozinho os movimentos do banco. */
+const banco = require('./banco');
+banco.instalar(app, { financas });
 
 /* O calendario Google de cada pessoa da casa, na Agenda do Farol. */
 const google = require('./google');
@@ -959,6 +962,7 @@ app.get('*', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'i
     /* Os calendarios ligados relem-se sozinhos, a partir de agora. */
     await google.arrancar();
     await financas.preparar();
+    banco.arrancar().catch((err) => console.error('[farol] banco:', err.message));
     await familia.preparar().catch((err) => console.error('[farol] familia:', err.message));
     notificacoes.arrancar();
   } catch (err) {
