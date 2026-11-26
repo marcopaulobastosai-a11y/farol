@@ -740,7 +740,7 @@ function fnCarregar(alvo, promessa, desenhar){
    linha e as caixas quadradas noutra. */
 function fnSegAmbito(){
   var seg = h('div', { class: 'fn-seg', role: 'group', 'aria-label': 'Âmbito' });
-  [['tudo','Tudo'],['pessoal','Pessoal'],['profissional','Profissional']].forEach(function(o){
+  [['tudo','Tudo'],['pessoal','Pessoal'],['profissional','Profissional'],['investimentos','Investimentos']].forEach(function(o){
     seg.appendChild(h('button', { type: 'button', class: FN.ambito === o[0] ? 'on' : '', onclick: function(){ FN.ambito = o[0]; FN.cache = {}; fnGuardar(); fnRender(); } }, o[1]));
   });
   return seg;

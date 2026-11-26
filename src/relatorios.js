@@ -60,7 +60,8 @@ function mesesDe(ano, de, ate) {
 async function ambitos(B) {
   const ids = [...new Set(B.contas.filter((c) => c.ativo && c.tipo === 'empresa' && c.empresa_id).map((c) => c.empresa_id))];
   const nomes = ids.length ? await all('SELECT id, nome FROM fin_cc_pessoas WHERE id = ANY($1::int[])', [ids]) : [];
-  return [{ id: 'pessoal', nome: 'Pessoal' }].concat(nomes.map((e) => ({ id: 'empresa:' + e.id, nome: e.nome })));
+  const inv = B.contas.some((c) => c.ativo && c.tipo === 'investimento') ? [{ id: 'investimentos', nome: 'Investimentos' }] : [];
+  return [{ id: 'pessoal', nome: 'Pessoal' }].concat(nomes.map((e) => ({ id: 'empresa:' + e.id, nome: e.nome })), inv);
 }
 
 async function relatorio(q) {
@@ -70,8 +71,10 @@ async function relatorio(q) {
   const empresa = ambito.startsWith('empresa:') ? Number(ambito.slice(8)) : null;
   const eEmpresa = (c) => c && c.tipo === 'empresa' && c.empresa_id;
   /* As contas do fluxo (gastos e rendimentos) e as do saldo. */
-  const fluxo = B.contas.filter((c) => (empresa ? c.empresa_id === empresa && c.tipo === 'empresa' : c.pessoal));
-  const doSaldo = empresa ? fluxo : fluxo.filter((c) => c.ativo && LIQUIDAS.indexOf(c.tipo) >= 0);
+  const eInv = ambito === 'investimentos';
+  const fluxo = B.contas.filter((c) => (empresa ? c.empresa_id === empresa && c.tipo === 'empresa'
+    : eInv ? c.tipo === 'investimento' : c.pessoal && c.tipo !== 'investimento'));
+  const doSaldo = (empresa || eInv) ? fluxo : fluxo.filter((c) => c.ativo && LIQUIDAS.indexOf(c.tipo) >= 0);
   const idsFluxo = fluxo.map((c) => c.id);
   const noFluxo = new Set(idsFluxo);
   const noSaldo = new Set(doSaldo.map((c) => c.id));

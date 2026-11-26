@@ -136,8 +136,11 @@ async function movimentosEntre(de, ate, f, B) {
 function passa(m, f, B) {
   const conta = B.contaPor[m.conta_id];
   if (!conta) return false;
-  if (f.ambito === 'pessoal' && !conta.pessoal) return false;
-  if (f.ambito === 'profissional' && conta.pessoal) return false;
+  /* Investimentos (Trading 212...) ficam à parte: nem no Pessoal nem no Profissional (pedido do Marco, 26 nov). */
+  const inv = conta.tipo === 'investimento';
+  if (f.ambito === 'pessoal' && (!conta.pessoal || inv)) return false;
+  if (f.ambito === 'profissional' && (conta.pessoal || inv)) return false;
+  if (f.ambito === 'investimentos' && !inv) return false;
   if (f.conta && f.conta.length && f.conta.indexOf(m.conta_id) < 0) return false;
   if (f.area) {
     const ctx = m.context_id || conta.context_id;
@@ -853,7 +856,7 @@ async function repartir(debIds, pessoas, opcoes) {
 async function sugestoesDeEntradas(lista, B) {
   const out = {};
   const entradas = lista.filter((m) => m.valor > 0 && !m.cc_pessoa_id && (!m.categoria_id || natureza(m, B) === 'receita') &&
-    B.contaPor[m.conta_id] && B.contaPor[m.conta_id].pessoal);
+    B.contaPor[m.conta_id] && B.contaPor[m.conta_id].pessoal && B.contaPor[m.conta_id].tipo !== 'investimento');
   if (!entradas.length) return out;
   entradas.forEach((m) => { out[m.id] = { pagador: cc.pagador(m.descricao) }; });
   const ab = await cc.abertos();
