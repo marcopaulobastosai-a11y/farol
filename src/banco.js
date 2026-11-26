@@ -199,7 +199,10 @@ function menosDias(iso, n) { const d = new Date(iso + 'T00:00:00Z'); d.setUTCDat
 async function sincronizarConta(bc) {
   const ultimo = (await all("SELECT to_char(max(data),'YYYY-MM-DD') AS d FROM fin_movimentos WHERE conta_id = $1", [bc.conta_id]))[0].d;
   const hoje = new Date().toISOString().slice(0, 10);
-  const desde = ultimo ? menosDias(ultimo, 7) : menosDias(hoje, 30);
+  // Os bancos só dão ~90 dias de histórico sem o titular presente (ActivoBank recusa mais: «Wrong transactions period requested»).
+  const limite = menosDias(hoje, 85);
+  let desde = ultimo ? menosDias(ultimo, 7) : menosDias(hoje, 30);
+  if (desde < limite) desde = limite;
   const txs = (await lerTransacoes(bc.uid, desde))
     .filter((t) => !t.status || String(t.status).toUpperCase() === 'BOOK')
     .filter((t) => dataDe(t) && Math.abs(valorDe(t)) >= 0.005); // sem os avisos a zero («Disp. de um cart cred»)
