@@ -251,7 +251,7 @@ async function sincronizarConta(bc) {
 }
 
 let aCorrer = null;
-async function sincronizar(origem) {
+async function sincronizar(origem, filtro) {
   if (aCorrer) return aCorrer;
   aCorrer = (async () => {
     const res = { origem: origem || 'manual', inicio: new Date().toISOString(), contas: [] };
@@ -260,7 +260,9 @@ async function sincronizar(origem) {
       `SELECT c.uid, c.conta_id, c.identificacao, f.nome AS conta_nome, l.valido_ate, l.estado
          FROM fin_banco_contas c JOIN fin_banco_ligacoes l ON l.id = c.ligacao_id
          LEFT JOIN fin_contas f ON f.id = c.conta_id
-        WHERE c.conta_id IS NOT NULL AND l.estado = 'ativa'`);
+        WHERE c.conta_id IS NOT NULL AND l.estado = 'ativa'
+          AND ($1::text IS NULL OR c.uid = $1) AND ($2::int IS NULL OR c.ligacao_id = $2)`,
+      [(filtro && filtro.uid) || null, (filtro && filtro.ligacao_id) || null]);
     const todos = [];
     for (const bc of contas) {
       if (bc.valido_ate && new Date(bc.valido_ate) < new Date()) {
@@ -283,7 +285,7 @@ async function sincronizar(origem) {
         .catch((e) => console.error('[farol] banco: categorizar:', e.message));
     }
     res.fim = new Date().toISOString();
-    await query(`INSERT INTO settings (key, value) VALUES ('fin_banco_ultima', $1)
+    if (!filtro) await query(`INSERT INTO settings (key, value) VALUES ('fin_banco_ultima', $1)
                  ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`, [JSON.stringify(res)]);
     console.log('[farol] banco: sincronizado (' + res.origem + '):', res.novos, 'novo(s)');
     return res;
@@ -429,8 +431,11 @@ function instalar(app, deps) {
     } catch (e) { falha(res, e, 'ler as transações do banco'); }
   });
 
-  app.post('/api/financas/banco/sincronizar', async (_req, res) => {
-    try { res.json(await sincronizar('manual')); } catch (e) { falha(res, e, 'ler o banco'); }
+  /* Corpo opcional {uid} ou {ligacao_id}: lê só essa conta/ligação (poupa o limite de 4 leituras/dia das outras). */
+  app.post('/api/financas/banco/sincronizar', async (req, res) => {
+    const b = req.body || {};
+    const filtro = b.uid ? { uid: String(b.uid) } : (b.ligacao_id ? { ligacao_id: parseInt(b.ligacao_id, 10) } : null);
+    try { res.json(await sincronizar('manual', filtro)); } catch (e) { falha(res, e, 'ler o banco'); }
   });
 }
 
