@@ -66,7 +66,8 @@ select{font:inherit;padding:.3rem;border-radius:6px;border:1px solid var(--line)
       { banco: 'Caixa Central de Crédito Agrícola Mutuo', tipo: 'personal', rot: 'Moey', btn: 'Moey' },
       { banco: 'Caixa Geral de Depósitos', tipo: 'personal', rot: 'CGD · Marco e Lu', btn: 'CGD' },
       { banco: 'Bankinter', tipo: 'personal', rot: 'Bankinter', btn: 'Bankinter' },
-      { banco: 'Activo Bank', tipo: 'personal', rot: 'ActivoBank', btn: 'ActivoBank' }
+      { banco: 'Activo Bank', tipo: 'personal', rot: 'ActivoBank', btn: 'ActivoBank' },
+      { banco: 'Openbank', pais: 'ES', tipo: 'personal', rot: 'Openbank · Marco e Lu', btn: 'Openbank' }
     ];
     h += '<div class="card">';
     LIGS.forEach(function(g, i){
@@ -109,7 +110,7 @@ select{font:inherit;padding:.3rem;border-radius:6px;border:1px solid var(--line)
     C.className = ''; C.innerHTML = h;
     Array.prototype.forEach.call(document.querySelectorAll('button.ligar'), function(b){
       b.onclick = function(){ b.disabled = true; b.textContent = 'A abrir o banco…';
-        var g = LIGS[+b.getAttribute('data-i')]; api('/api/financas/banco/ligar', 'POST', { banco: g.banco, pais: 'PT', tipo: g.tipo }).then(function(r){ location.href = r.url; }, function(err){ A.innerHTML = '<div class="msg erro">' + esc(err.message) + '</div>'; b.disabled = false; b.textContent = 'Tentar outra vez'; }); };
+        var g = LIGS[+b.getAttribute('data-i')]; api('/api/financas/banco/ligar', 'POST', { banco: g.banco, pais: g.pais || 'PT', tipo: g.tipo }).then(function(r){ location.href = r.url; }, function(err){ A.innerHTML = '<div class="msg erro">' + esc(err.message) + '</div>'; b.disabled = false; b.textContent = 'Tentar outra vez'; }); };
     });
     var l = document.getElementById('ler');
     if (l) l.onclick = function(){ l.disabled = true; l.textContent = 'A ler o banco…';
