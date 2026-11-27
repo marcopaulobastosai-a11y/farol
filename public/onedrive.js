@@ -592,7 +592,7 @@ window.odEnviarFicheiro = function(execId, meta){
   odPasso(execId, 'A enviar «' + nome + '» para a Caixa' + conta, { ficheiro: nome, atual: meta.atual ? meta.atual - 1 : null, total: meta.total });
   var fd = new FormData();
   fd.append('ficheiro', f, nome);
-  fd.append('note', 'Entrada do OneDrive (00_Entrada): ' + nome);
+  fd.append('note', nome);
   return fetch('/api/inbox', { method: 'POST', body: fd }).then(function(r){
     return r.json().catch(function(){ return {}; }).then(function(j){ return { st: r.status, j: j }; });
   }).then(function(x){
